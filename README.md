@@ -34,8 +34,8 @@ Live activity, session history and account limits stay separate. Missing prices 
 See provider limits and active sessions in the current Home view. Select the screenshot to inspect the original capture.
 
 <p align="center">
-<a href="assets/screenshots/pulse-home-v1.8.1.png"><img src="assets/screenshots/pulse-home-v1.8.1.png" alt="Pulse 1.8.1 Home in dark mode: separate Claude, Codex and OpenCode account limits above two active coding sessions" width="960"></a>
-<br><sub>Provider limits and live sessions. Pulse 1.8.1 on Windows.</sub>
+<a href="assets/evidence/pulse-home-v1.8.2-2026-09-07.png"><img src="assets/evidence/pulse-home-v1.8.2-2026-09-07.png" alt="Pulse 1.8.2 Home in dark mode: separate Claude, Codex and OpenCode account limits above two active coding sessions" width="960"></a>
+<br><sub>Provider limits and live sessions. Pulse 1.8.2 on Windows.</sub>
 </p>
 
 <details>
