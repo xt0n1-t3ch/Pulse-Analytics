@@ -1,6 +1,6 @@
 [package]
 name = "pulse"
-version = "1.9.1"
+version = "1.9.2"
 edition = "2024"
 description = "Pulse - Claude Code, Codex and OpenCode analytics"
 default-run = "pulse"

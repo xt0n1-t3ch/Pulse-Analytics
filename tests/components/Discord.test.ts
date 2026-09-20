@@ -9,6 +9,7 @@ import type {
   SessionInfo,
   DiscordUserInfo,
   HealthResponse,
+  DiscordPresencePreview,
 } from "@/lib/api";
 
 const defaultDisplayPrefs: DiscordDisplayPrefs = {
@@ -210,6 +211,43 @@ describe("Discord.svelte", () => {
 
     expect(getByText("Tony")).toBeTruthy();
     expect(container.querySelector(".dp-username")?.textContent?.trim()).toBe("Tony");
+  });
+
+  it.each(["commandcode", "opencode"] as const)("names the selected %s provider when idle", async (id) => {
+    const { provider } = await import("@/lib/provider");
+    const { sessions, discordPresencePreview } = await import("@/lib/stores");
+    const name = id === "commandcode" ? "Command Code" : "OpenCode";
+    provider.set(id);
+    sessions.set([]);
+    discordSettings = { ...discordSettings, provider: id };
+    discordPreviewPayload = {
+      provider: id, app_name: name, details: "Idle", state: `Waiting for ${name}`,
+      large_image_key: id, large_text: name, small_image_key: null,
+      small_text: null, has_session: false, duration_secs: 0,
+    };
+    discordPresencePreview.set(discordPreviewPayload as DiscordPresencePreview);
+    const Discord = (await import("@/views/Discord.svelte")).default;
+    const { container } = render(Discord);
+    await waitFor(() => expect(container.querySelector(".hm-state")?.textContent?.trim()).toBe(`${name} is idle`));
+    if (id === "commandcode") expect(container.textContent).toContain("Publishing idle Command Code status to Discord");
+  });
+
+  it("does not claim Command Code idle publication when Discord is unavailable", async () => {
+    const { provider } = await import("@/lib/provider");
+    const { sessions, discordPresencePreview, health } = await import("@/lib/stores");
+    provider.set("commandcode");
+    sessions.set([]);
+    discordSettings = { ...discordSettings, provider: "commandcode", status: "Discord unavailable" };
+    health.set({ ...healthFixture, discord_status: "Discord unavailable" });
+    discordPreviewPayload = {
+      provider: "commandcode", app_name: "Command Code", details: "Idle", state: "Waiting for Command Code",
+      large_image_key: "commandcode", large_text: "Command Code", small_image_key: null,
+      small_text: null, has_session: false, duration_secs: 0,
+    };
+    discordPresencePreview.set(discordPreviewPayload as DiscordPresencePreview);
+    const Discord = (await import("@/views/Discord.svelte")).default;
+    const { container } = render(Discord);
+    await waitFor(() => expect(container.querySelector(".hm-state")?.textContent?.trim()).toBe("Waiting for Discord"));
   });
 
   it("renders the Discord username as a handle below the display name", async () => {
