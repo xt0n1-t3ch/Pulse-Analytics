@@ -2,7 +2,7 @@
 
 # ![](../../assets/icons/terminal.svg) Use OpenCode and GPT-6 Astra in Pulse
 
-This guide explains sessions, account limits and Discord publication in Pulse 1.8.2. OpenCode reads local data. The shared model catalog and core pin have separate contracts.
+This guide explains sessions, account limits and Discord publication in Pulse 1.8.2 and 1.9.0. OpenCode reads local data. The shared model catalog and core pin have separate contracts.
 
 ## Select sessions and publication
 
@@ -40,7 +40,7 @@ Diagnostics appear in Settings. Prompts and command arguments never enter the Di
 
 `ultra` is an observed harness value, not a published API effort level. OpenCode does not inherit Astra prices or limits. Read the [bundled catalog gaps](../models/codex.md#bundled-catalog-gaps).
 
-Codex-Discord-Rich-Presence owns the canonical catalog. `scripts/check-model-catalog-parity.ps1` checks byte equality with Pulse. The core 2.0.0 pin is unchanged; local edits do not change the pinned remote commit.
+Codex-Discord-Rich-Presence owns the canonical catalog. `scripts/check-model-catalog-parity.ps1` checks byte equality with Pulse. Pulse 1.9.0 pins core 2.0.1 from the upstream v1.11.2 release; catalog edits must land upstream first and then synchronize here.
 
 `assets/branding/opencode.provenance.json` records the supplied image, checksums and previous source for rollback. The preview and Developer Portal use the same PNG. A valid payload or portal key does not replace visual verification in Discord.
 

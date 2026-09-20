@@ -25,6 +25,7 @@ use cc_discord_presence::codex::session::{
 use cc_discord_presence::codex::telemetry::limits::{RateLimits, UsageWindow};
 use cc_discord_presence::codex::telemetry::plan::{DetectedPlanTier, PlanDetector};
 use cc_discord_presence::codex::telemetry::service_tier::resolve_service_tier;
+use cc_discord_presence::commandcode::{self, Config as CommandCodeConfig};
 use cc_discord_presence::config::PresenceConfig;
 use cc_discord_presence::cost;
 use cc_discord_presence::discord::DiscordPresence as ClaudeDiscordPresence;
@@ -198,6 +199,8 @@ enum ActiveSessions {
 struct CachedData {
     active_provider: Provider,
     opencode_sessions: Vec<opencode::Session>,
+    commandcode_sessions: Vec<commandcode::Session>,
+    commandcode_diagnostics: Vec<String>,
     live_claude: Vec<ClaudeSessionSnapshot>,
     live_codex: Vec<CodexSessionSnapshot>,
     opencode_diagnostics: Vec<String>,
@@ -595,6 +598,7 @@ fn active_access_route(data: &CachedData) -> AccessRouteSnapshot {
     }
 
     match data.active_provider {
+        Provider::CommandCode => crate::commandcode::access_route(),
         Provider::OpenCode => AccessRouteSnapshot::unavailable(
             crate::access::AccessSource {
                 id: "opencode-local".into(),
@@ -888,6 +892,12 @@ pub(crate) fn seed_discord_state_for(provider: Provider) {
     // independently probed lanes while the active provider changes; the
     // selector below still chooses only the current subscription route.
     match data.active_provider {
+        Provider::CommandCode => {
+            if let Ok(config) = CommandCodeConfig::load() {
+                data.discord_enabled = config.enabled;
+                data.discord_prefs = crate::commandcode::prefs(&config);
+            }
+        }
         Provider::OpenCode => {
             if let Ok(config) = OpenCodeConfig::load() {
                 data.discord_enabled = config.enabled;
@@ -935,7 +945,7 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
         let force = Arc::clone(&codex_usage_force);
         let latest = Arc::clone(&codex_usage_latest);
         thread::spawn(move || {
-            let mut manager = AccountUsageManager::default();
+            let mut manager = AccountUsageManager::read_only();
             while codex_usage_requests.recv().is_ok() {
                 let result = manager
                     .get_usage(force.swap(false, Ordering::AcqRel))
@@ -948,6 +958,7 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
     }
 
     seed_discord_state_from_disk();
+    let _ = crate::accounts::discover();
 
     thread::spawn(move || {
         let notification_connection = crate::notifications::open_default_database().ok();
@@ -956,7 +967,7 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
         let mut claude_parse = SessionParseCache::default();
         let mut codex_git = CodexGitBranchCache::new(Duration::from_secs(30));
         let mut codex_parse = CodexSessionParseCache::default();
-        let mut usage_mgr = UsageManager::new();
+        let mut usage_mgr = UsageManager::read_only();
         let mut claude_config = PresenceConfig::load_or_init().unwrap_or_default();
         let mut codex_config = CodexPresenceConfig::load_or_init().unwrap_or_default();
         let mut claude_discord = ClaudeDiscordPresence::new(claude_config.effective_client_id());
@@ -970,6 +981,12 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
 
         let go_usage = crate::opencode_go::start();
         let mut opencode_collector = opencode::Collector::default();
+        let mut commandcode_collector = commandcode::Collector::default();
+        let mut commandcode_publisher = commandcode::presence::Publisher::default();
+        let mut commandcode_lease = PublisherLease::new(
+            cc_discord_presence::storage::home().join("pulse-commandcode.lock"),
+        );
+        let mut commandcode_git = CodexGitBranchCache::new(Duration::from_secs(30));
         let mut opencode_runtime = opencode::process::RuntimeDetector::default();
         let mut opencode_publisher = opencode::presence::Publisher::default();
         let mut opencode_lease =
@@ -989,6 +1006,8 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                     (d.discord_enabled, d.discord_prefs.clone(), req)
                 })
                 .unwrap_or((true, DiscordDisplayPrefs::default(), false));
+            let discord_enabled =
+                discord_enabled && std::env::var("PULSE_DISABLE_DISCORD").as_deref() != Ok("1");
 
             if let Ok(fresh) = CodexPresenceConfig::load_or_init() {
                 codex_config = fresh;
@@ -1032,6 +1051,52 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                         route,
                     );
                 }
+            }
+            let commandcode_config_result = CommandCodeConfig::load();
+            let mut commandcode_live = Vec::new();
+            let mut commandcode_diagnostics = Vec::new();
+            if let Ok(config) = &commandcode_config_result {
+                let mut batch = commandcode_collector.poll(config);
+                let mut persisted = true;
+                for session in &mut batch.changed {
+                    if session.branch.is_none()
+                        && session.is_recent(chrono::Utc::now().timestamp_millis())
+                    {
+                        session.branch = commandcode_git.get(&session.directory);
+                    }
+                    persisted &= crate::db::upsert_external_session(
+                        &crate::commandcode::session_info(session),
+                        session.updated,
+                    );
+                }
+                if persisted {
+                    commandcode_collector.acknowledge(&batch);
+                }
+                for session in &mut batch.live {
+                    if session.branch.is_none() {
+                        session.branch = commandcode_git.get(&session.directory);
+                    }
+                }
+                let active_ids: Vec<_> = batch
+                    .live
+                    .iter()
+                    .filter(|session| session.is_active(chrono::Utc::now().timestamp_millis()))
+                    .map(|session| session.id.clone())
+                    .collect();
+                crate::db::mark_inactive("commandcode", &active_ids);
+                commandcode_live = batch.live;
+                commandcode_diagnostics = batch.diagnostics;
+            } else {
+                commandcode_diagnostics.push("Command Code configuration is unavailable".into());
+            }
+            independently_probed_routes.push(crate::commandcode::access_route());
+            if let Ok(mut d) = data.lock() {
+                d.commandcode_sessions = commandcode_live.clone();
+                d.commandcode_diagnostics = commandcode_diagnostics;
+            }
+            if provider != Provider::CommandCode {
+                commandcode_publisher.shutdown();
+                commandcode_lease.release();
             }
             let open_config_result = OpenCodeConfig::load();
             let mut open_diagnostics = Vec::new();
@@ -1125,6 +1190,46 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
             }
 
             let (discord_status, discord_publisher) = match provider {
+                Provider::CommandCode => {
+                    claude_publisher.release();
+                    codex_publisher.release();
+                    opencode_lease.release();
+                    claude_discord.shutdown();
+                    codex_discord.shutdown();
+                    opencode_publisher.shutdown();
+                    let owned = commandcode_lease.try_acquire().unwrap_or(false);
+                    if let Ok(mut config) = commandcode_config_result {
+                        config.enabled &= discord_enabled;
+                        let session = commandcode::preferred_session(&commandcode_live);
+                        let (quotas, credits) = session
+                            .map(|session| crate::accounts::command_presence(&session.profile))
+                            .unwrap_or_default();
+                        if owned {
+                            commandcode_publisher.update(
+                                session,
+                                &config,
+                                quotas.as_deref(),
+                                credits.as_deref(),
+                            );
+                        } else {
+                            commandcode_publisher.shutdown();
+                        }
+                    } else {
+                        commandcode_publisher.shutdown();
+                    }
+                    (
+                        if owned {
+                            commandcode_publisher.status().to_string()
+                        } else {
+                            "Controlled by external publisher".into()
+                        },
+                        if owned {
+                            "Pulse".into()
+                        } else {
+                            "external".into()
+                        },
+                    )
+                }
                 Provider::OpenCode => {
                     claude_publisher.release();
                     codex_publisher.release();
@@ -1576,6 +1681,15 @@ fn codex_session_surface(
 
 fn current_live_session_infos() -> Vec<SessionInfo> {
     match current_provider() {
+        Provider::CommandCode => shared()
+            .lock()
+            .map(|data| {
+                data.commandcode_sessions
+                    .iter()
+                    .map(crate::commandcode::session_info)
+                    .collect()
+            })
+            .unwrap_or_default(),
         Provider::OpenCode => shared()
             .lock()
             .map(|data| {
@@ -1609,6 +1723,7 @@ pub struct HealthResponse {
 pub struct AppSnapshot {
     pub revision: u32,
     pub opencode_diagnostics: Vec<String>,
+    pub commandcode_diagnostics: Vec<String>,
     pub sync_state: &'static str,
     pub snapshot_captured_at: String,
     pub health: HealthResponse,
@@ -1650,6 +1765,7 @@ fn build_app_snapshot(sync_state: &'static str) -> Result<AppSnapshot, String> {
     Ok(AppSnapshot {
         revision: 1,
         opencode_diagnostics: cached.opencode_diagnostics.clone(),
+        commandcode_diagnostics: cached.commandcode_diagnostics.clone(),
         sync_state,
         snapshot_captured_at: chrono::Utc::now().to_rfc3339(),
         health: get_health(),
@@ -1669,6 +1785,17 @@ fn build_discord_snapshot_payload(
 ) -> Result<(DiscordPresencePreview, DiscordSettings), String> {
     let provider = cached.active_provider;
     match provider {
+        Provider::CommandCode => {
+            let config = CommandCodeConfig::load().map_err(|error| error.to_string())?;
+            Ok((
+                crate::commandcode::preview(&cached.commandcode_sessions, &config),
+                crate::commandcode::settings(
+                    &config,
+                    &cached.discord_status,
+                    &cached.discord_publisher,
+                ),
+            ))
+        }
         Provider::OpenCode => {
             let config = OpenCodeConfig::load().map_err(|error| error.to_string())?;
             Ok((
@@ -1963,6 +2090,7 @@ pub struct SessionInfo {
     /// Distinguishes a true observed zero from an unavailable/partial cost.
     pub cost_available: bool,
     pub cost_basis: String,
+    pub cost_source: String,
     pub tokens: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -2142,6 +2270,11 @@ pub(crate) fn build_claude_session_infos(snapshots: &[ClaudeSessionSnapshot]) ->
                     .unwrap_or_else(|| "Unknown".into()),
                 model_id: model_id_raw,
                 context_window: ctx_window,
+                cost_source: match s.source {
+                    session::DataSource::Statusline => "claude_statusline_api_equivalent",
+                    session::DataSource::Jsonl => "api_equivalent",
+                }
+                .into(),
                 cost: s.total_cost,
                 cost_available: s.total_cost.is_finite()
                     && s.total_cost >= 0.0
@@ -2251,10 +2384,11 @@ pub(crate) fn build_codex_session_infos(
             };
             let activity_target = s.activity.as_ref().and_then(|a| a.target.clone());
             let surface = codex_session_surface(s, fallback_surface);
-            let exact_cost = (s.pricing_status
-                == cc_discord_presence::codex::cost::PricingStatus::Exact)
+            let known_cost = (s.pricing_status
+                != cc_discord_presence::codex::cost::PricingStatus::Unavailable)
                 .then_some(s.known_cost_usd)
-                .flatten();
+                .flatten()
+                .filter(|value| value.is_finite() && *value >= 0.0);
             let cost_breakdown = &s.cost_breakdown;
             SessionInfo {
                 opencode: None,
@@ -2270,19 +2404,28 @@ pub(crate) fn build_codex_session_infos(
                 model: display_name,
                 model_id: model_key,
                 context_window: context_window_label,
-                cost: exact_cost.unwrap_or(0.0),
-                cost_available: exact_cost.is_some(),
-                cost_basis: if exact_cost.is_some() {
-                    "exact".to_string()
+                cost_source: if s.pricing_source
+                    == cc_discord_presence::codex::cost::PricingSource::ProviderReported
+                {
+                    "codex_reported"
                 } else {
-                    "unavailable".to_string()
-                },
+                    "api_equivalent"
+                }
+                .into(),
+                cost: known_cost.unwrap_or(0.0),
+                cost_available: known_cost.is_some(),
+                cost_basis: match (known_cost, s.pricing_status) {
+                    (Some(_), cc_discord_presence::codex::cost::PricingStatus::Exact) => "exact",
+                    (Some(_), _) => "partial",
+                    _ => "unavailable",
+                }
+                .to_string(),
                 tokens: s
                     .session_total_tokens
                     .unwrap_or(input_total + s.output_tokens_total),
                 input_tokens: input_total,
                 output_tokens: s.output_tokens_total,
-                cache_write_tokens: 0,
+                cache_write_tokens: s.cache_write_tokens_total.unwrap_or(0),
                 cache_read_tokens: cached_input,
                 context_used_tokens,
                 context_window_tokens: context_window,
@@ -2302,16 +2445,16 @@ pub(crate) fn build_codex_session_infos(
                 subagent_count: 0,
                 subagents: Vec::new(),
                 tokens_per_sec: 0.0,
-                input_cost: exact_cost
+                input_cost: known_cost
                     .map(|_| cost_breakdown.input_cost_usd)
                     .unwrap_or(0.0),
-                output_cost: exact_cost
+                output_cost: known_cost
                     .map(|_| cost_breakdown.output_cost_usd)
                     .unwrap_or(0.0),
-                cache_write_cost: exact_cost
+                cache_write_cost: known_cost
                     .map(|_| cost_breakdown.cache_write_cost_usd)
                     .unwrap_or(0.0),
-                cache_read_cost: exact_cost
+                cache_read_cost: known_cost
                     .map(|_| cost_breakdown.cached_input_cost_usd)
                     .unwrap_or(0.0),
                 speed: s.speed.mode.label().to_ascii_lowercase(),
@@ -2504,6 +2647,11 @@ pub fn set_discord_enabled(enabled: bool) -> Result<DiscordSettings, String> {
     // entirely, so the master switch lived only in `shared()` and every restart
     // silently turned Rich Presence back on.
     match current_provider() {
+        Provider::CommandCode => {
+            let mut config = CommandCodeConfig::load().map_err(|error| error.to_string())?;
+            config.enabled = enabled;
+            config.save().map_err(|error| error.to_string())?;
+        }
         Provider::OpenCode => {
             let mut config = OpenCodeConfig::load().map_err(|error| error.to_string())?;
             config.enabled = enabled;
@@ -2579,6 +2727,11 @@ pub fn set_discord_display_prefs(
     };
 
     match current_provider() {
+        Provider::CommandCode => {
+            let mut config = CommandCodeConfig::load().map_err(|error| error.to_string())?;
+            crate::commandcode::apply_prefs(&mut config, &prefs);
+            config.save().map_err(|error| error.to_string())?;
+        }
         Provider::OpenCode => {
             let mut config = OpenCodeConfig::load().map_err(|error| error.to_string())?;
             crate::opencode::apply_prefs(&mut config, &prefs);
@@ -2712,11 +2865,23 @@ fn cost_availability(sessions: &[SessionInfo]) -> (bool, String) {
     if sessions.is_empty() {
         return (false, "unavailable".to_string());
     }
-    if sessions.iter().all(|session| session.cost_available) {
-        (true, "exact".to_string())
-    } else {
-        (false, "partial".to_string())
+    if !sessions.iter().any(|session| session.cost_available) {
+        return (false, "unavailable".into());
     }
+    let complete = sessions
+        .iter()
+        .all(|session| session.cost_available && session.cost_basis != "partial");
+    let basis = if !complete {
+        "partial"
+    } else if sessions
+        .iter()
+        .any(|session| session.cost_basis == "estimated")
+    {
+        "estimated"
+    } else {
+        "exact"
+    };
+    (true, basis.into())
 }
 
 #[tauri::command]
@@ -2728,6 +2893,11 @@ pub fn get_live_sessions() -> Vec<SessionInfo> {
         PresenceSurface::Cli,
     ));
     if let Ok(data) = shared().lock() {
+        sessions.extend(
+            data.commandcode_sessions
+                .iter()
+                .map(crate::commandcode::session_info),
+        );
         sessions.extend(
             data.opencode_sessions
                 .iter()
@@ -2837,7 +3007,7 @@ fn build_discord_settings(
 ) -> DiscordSettings {
     let (enabled, display_prefs, desktop_design, supports_desktop_design, field_order) =
         match provider {
-            Provider::OpenCode => (
+            Provider::OpenCode | Provider::CommandCode => (
                 cached.discord_enabled,
                 cached.discord_prefs.clone(),
                 None,
@@ -2911,6 +3081,17 @@ pub fn set_discord_field_order(order: Vec<String>) -> Result<DiscordSettings, St
     if parsed.len() != PresenceFieldId::ALL.len() || unique.len() != PresenceFieldId::ALL.len() {
         return Err("Field order must contain every field exactly once".to_string());
     }
+    if current_provider() == Provider::CommandCode {
+        let mut config = CommandCodeConfig::load().map_err(|error| error.to_string())?;
+        config.layout.fields.sort_by_key(|item| {
+            parsed
+                .iter()
+                .position(|field| *field == item.field)
+                .unwrap_or(usize::MAX)
+        });
+        config.save().map_err(|error| error.to_string())?;
+        return get_discord_settings();
+    }
     if current_provider() == Provider::OpenCode {
         let mut config = OpenCodeConfig::load().map_err(|error| error.to_string())?;
         config.layout.fields.sort_by_key(|item| {
@@ -2941,6 +3122,14 @@ pub fn get_discord_settings() -> Result<DiscordSettings, String> {
         .map_err(|_| "Discord settings state is unavailable".to_string())?
         .clone();
     match provider {
+        Provider::CommandCode => {
+            let config = CommandCodeConfig::load().map_err(|error| error.to_string())?;
+            Ok(crate::commandcode::settings(
+                &config,
+                &cached.discord_status,
+                &cached.discord_publisher,
+            ))
+        }
         Provider::OpenCode => {
             let config = OpenCodeConfig::load().map_err(|error| error.to_string())?;
             Ok(build_opencode_settings(&cached, &config))
@@ -3550,6 +3739,17 @@ pub struct PlanInfo {
 #[tauri::command]
 pub fn get_plan_info() -> PlanInfo {
     match current_provider() {
+        Provider::CommandCode => {
+            let plan = crate::accounts::command_account(&commandcode::home())
+                .filter(|account| account.status == "connected")
+                .and_then(|account| account.plan);
+            PlanInfo {
+                provider: "commandcode".into(),
+                plan_key: plan.clone().unwrap_or_default(),
+                plan_name: plan.clone().unwrap_or_else(|| "Not reported".into()),
+                detected: plan.is_some(),
+            }
+        }
         Provider::OpenCode => PlanInfo {
             provider: "opencode".into(),
             plan_key: String::new(),
@@ -3616,7 +3816,9 @@ pub fn set_plan_override(plan: String, provider: Option<String>) -> Result<(), S
         None => current_provider(),
     };
     match provider {
-        Provider::OpenCode => return Err("OpenCode has no subscription plan override".into()),
+        Provider::OpenCode | Provider::CommandCode => {
+            return Err("This provider has no subscription plan override".into());
+        }
         Provider::Claude => {
             let mut cfg = PresenceConfig::load_or_init().map_err(|error| error.to_string())?;
             cfg.plan = plan_key_from_override(&plan).map(str::to_string);
@@ -4404,7 +4606,9 @@ pub fn get_context_breakdown(
             _ => match current_provider() {
                 Provider::Claude => empty_context_breakdown("Unknown", 200_000),
                 Provider::Codex => empty_context_breakdown("Codex", 400_000),
-                Provider::OpenCode => empty_context_breakdown("Not reported", 0),
+                Provider::OpenCode | Provider::CommandCode => {
+                    empty_context_breakdown("Not reported", 0)
+                }
             },
         })
 }
@@ -5187,7 +5391,7 @@ fn build_reports_bundle_for_scope_from_roots(
         cache_health.trend_weighted_ratio,
     );
     let recommendations = provider
-        .filter(|provider| *provider != Provider::OpenCode)
+        .filter(|provider| !matches!(provider, Provider::OpenCode | Provider::CommandCode))
         .map_or_else(Vec::new, |provider| {
             let ctx = crate::analyzers::recommendations::AnalysisContext {
                 provider,
@@ -6595,6 +6799,7 @@ mod tests {
             session_delta_tokens: None,
             input_tokens_total: 54_626_018,
             cached_input_tokens_total: 52_219_136,
+            cache_write_tokens_total: None,
             output_tokens_total: 138_065,
             last_input_tokens: None,
             last_cached_input_tokens: None,
@@ -6985,7 +7190,7 @@ mod tests {
     }
 
     #[test]
-    fn codex_session_info_omits_partial_cost_from_shared_metrics() {
+    fn codex_session_info_preserves_partial_cost_from_shared_metrics() {
         let mut snapshot = sample_codex_snapshot();
         snapshot.known_cost_usd = Some(0.454);
         snapshot.total_cost_usd = 0.454;
@@ -7002,11 +7207,11 @@ mod tests {
             TestPresenceSurface::Cli,
         );
 
-        assert_eq!(info[0].cost, 0.0);
-        assert_eq!(info[0].input_cost, 0.0);
-        assert_eq!(info[0].output_cost, 0.0);
-        assert!(!info[0].cost_available);
-        assert_eq!(info[0].cost_basis, "unavailable");
+        assert_eq!(info[0].cost, 0.454);
+        assert_eq!(info[0].input_cost, 0.2);
+        assert_eq!(info[0].output_cost, 0.254);
+        assert!(info[0].cost_available);
+        assert_eq!(info[0].cost_basis, "partial");
     }
 
     // ---- Reports cost timeline ---------------------------------------
@@ -7334,12 +7539,19 @@ mod tests {
 
         let mut exact = build_claude_session_infos(&[sample_claude_snapshot("claude-opus-4-8")]);
         exact[0].cost = 0.0;
+        exact[0].cost_basis = "exact".into();
         assert_eq!(cost_availability(&exact), (true, "exact".to_string()));
 
         let mut mixed = build_claude_session_infos(&[sample_claude_snapshot("claude-opus-4-8")]);
         mixed[0].cost_available = false;
         mixed[0].cost_basis = "unavailable".to_string();
-        assert_eq!(cost_availability(&mixed), (false, "partial".to_string()));
+        assert_eq!(
+            cost_availability(&mixed),
+            (false, "unavailable".to_string())
+        );
+        mixed[0].cost_available = true;
+        mixed[0].cost_basis = "partial".into();
+        assert_eq!(cost_availability(&mixed), (true, "partial".to_string()));
     }
 
     /// The cache-savings estimate multiplies a token count by a per-token rate.

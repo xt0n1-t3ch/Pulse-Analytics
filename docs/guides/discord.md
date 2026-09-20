@@ -102,3 +102,9 @@ configured `discord_client_id`.
 ## OpenCode in Pulse
 
 OpenCode uses Application ID `1545590419763761303` and image key `opencode-v2`. The supplied PNG and its provenance live in `assets/branding/`; the preview uses the same image. CLI, Desktop and OpenChamber share one Discord identity. See [OpenCode and Astra](opencode.md) for data sources and attribution limits.
+
+## Command Code
+
+CLI and Desktop both use application `1551026507806281829`, the name **Command Code**, and asset key `commandcode`. The public inventory and a local diagnostic acknowledgement resolved asset `1551028194629521428`. See [Command Code](command-code.md) for artwork provenance and acceptance limits.
+
+Codex publishes an enabled known subtotal as currency only. Pulse retains coverage and monetary provenance. Unknown cost remains absent. The shared compositor in `codex-presence-core` 2.0.1 reserves room for an enabled cost without changing field privacy settings.

@@ -1014,6 +1014,7 @@ mod tests {
             session_delta_tokens: Some(600),
             input_tokens_total: 24_000,
             cached_input_tokens_total: 15_000,
+            cache_write_tokens_total: None,
             output_tokens_total: 6_000,
             last_input_tokens: Some(1_500),
             last_cached_input_tokens: Some(900),
@@ -1223,7 +1224,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_cost_is_omitted_from_the_same_presence_composer_used_by_preview_and_live() {
+    fn known_cost_emitted_when_public_by_the_same_presence_composer_used_by_preview_and_live() {
         let mut session = sample_session();
         session.known_cost_usd = Some(0.454);
         session.total_cost_usd = 0.454;
@@ -1241,7 +1242,7 @@ mod tests {
         );
 
         assert!(!state.contains(">="));
-        assert!(!state.contains("$0.454"));
+        assert!(state.contains("$0.45"));
     }
 
     #[test]

@@ -18,7 +18,7 @@ export function hasTauriIpc(): boolean {
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+export async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
     if (hasTauriIpc() || !import.meta.env.DEV) {
         return tauriInvoke<T>(command, args);
     }
@@ -121,6 +121,7 @@ export interface SessionInfo {
     cost: number;
     cost_available?: boolean;
     cost_basis?: CostBasis;
+    cost_source?: string;
     tokens: number;
     input_tokens: number;
     output_tokens: number;

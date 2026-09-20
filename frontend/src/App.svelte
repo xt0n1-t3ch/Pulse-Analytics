@@ -10,6 +10,7 @@
   import Reports from "./views/Reports.svelte";
   import Discord from "./views/Discord.svelte";
   import Settings from "./views/Settings.svelte";
+  import Accounts from "./views/Accounts.svelte";
   import {
     currentView,
     invalidateLiveSnapshotForProviderChange,
@@ -22,13 +23,14 @@
   import { fly } from "svelte/transition";
   import { setTheme } from "@tauri-apps/api/app";
 
-  type ViewId = "dashboard" | "sessions" | "costs" | "reports" | "discord" | "settings";
+  type ViewId = "dashboard" | "sessions" | "costs" | "reports" | "discord" | "accounts" | "settings";
   const views: Record<ViewId, Component<any>> = {
     dashboard: Dashboard,
     sessions: Sessions,
     costs: Costs,
     reports: Reports,
     discord: Discord,
+    accounts: Accounts,
     settings: Settings,
   } as const;
   let activeViewId = $derived(
@@ -85,7 +87,7 @@
 
 <div class="main-wrapper" bind:this={scrollFrame}>
   <TopBar onToggleTheme={toggleTheme} />
-  <AccessSourceBar />
+  {#if activeViewId !== "accounts"}<AccessSourceBar />{/if}
   <main class="main-content" bind:this={mainContent}>
     {#key activeViewId}
       <div class="view-host" in:fly={{ y: 4, duration: 80 }}>

@@ -87,6 +87,9 @@ fn fetch_usage() -> AccessRouteSnapshot {
         .build();
     let response = agent
         .get(USAGE_URL)
+        .set("User-Agent", concat!("Pulse/", env!("CARGO_PKG_VERSION")))
+        .set("Accept", "application/json")
+        .set("Content-Type", "application/json")
         .set("Authorization", &format!("Bearer {key}"))
         .call();
     match response {

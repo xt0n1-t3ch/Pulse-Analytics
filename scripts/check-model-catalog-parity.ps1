@@ -1,7 +1,10 @@
 [CmdletBinding()]
-param([string]$UpstreamRoot = (Join-Path $PSScriptRoot '../../Codex-Discord-Rich-Presence'))
+param([string]$UpstreamRoot)
 
 $ErrorActionPreference = 'Stop'
+if ([string]::IsNullOrWhiteSpace($UpstreamRoot)) {
+    $UpstreamRoot = Join-Path $PSScriptRoot '../../Codex-Discord-Rich-Presence'
+}
 $local = Join-Path $PSScriptRoot '../src/codex/model_catalog.json'
 $upstream = Join-Path $UpstreamRoot 'src/model_catalog.json'
 if ((Get-FileHash -LiteralPath $local).Hash -ne (Get-FileHash -LiteralPath $upstream).Hash) {

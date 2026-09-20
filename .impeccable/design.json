@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-20T03:20:46.007415+00:00",
+  "title": "Design System: Pulse",
+  "extensions": {
+    "shadows": [
+      {
+        "name": "elev-0",
+        "value": "none",
+        "purpose": "Existing flat panel elevation hook."
+      },
+      {
+        "name": "elev-1",
+        "value": "none",
+        "purpose": "Existing flat panel elevation hook."
+      },
+      {
+        "name": "elev-2",
+        "value": "none",
+        "purpose": "Existing flat panel elevation hook."
+      },
+      {
+        "name": "shadow-ring",
+        "value": "0 0 0 3px var(--provider-accent-dim)",
+        "purpose": "Existing provider-linked global focus ring."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Existing global easing token; preserve reduced-motion overrides."
+      },
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Existing global easing token; preserve reduced-motion overrides."
+      },
+      {
+        "name": "spring",
+        "value": "cubic-bezier(0.34, 1.56, 0.64, 1)",
+        "purpose": "Existing global easing token; preserve reduced-motion overrides."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "topbar-context",
+        "value": "1080px"
+      },
+      {
+        "name": "accounts-single-allowance-column",
+        "value": "1000px"
+      },
+      {
+        "name": "metric-strip-two-columns",
+        "value": "900px"
+      },
+      {
+        "name": "topbar-second-row",
+        "value": "800px"
+      },
+      {
+        "name": "accounts-picker",
+        "value": "700px"
+      },
+      {
+        "name": "topbar-three-columns",
+        "value": "620px"
+      },
+      {
+        "name": "compact-page-padding",
+        "value": "520px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Default button",
+      "kind": "button",
+      "description": "Shared global.css default button; no application action.",
+      "html": "<button class=\"ds-button\" type=\"button\">Default</button>",
+      "css": ".ds-button{display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  font-size: var(--fs-sm);\n  font-weight: 500;\n  padding: 6px 12px;\n  border-radius: var(--radius-sm);\n  background: var(--bg-elevated);\n  color: var(--text-primary);\n  border: 1px solid var(--border);\n  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), color 0.15s var(--ease), transform 0.08s var(--ease);\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;font-family:var(--font-sans);cursor:pointer;}.ds-button:hover{background: var(--bg-card-hover); border-color: var(--border-hover);}.ds-button:focus-visible{border-color:var(--border-focus);box-shadow:var(--shadow-ring);outline:none;}.ds-button:active{transform: translateY(1px);}.ds-button:disabled{opacity: 0.4; cursor: not-allowed;}",
+      "refersTo": "button"
+    },
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "description": "Shared global.css primary button; no application action.",
+      "html": "<button class=\"ds-button-primary\" type=\"button\">Primary</button>",
+      "css": ".ds-button-primary{display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  font-size: var(--fs-sm);\n  font-weight: 500;\n  padding: 6px 12px;\n  border-radius: var(--radius-sm);\n  background: var(--bg-elevated);\n  color: var(--text-primary);\n  border: 1px solid var(--border);\n  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), color 0.15s var(--ease), transform 0.08s var(--ease);\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;font-family:var(--font-sans);cursor:pointer;background: var(--accent);\n  color: var(--accent-fg);\n  border-color: var(--accent);\n  font-weight: 600;}.ds-button-primary:hover{background: var(--bg-card-hover); border-color: var(--border-hover);background: var(--accent-hover); border-color: var(--accent-hover);}.ds-button-primary:focus-visible{border-color:var(--border-focus);box-shadow:var(--shadow-ring);outline:none;}.ds-button-primary:active{transform: translateY(1px);}.ds-button-primary:disabled{opacity: 0.4; cursor: not-allowed;}",
+      "refersTo": "button-primary"
+    },
+    {
+      "name": "Ghost button",
+      "kind": "button",
+      "description": "Shared global.css ghost button; no application action.",
+      "html": "<button class=\"ds-button-ghost\" type=\"button\">Ghost</button>",
+      "css": ".ds-button-ghost{display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  font-size: var(--fs-sm);\n  font-weight: 500;\n  padding: 6px 12px;\n  border-radius: var(--radius-sm);\n  background: var(--bg-elevated);\n  color: var(--text-primary);\n  border: 1px solid var(--border);\n  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), color 0.15s var(--ease), transform 0.08s var(--ease);\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;font-family:var(--font-sans);cursor:pointer;background: transparent; border-color: transparent; color: var(--text-secondary);}.ds-button-ghost:hover{background: var(--bg-card-hover); border-color: var(--border-hover);background: var(--bg-elevated); color: var(--text-primary);}.ds-button-ghost:focus-visible{border-color:var(--border-focus);box-shadow:var(--shadow-ring);outline:none;}.ds-button-ghost:active{transform: translateY(1px);}.ds-button-ghost:disabled{opacity: 0.4; cursor: not-allowed;}",
+      "refersTo": "button-ghost"
+    },
+    {
+      "name": "Accent button",
+      "kind": "button",
+      "description": "Shared global.css accent button; no application action.",
+      "html": "<button class=\"ds-button-accent\" type=\"button\">Accent</button>",
+      "css": ".ds-button-accent{display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  font-size: var(--fs-sm);\n  font-weight: 500;\n  padding: 6px 12px;\n  border-radius: var(--radius-sm);\n  background: var(--bg-elevated);\n  color: var(--text-primary);\n  border: 1px solid var(--border);\n  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), color 0.15s var(--ease), transform 0.08s var(--ease);\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;font-family:var(--font-sans);cursor:pointer;background: var(--accent-dim); color: var(--text-primary); border-color: transparent;}.ds-button-accent:hover{background: var(--bg-card-hover); border-color: var(--border-hover);background: var(--accent-glow);}.ds-button-accent:focus-visible{border-color:var(--border-focus);box-shadow:var(--shadow-ring);outline:none;}.ds-button-accent:active{transform: translateY(1px);}.ds-button-accent:disabled{opacity: 0.4; cursor: not-allowed;}"
+    },
+    {
+      "name": "Success button",
+      "kind": "button",
+      "description": "Shared global.css success button; no application action.",
+      "html": "<button class=\"ds-button-success\" type=\"button\">Success</button>",
+      "css": ".ds-button-success{display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  font-size: var(--fs-sm);\n  font-weight: 500;\n  padding: 6px 12px;\n  border-radius: var(--radius-sm);\n  background: var(--bg-elevated);\n  color: var(--text-primary);\n  border: 1px solid var(--border);\n  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), color 0.15s var(--ease), transform 0.08s var(--ease);\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;font-family:var(--font-sans);cursor:pointer;background: var(--success-dim); color: var(--success); border-color: transparent;}.ds-button-success:hover{background: var(--bg-card-hover); border-color: var(--border-hover);background: var(--success-glow);}.ds-button-success:focus-visible{border-color:var(--border-focus);box-shadow:var(--shadow-ring);outline:none;}.ds-button-success:active{transform: translateY(1px);}.ds-button-success:disabled{opacity: 0.4; cursor: not-allowed;}"
+    },
+    {
+      "name": "Danger button",
+      "kind": "button",
+      "description": "Shared global.css danger button; no application action.",
+      "html": "<button class=\"ds-button-danger\" type=\"button\">Danger</button>",
+      "css": ".ds-button-danger{display: inline-flex;\n  align-items: center;\n  gap: 6px;\n  font-size: var(--fs-sm);\n  font-weight: 500;\n  padding: 6px 12px;\n  border-radius: var(--radius-sm);\n  background: var(--bg-elevated);\n  color: var(--text-primary);\n  border: 1px solid var(--border);\n  transition: background 0.15s var(--ease), border-color 0.15s var(--ease), color 0.15s var(--ease), transform 0.08s var(--ease);\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;font-family:var(--font-sans);cursor:pointer;background: var(--danger-dim); color: var(--danger); border-color: transparent;}.ds-button-danger:hover{background: var(--bg-card-hover); border-color: var(--border-hover);background: var(--danger-glow);}.ds-button-danger:focus-visible{border-color:var(--border-focus);box-shadow:var(--shadow-ring);outline:none;}.ds-button-danger:active{transform: translateY(1px);}.ds-button-danger:disabled{opacity: 0.4; cursor: not-allowed;}",
+      "refersTo": "button-danger"
+    },
+    {
+      "name": "Text field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Shared labeled text field.",
+      "html": "<label for=\"ds-connection\">Connection name</label><input class=\"ds-input\" id=\"ds-connection\" type=\"text\" placeholder=\"Connection name\">",
+      "css": ".ds-input{font: inherit;\n  font-size: var(--fs-sm);\n  color: var(--text-primary);\n  background: var(--bg-input);\n  border: 1px solid var(--border);\n  border-radius: var(--radius-sm);\n  padding: 8px 12px;\n  outline: none;\n  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);\n  font-variant-numeric: tabular-nums;font-family:var(--font-sans);}.ds-input::placeholder{color:var(--text-placeholder);}.ds-input:focus-visible{border-color:var(--border-focus);box-shadow:var(--shadow-ring);outline:none;}"
+    },
+    {
+      "name": "State chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Non-interactive shared state label.",
+      "html": "<span class=\"ds-chip\">Connected</span>",
+      "css": ".ds-chip{display: inline-flex;\n  align-items: center;\n  gap: 4px;\n  font-size: var(--fs-xs);\n  font-weight: 600;\n  letter-spacing: var(--letter-wide);\n  padding: 3px 8px;\n  border-radius: var(--radius-full);\n  background: var(--bg-elevated);\n  color: var(--text-secondary);\n  border: 1px solid var(--border);\n  text-transform: uppercase;\n  font-variant-numeric: tabular-nums;\n  line-height: 1;font-family:var(--font-sans);}"
+    },
+    {
+      "name": "Static card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Shared static card; not an interactive control.",
+      "html": "<section class=\"ds-card\">Account details</section>",
+      "css": ".ds-card{background: var(--bg-card);\n  border: 1px solid var(--border);\n  border-radius: var(--radius-lg);\n  padding: 20px;\n  transition: border-color 0.15s var(--ease), background 0.15s var(--ease), transform 0.15s var(--ease);font-family:var(--font-sans);color:var(--text-primary);}"
+    },
+    {
+      "name": "Top navigation item",
+      "kind": "nav",
+      "refersTo": "navigation",
+      "description": "Current TopBar navigation styles; no routing in this specimen.",
+      "html": "<nav aria-label=\"Example navigation\"><button class=\"ds-nav\" type=\"button\" aria-current=\"page\">Accounts</button></nav>",
+      "css": ".ds-nav{position: relative;\n    min-height: 32px;\n    padding: 0 10px;\n    border: 1px solid transparent;\n    border-radius: var(--radius-sm);\n    color: var(--text-secondary);\n    font-size: 11px;\n    font-weight: 500;\n    white-space: nowrap;font-family:var(--font-sans);background:transparent;cursor:pointer;}.ds-nav:hover{color: var(--text-primary); background: var(--bg-elevated);}.ds-nav[aria-current=\"page\"]{color: var(--text-primary); background: var(--surface-raised); border-color: var(--text-muted); font-weight: 650;}.ds-nav:focus-visible{border-color:var(--border-focus);box-shadow:var(--shadow-ring);outline:none;outline: 2px solid var(--text-primary); outline-offset: 2px;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Signal Ledger",
+    "overview": "Signal Ledger is the incumbent name in the global stylesheet. Pulse uses matte neutral surfaces, compact type, and thin separators to make account and session facts readable. Provider marks and semantic colors identify sources and states without replacing the monochrome shell.\n\nThis reference captures the existing system on September 19, 2026. The completed Accounts refinement extends that system; it does not approve a new visual world or change global tokens. Component-local measurements remain local unless the shared source already defines them.",
+    "keyCharacteristics": [
+      "Matte dark and light surfaces with thin borders.",
+      "Compact Inter text and tabular numeric values.",
+      "Official provider identity assets and limited semantic color.",
+      "Responsive layouts with explicit keyboard focus."
+    ],
+    "rules": [
+      {
+        "name": "The Semantic Color Rule",
+        "body": "Keep shell emphasis monochrome. Use provider and status tokens for their named meanings, not decorative recoloring.",
+        "section": "colors"
+      },
+      {
+        "name": "The Numeric Alignment Rule",
+        "body": "Use tabular numerals for comparable usage values, balances, and metrics.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Panel Rule",
+        "body": "Use neutral fill and borders for ordinary app panels. Do not infer floating panels from the legacy shadow token names.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use the existing CSS variables so dark and light themes change together.",
+      "Do preserve official provider marks, aspect ratios, and source provenance.",
+      "Do pair usage values with their units, direction, and unavailable state.",
+      "Do retain keyboard focus, accessible labels, and reduced-motion behavior."
+    ],
+    "donts": [
+      "Don't turn the Accounts master-detail composition into a requirement for every route.",
+      "Don't substitute a generated mark or glyph for an official provider asset.",
+      "Don't treat missing provider values as zero or make read-only reset entitlements look actionable.",
+      "Don't copy stale visual comments or decorative kickers into new system rules."
+    ]
+  }
+}

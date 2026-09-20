@@ -222,4 +222,17 @@ describe("Home provider surfaces", () => {
     expect(getByText("Full reset")).toBeTruthy();
     expect(queryByText("Use reset")).toBeNull();
   });
+  it("uses Command Code artwork and preserves its calendar monthly window", () => {
+    accessSnapshot.set({ routes: [{
+      source: { id: "commandcode:account", kind: "command_code_subscription", provider: "commandcode", auth_method: "api_key", proof: "quota_response", plan: "GOAT" },
+      availability: "available", freshness: "fresh", provenance: "provider_api", observed_at: new Date().toISOString(), fetched_at: new Date().toISOString(), expires_at: null,
+      windows: [{ key: "monthly", label: "Monthly limit", scope_id: "account", scope_kind: "global_account", window_minutes: 0, used_percent: 8, remaining_percent: 92, resets_at: null }],
+      credits: null, extra_usage: null, error: null,
+    }] });
+    selectedAccessSourceId.set("all");
+    const view = render(AllowanceRail);
+    expect(view.getByText("Monthly limit")).toBeTruthy();
+    expect(view.container.querySelector(".allowance-card header img")?.getAttribute("src")).toContain("commandcode.png");
+  });
+
 });

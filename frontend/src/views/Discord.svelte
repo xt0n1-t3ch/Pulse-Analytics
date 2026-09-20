@@ -115,7 +115,7 @@
   /** Fields the active provider cannot actually persist, so they are shown as
    *  unavailable instead of as a switch that silently snaps back. */
   let unsupportedFields = $derived(
-    new Set<FieldId>($provider === "opencode" ? ["credits", "systems"] : $discordSettings?.supports_credits === false ? ["credits"] : []),
+    new Set<FieldId>($provider === "commandcode" ? ["systems"] : $provider === "opencode" ? ["credits", "systems"] : $discordSettings?.supports_credits === false ? ["credits"] : []),
   );
 
   type Preset = "minimal" | "standard" | "full";
@@ -169,7 +169,7 @@
   );
   let previewProfile = $derived.by(() => {
     const candidate = scopedPresencePreview?.provider ?? previewSession?.provider ?? previewProvider;
-    return candidate === "claude" || candidate === "codex" || candidate === "opencode"
+    return candidate === "claude" || candidate === "codex" || candidate === "opencode" || candidate === "commandcode"
       ? PROVIDERS[candidate as Provider]
       : $providerProfile;
   });
@@ -179,7 +179,7 @@
     rpArtFor(
       scopedPresencePreview?.provider
         ?? previewSession?.provider
-        ?? (previewProvider === "claude" || previewProvider === "codex" || previewProvider === "opencode" ? previewProvider : $provider),
+        ?? (previewProvider === "claude" || previewProvider === "codex" || previewProvider === "opencode" || previewProvider === "commandcode" ? previewProvider : $provider),
       scopedPresencePreview?.large_image_key,
       scopedPresencePreview?.large_text,
     ),
@@ -395,7 +395,7 @@
    * "Broadcasting" would contradict the IPC diagnostic beside it.
    */
   let broadcastState = $derived(
-    !discordEnabled ? "paused" : $provider === "opencode" && scopedPresencePreview?.has_session === false ? "idle" : ipcConnected ? "live" : "waiting",
+    !discordEnabled ? "paused" : ($provider === "opencode" || $provider === "commandcode") && scopedPresencePreview?.has_session === false ? "idle" : ipcConnected ? "live" : "waiting",
   );
   let broadcastLabel = $derived(
     !discordEnabled ? "Paused"
@@ -483,7 +483,7 @@
   <section class="broadcast-source" aria-label="Discord broadcast application">
     <div><h3>Broadcast from</h3><p>This choice controls Discord, not your analytics filters.</p></div>
     <div class="broadcast-options" role="group" aria-label="Broadcast application">
-      {#each ["claude", "codex", "opencode"] as id}
+      {#each ["claude", "codex", "opencode", "commandcode"] as id}
         <button type="button" class:active={$provider === id} aria-pressed={$provider === id} disabled={settingsPending}
           onclick={() => changeBroadcastProvider(id as Provider)}>
           <img src={rpArtFor(id, id === "codex" ? "codex-app" : undefined).large} alt="" />{PROVIDERS[id as Provider].label}
@@ -648,9 +648,9 @@
             <div class="dp-handle">@{$discordUser.username}</div>
           {/if}
           <div class="dp-separator"></div>
-          <div class="dp-section-title">{$provider === "opencode" && scopedPresencePreview?.has_session === false ? "No active session" : "Current Activity"}</div>
+          <div class="dp-section-title">{($provider === "opencode" || $provider === "commandcode") && scopedPresencePreview?.has_session === false ? "No active session" : "Current Activity"}</div>
           <div class="dp-activity-card">
-            <div class="dp-activity-header">{$provider === "opencode" && scopedPresencePreview?.has_session === false ? "Idle" : "Playing"}</div>
+            <div class="dp-activity-header">{($provider === "opencode" || $provider === "commandcode") && scopedPresencePreview?.has_session === false ? "Idle" : "Playing"}</div>
             <div class="dp-activity-body">
               <div class="dp-activity-art" title={previewArt.largeText}>
                 <img class="dp-art-large" src={previewArt.large} alt={previewArt.largeText} draggable="false" />

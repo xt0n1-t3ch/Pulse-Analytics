@@ -16,7 +16,7 @@ use cc_discord_presence::provider::Provider;
 static DB: OnceLock<Arc<Mutex<Connection>>> = OnceLock::new();
 static WRITES_SINCE_CHECKPOINT: AtomicUsize = AtomicUsize::new(0);
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
 
 fn context_label_tokens(label: &str) -> Option<i64> {
     let normalized = label
@@ -46,7 +46,7 @@ fn session_window_tokens(s: &super::commands::SessionInfo) -> i64 {
     if s.context_window_tokens > 0 {
         return s.context_window_tokens.min(i64::MAX as u64) as i64;
     }
-    if s.provider == "opencode" {
+    if matches!(s.provider.as_str(), "opencode" | "commandcode") {
         return 0;
     }
     if cost::is_ga_1m_context(&s.model_id) {
@@ -187,6 +187,13 @@ fn db() -> &'static Arc<Mutex<Connection>> {
     })
 }
 
+pub(crate) fn with_connection<T>(operation: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+    let connection = db()
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Analytics database is unavailable"))?;
+    operation(&connection)
+}
+
 fn ensure_column(
     transaction: &Transaction<'_>,
     table: &str,
@@ -235,6 +242,23 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
     }
 
     let transaction = conn.unchecked_transaction()?;
+    transaction.execute_batch(
+        "CREATE TABLE IF NOT EXISTS accounts (
+            id TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            origin TEXT NOT NULL,
+            source_key TEXT NOT NULL UNIQUE,
+            source_path TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT '',
+            removed INTEGER NOT NULL DEFAULT 0 CHECK(removed IN (0,1)),
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS account_snapshots (
+            account_id TEXT PRIMARY KEY REFERENCES accounts(id),
+            payload TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );",
+    )?;
     transaction.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS sessions (
@@ -1226,10 +1250,17 @@ fn session_cost_provenance(
     if session.provider == "opencode" {
         return ("exact", "opencode_reported", Some(cost));
     }
+    let source = match session.cost_source.as_str() {
+        "api_equivalent" => "api_equivalent",
+        "codex_reported" => "codex_reported",
+        "claude_statusline_api_equivalent" => "claude_statusline_api_equivalent",
+        "commandcode_reported" => "commandcode_reported",
+        _ => "session-calculated",
+    };
     match session.cost_basis.as_str() {
-        "exact" => ("exact", "session-calculated", Some(cost)),
+        "exact" => ("exact", source, Some(cost)),
         "estimated" => ("exact", "api_equivalent", Some(cost)),
-        "partial" => ("partial", "session-calculated", Some(cost)),
+        "partial" => ("partial", source, Some(cost)),
         "provider_billed" => ("exact", "provider_billed", Some(cost)),
         "opencode_reported" => ("exact", "opencode_reported", Some(cost)),
         _ => ("unavailable", "unknown", None),
@@ -2624,6 +2655,10 @@ pub fn get_db_size_bytes() -> u64 {
 }
 
 pub fn upsert_opencode_session(session: &super::commands::SessionInfo, updated: i64) -> bool {
+    upsert_external_session(session, updated)
+}
+
+pub fn upsert_external_session(session: &super::commands::SessionInfo, updated: i64) -> bool {
     let Ok(conn) = db().lock() else {
         return false;
     };
@@ -2633,7 +2668,7 @@ pub fn upsert_opencode_session(session: &super::commands::SessionInfo, updated: 
     match upsert_session_into(&conn, session, &updated.to_rfc3339()) {
         Ok(()) => true,
         Err(error) => {
-            tracing::warn!("OpenCode analytics write failed: {error}");
+            tracing::warn!(provider=%session.provider,"Provider analytics write failed: {error}");
             false
         }
     }
@@ -3231,6 +3266,7 @@ mod tests {
             cost: 0.0,
             cost_available: true,
             cost_basis: "exact".into(),
+            cost_source: String::new(),
             tokens,
             input_tokens,
             output_tokens: 0,

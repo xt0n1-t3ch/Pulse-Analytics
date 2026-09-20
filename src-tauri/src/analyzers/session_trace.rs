@@ -178,7 +178,7 @@ fn scan_provider_roots(
                     continue;
                 };
                 let Some(matched_id) = (match provider {
-                    Provider::OpenCode => None,
+                    Provider::OpenCode | Provider::CommandCode => None,
                     Provider::Claude => remaining.contains(stem).then(|| stem.to_string()),
                     Provider::Codex => remaining
                         .iter()
@@ -234,7 +234,7 @@ fn parse_session_trace(provider: Provider, session_id: &str, path: &Path) -> Ses
             continue;
         };
         match provider {
-            Provider::OpenCode => {}
+            Provider::OpenCode | Provider::CommandCode => {}
             Provider::Claude => parse_claude_trace_line(&value, &mut trace),
             Provider::Codex => parse_codex_trace_line(&value, &mut trace),
         }

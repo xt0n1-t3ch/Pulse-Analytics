@@ -23,6 +23,7 @@
     { id: "costs", label: "Costs" },
     { id: "reports", label: "Reports" },
     { id: "discord", label: "Discord" },
+    { id: "accounts", label: "Accounts" },
     { id: "settings", label: "Settings" },
   ] as const;
 

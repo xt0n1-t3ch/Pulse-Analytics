@@ -11,6 +11,8 @@ pub enum Provider {
     Claude,
     Codex,
     OpenCode,
+    #[serde(rename = "commandcode")]
+    CommandCode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,6 +25,7 @@ pub struct ProviderCapabilities {
 impl Provider {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::CommandCode => "commandcode",
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::OpenCode => "opencode",
@@ -31,6 +34,7 @@ impl Provider {
 
     pub fn display_name(self) -> &'static str {
         match self {
+            Self::CommandCode => "Command Code",
             Self::Claude => "Claude Code",
             Self::Codex => "Codex",
             Self::OpenCode => "OpenCode",
@@ -39,6 +43,7 @@ impl Provider {
 
     pub fn short_name(self) -> &'static str {
         match self {
+            Self::CommandCode => "Command Code",
             Self::Claude => "Claude",
             Self::Codex => "Codex",
             Self::OpenCode => "OpenCode",
@@ -47,6 +52,7 @@ impl Provider {
 
     pub fn instruction_file_name(self) -> &'static str {
         match self {
+            Self::CommandCode => "AGENTS.md",
             Self::Claude => "CLAUDE.md",
             Self::Codex => "AGENTS.md",
             Self::OpenCode => "AGENTS.md",
@@ -55,6 +61,7 @@ impl Provider {
 
     pub fn home_dir_name(self) -> &'static str {
         match self {
+            Self::CommandCode => ".commandcode",
             Self::Claude => ".claude",
             Self::Codex => ".codex",
             Self::OpenCode => "opencode",
@@ -63,6 +70,7 @@ impl Provider {
 
     pub fn sessions_glob_label(self) -> &'static str {
         match self {
+            Self::CommandCode => "~/.commandcode/projects/**/*.jsonl",
             Self::Claude => "~/.claude/projects/**/*.jsonl",
             Self::Codex => "~/.codex/sessions/**/*.jsonl",
             Self::OpenCode => "~/.local/share/opencode/opencode*.db",
@@ -71,6 +79,7 @@ impl Provider {
 
     pub fn global_state_label(self) -> &'static str {
         match self {
+            Self::CommandCode => "Command Code local transcripts and account API",
             Self::Claude => "~/.claude/discord-presence-data.json + usage API",
             Self::Codex => "~/.codex/.codex-global-state.json + session telemetry",
             Self::OpenCode => "OpenCode local SQLite metadata",
@@ -79,6 +88,7 @@ impl Provider {
 
     pub fn fix_action_label(self) -> &'static str {
         match self {
+            Self::CommandCode => "Fix with Command Code",
             Self::Claude => "Fix with Claude Code",
             Self::Codex => "Fix with Codex",
             Self::OpenCode => "Fix with OpenCode",
@@ -96,7 +106,7 @@ impl Provider {
                 model_routing: true,
                 extra_usage: true,
             },
-            Self::OpenCode => ProviderCapabilities {
+            Self::OpenCode | Self::CommandCode => ProviderCapabilities {
                 cache_health: false,
                 model_routing: false,
                 extra_usage: false,
@@ -111,6 +121,7 @@ impl Provider {
 
     pub fn home_path(self) -> PathBuf {
         match self {
+            Self::CommandCode => crate::commandcode::home(),
             Self::Claude => crate::config::claude_home(),
             Self::Codex => crate::codex::config::codex_home(),
             Self::OpenCode => crate::opencode::data_dir(),
@@ -122,6 +133,7 @@ impl Provider {
             "claude" | "claude_code" | "claude-code" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
             "opencode" => Some(Self::OpenCode),
+            "commandcode" | "command_code" | "command-code" => Some(Self::CommandCode),
             _ => None,
         }
     }

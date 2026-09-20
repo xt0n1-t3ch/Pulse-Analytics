@@ -2,7 +2,7 @@
 
 # Pulse architecture
 
-Pulse combines three provider adapters, one analytics store and a native desktop interface. The Claude headless daemon is a separate executable; Pulse does not require that daemon to serve its GUI.
+Pulse combines four provider adapters, one analytics store and a native desktop interface. The Claude headless daemon is a separate executable; Pulse does not require that daemon to serve its GUI.
 
 ## Data flow
 
@@ -25,8 +25,10 @@ Session history, account proof and Discord broadcaster identity remain separate.
 | Codex adapter | [src/codex](../../src/codex/mod.rs) | Pulse-facing model, context and monetary adapters |
 | Shared Codex core | [upstream contract](../maintainers/codex-core.md) | Pinned canonical telemetry and presence contracts |
 | OpenCode ingestion | [src/opencode](../../src/opencode) | Read-only SQLite, sessions, contributions and metadata |
+| Accounts | [account backend](../../src-tauri/src/accounts/mod.rs), [Accounts UI](../../frontend/src/views/Accounts.svelte) | Stable connections, account-isolated polling, protected credentials and removal tombstones |
+| Command Code | [adapter](../../src/commandcode/mod.rs), [bridge](../../src-tauri/src/commandcode.rs) | One CLI/Desktop reader and publisher |
 | Native integration | [commands](../../src-tauri/src/commands.rs), [OpenCode bridge](../../src-tauri/src/opencode.rs) | Polling, snapshots and IPC |
-| Persistence | [storage](../../src/storage.rs), [db](../../src-tauri/src/db.rs) | Provider-neutral paths, safe legacy copies, analytics schema 6, WAL and notifications |
+| Persistence | [storage](../../src/storage.rs), [db](../../src-tauri/src/db.rs) | Provider-neutral paths, safe legacy copies, analytics schema 7, WAL and notifications |
 | Reports | [analyzers](../../src-tauri/src/analyzers), [report](../../src-tauri/src/report.rs) | Provider-supported analysis and exports |
 | Presentation | [App](../../frontend/src/App.svelte), [API](../../frontend/src/lib/api.ts), [stores](../../frontend/src/lib/stores.ts) | Six routes and coherent backend state |
 

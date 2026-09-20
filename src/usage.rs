@@ -395,6 +395,7 @@ fn usage_endpoint_host() -> &'static str {
 type FileUsageCache = (UsageData, Option<String>, Option<String>, DateTime<Utc>);
 
 pub struct UsageManager {
+    read_only: bool,
     cached_usage: Option<UsageData>,
     last_fetch: Option<Instant>,
     /// Set only when a request or cache read actually produced the figures.
@@ -419,8 +420,24 @@ pub struct UsageManager {
 }
 
 impl UsageManager {
+    pub fn for_credentials(path: PathBuf, allow_refresh: bool) -> Self {
+        Self {
+            read_only: !allow_refresh,
+            credentials_path_override: Some(path),
+            ..Self::new()
+        }
+    }
+
+    pub fn read_only() -> Self {
+        Self {
+            read_only: true,
+            ..Self::new()
+        }
+    }
+
     pub fn new() -> Self {
         Self {
+            read_only: false,
             cached_usage: None,
             last_fetch: None,
             last_usage_origin: None,
@@ -504,8 +521,9 @@ impl UsageManager {
             return Some(usage.clone());
         }
 
-        if let Some((cached, cached_subscription, cached_rate_limit_tier, observed_at)) =
-            Self::try_read_file_cache()
+        if self.credentials_path_override.is_none()
+            && let Some((cached, cached_subscription, cached_rate_limit_tier, observed_at)) =
+                Self::try_read_file_cache()
         {
             // No request was made this cycle; say so instead of implying a live
             // read, and name only the tier stored alongside these very figures.
@@ -539,6 +557,13 @@ impl UsageManager {
 
     /// Returns a hint about why usage data is unavailable (for TUI display).
     /// If rate-limited, shows a live countdown.
+    pub fn retry_at(&self) -> Option<DateTime<Utc>> {
+        let remaining = self
+            .rate_limit_until?
+            .checked_duration_since(Instant::now())?;
+        Some(Utc::now() + chrono::Duration::from_std(remaining).ok()?)
+    }
+
     pub fn error_hint_with_countdown(&self) -> Option<String> {
         if let Some(until) = self.rate_limit_until {
             let now = Instant::now();
@@ -684,15 +709,17 @@ impl UsageManager {
                         self.last_fetch = Some(Instant::now());
                         self.last_error_hint = None;
                         self.rate_limit_until = None;
-                        Self::write_file_cache(
-                            &usage,
-                            self.last_usage_origin
-                                .as_ref()
-                                .and_then(|origin| origin.subscription.clone()),
-                            self.last_usage_origin
-                                .as_ref()
-                                .and_then(|origin| origin.rate_limit_tier.clone()),
-                        );
+                        if self.credentials_path_override.is_none() {
+                            Self::write_file_cache(
+                                &usage,
+                                self.last_usage_origin
+                                    .as_ref()
+                                    .and_then(|origin| origin.subscription.clone()),
+                                self.last_usage_origin
+                                    .as_ref()
+                                    .and_then(|origin| origin.rate_limit_tier.clone()),
+                            );
+                        }
                         Some(usage)
                     }
                     Err(e) => {
@@ -785,6 +812,9 @@ impl UsageManager {
     /// Attempt to refresh the OAuth token using the refresh_token.
     /// Returns true if the token was successfully refreshed and credentials updated.
     fn try_refresh_token(&mut self) -> bool {
+        if self.read_only {
+            return false;
+        }
         // Respect cooldown to avoid hammering the endpoint
         if let Some(last) = self.last_refresh_attempt
             && last.elapsed() < TOKEN_REFRESH_COOLDOWN

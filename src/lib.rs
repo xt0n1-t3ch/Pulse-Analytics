@@ -4,6 +4,7 @@ pub use codex_presence_core as presence_core;
 pub mod chrome_session;
 pub mod cli;
 pub mod codex;
+pub mod commandcode;
 pub mod config;
 pub mod cost;
 pub mod discord;

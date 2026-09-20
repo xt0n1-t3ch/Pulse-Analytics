@@ -14,6 +14,8 @@ The canonical repository is https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Anal
 
 ## Models and data
 
+- [Accounts](docs/guides/accounts.md): Independent multi-account connections, native limits, protected profiles and removal.
+- [Command Code](docs/guides/command-code.md): Shared CLI/Desktop integration and Discord identity.
 - [Storage and migration](docs/guides/storage.md): Pulse-owned data, PULSE_HOME, safe legacy copies and recovery.
 
 - [Claude models and context](docs/models/claude.md): Current Anthropic models, Claude Code capacity, API maxima, prices and runtime gaps.

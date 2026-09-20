@@ -1,6 +1,6 @@
 #![windows_subsystem = "windows"]
 
-use pulse::{commands, update_check};
+use pulse::{accounts, commands, update_check};
 
 use tauri::{
     Emitter, Listener, Manager,
@@ -200,6 +200,12 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            accounts::list_accounts,
+            accounts::discover_accounts,
+            accounts::connect_account,
+            accounts::cancel_account_connection,
+            accounts::remove_account,
+            accounts::refresh_account,
             commands::get_health,
             commands::get_app_snapshot,
             commands::get_access_snapshot,

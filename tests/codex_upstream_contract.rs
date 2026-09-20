@@ -121,6 +121,7 @@ fn snapshot(
         session_delta_tokens: None,
         input_tokens_total: 0,
         cached_input_tokens_total: 0,
+        cache_write_tokens_total: None,
         output_tokens_total: 0,
         last_input_tokens: None,
         last_cached_input_tokens: None,

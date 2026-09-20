@@ -183,7 +183,7 @@
     }
     try {
       const mutation = planMutation.then(() =>
-        selectedProvider === "opencode" ? Promise.resolve() : setPlanOverride(val === "auto" ? "" : val, selectedProvider)
+        (selectedProvider === "opencode" || selectedProvider === "commandcode") ? Promise.resolve() : setPlanOverride(val === "auto" ? "" : val, selectedProvider)
       );
       planMutation = mutation.catch(() => undefined);
       await mutation;
@@ -315,7 +315,7 @@
         <div class="it-text">
           <div class="it-line">
             <span class="it-product" style="color: {$providerProfile.accent}">{$providerProfile.productName}</span>
-            {#if $provider !== "opencode"}<span class="it-sep">·</span>
+            {#if $provider !== "opencode" && $provider !== "commandcode"}<span class="it-sep">·</span>
             <span class="it-plan">{activePlanInfo ? activePlanLabel : "Detecting plan…"}</span>{/if}
           </div>
           <span class="it-sub">
@@ -326,7 +326,7 @@
         </div>
       </div>
       <div class="settings-state" role="status">
-        <span>{planSavedFlash ? "Plan saved" : isManual && $provider !== "opencode" ? "Using your selected plan" : $provider === "opencode" ? "OpenCode local sessions" : "Plan detected from your account"}</span>
+        <span>{planSavedFlash ? "Plan saved" : isManual && $provider !== "opencode" && $provider !== "commandcode" ? "Using your selected plan" : ($provider === "opencode" || $provider === "commandcode") ? "Account details are available in Accounts" : "Plan detected from your account"}</span>
         <span>{$health?.discord_status === "Controlled by external daemon" ? "Desktop app controls publication" : $health?.discord_status === "Connected" ? "Discord connected" : $health?.discord_status?.startsWith("Waiting for OpenCode") ? "Waiting for OpenCode session" : "Discord connection pending"}</span>
       </div>
     </div>
@@ -342,7 +342,7 @@
         />
       </div>
 
-      {#if $provider !== "opencode"}
+      {#if $provider !== "opencode" && $provider !== "commandcode"}
       <div class="rail-ctrl rail-ctrl-select">
         <span class="rail-k">Plan override</span>
         <Select
