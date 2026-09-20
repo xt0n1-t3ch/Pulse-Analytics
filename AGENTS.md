@@ -2,9 +2,9 @@
 
 ## Product and scope
 
-Pulse is the desktop analytics GUI for Claude Code, Codex, OpenCode and Command Code (unreleased). It uses Rust, Tauri 2, Svelte 5, TypeScript, Vite and SQLite. The `cc-discord-presence` binary is the Claude headless daemon; its CLI has `status`, `doctor` and `claude` commands. Do not describe that daemon as a Codex CLI.
+Pulse is the desktop analytics GUI for Claude Code, Codex, OpenCode and Command Code. It uses Rust, Tauri 2, Svelte 5, TypeScript, Vite and SQLite. The `cc-discord-presence` binary is the Claude headless daemon; its CLI has `status`, `doctor` and `claude` commands. Do not describe that daemon as a Codex CLI.
 
-This checkout is Pulse 1.9.0, released from the six-platform Release workflow. Read `package.json`, Cargo manifests, `scripts/release-contract.json` and `src/codex/UPSTREAM.json` for current version facts. Do not copy historical branch/version claims into current instructions, and do not describe a local development build or installation as a release.
+This checkout targets Pulse 1.9.1 through the six-platform Release workflow. Read `package.json`, Cargo manifests, `scripts/release-contract.json` and `src/codex/UPSTREAM.json` for current version facts. Verify publication and installed-runtime status separately. Do not copy historical branch/version claims into current instructions, and do not describe a local development build or installation as a release.
 
 - Origin: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics
 - Default branch: `main`; inspect the current branch before editing.
@@ -55,7 +55,7 @@ The September 5, 2026 refresh identified GPT-5.6 pricing/context drift, an API-s
 | Claude transcripts | `~/.claude/projects/` | `src/config.rs`; `CLAUDE_HOME` |
 | Claude statusline | `~/.claude/discord-presence-data.json` | Authoritative Claude headline cost/duration when present |
 | Claude presence config | `~/.pulse-analytics/claude/discord-presence-config.json` | Schema 6 |
-| Pulse analytics | `~/.pulse-analytics/pulse-analytics.db` | Schema 7 since 1.9.0; SQLite WAL, migrations and consistent backups |
+| Pulse analytics | `~/.pulse-analytics/pulse-analytics.db` | Schema 7 since 1.9.1; SQLite WAL, migrations and consistent backups |
 | Codex sessions/inventory | `~/.codex/sessions/`, `~/.codex/models_cache.json` | `CODEX_HOME` |
 | Codex presence config | `~/.pulse-analytics/codex/discord-presence-config.json` | Schema 13 |
 | OpenCode integration config | `~/.pulse-analytics/pulse-opencode.json` | `PULSE_HOME`; database paths belong to OpenCode |

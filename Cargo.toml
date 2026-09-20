@@ -3,7 +3,7 @@ members = [".", "src-tauri"]
 
 [package]
 name = "cc-discord-presence"
-version = "1.9.0"
+version = "1.9.1"
 edition = "2024"
 description = "Pulse - Claude Code, Codex and OpenCode analytics core"
 license = "Apache-2.0"
