@@ -1,10 +1,12 @@
 # Pulse test suite
 
 Centralized tests for the whole app. Frontend logic/integration/component-render runs on Vitest
-(happy-dom); the daemon + analytics core run on `cargo test`. The Vitest config lives in
+5 (happy-dom); the daemon + analytics core run on `cargo test`. The Vitest config lives in
 `frontend/` but the spec tree is rooted here at `tests/`; run both layers before shipping.
 
 ## Run
+
+Vitest 5 requires Node.js `^22.12.0 || ^24.0.0 || >=26.0.0` and Vite 6.4 or later. Keep the npm and Bun lockfiles synchronized.
 
 | Layer | Command | What it covers |
 |:---|:---|:---|

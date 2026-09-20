@@ -58,7 +58,7 @@ Keep the subject line under 72 characters, lowercase, imperative. Use the body f
 
 ## Dev setup
 
-Prerequisites: Rust (stable, pinned by [rust-toolchain.toml](rust-toolchain.toml)), Node.js 20+, and the platform Tauri dependencies — see the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
+Prerequisites: Rust (stable, pinned by [rust-toolchain.toml](rust-toolchain.toml)), Node.js 22.12+ (22.x), 24.x, or 26+, and the platform Tauri dependencies — see the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
 
 ```bash
 # frontend dev server
