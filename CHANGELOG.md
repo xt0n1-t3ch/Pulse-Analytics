@@ -6,6 +6,8 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ### Changed
 
+- Upgrade Vitest and coverage to 5.0.0, align the Node.js/Vite baseline, and synchronize npm and Bun resolution. This changes contributor tooling, not the application runtime or data schema.
+
 - Link verified 1.8.2 downloads for all six targets and record publication, checksum, signature and native-runtime acceptance boundaries.
 
 ## [1.8.2] - 2026-09-05

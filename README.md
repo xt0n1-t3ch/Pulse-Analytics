@@ -240,7 +240,7 @@ Not always. Pulse separates provider-reported cost from API-equivalent estimates
 
 <h2 id="build-from-source"><img src="assets/icons/terminal.svg" alt="" width="28" height="28" align="center">&nbsp; Build from source</h2>
 
-Install Rust, Node.js, the Tauri CLI and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/). Then run:
+Install Rust, Node.js 22.12+ (22.x), 24.x, or 26+, the Tauri CLI and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/). Then run:
 
 ```powershell
 git clone https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics.git
