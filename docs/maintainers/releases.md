@@ -6,7 +6,7 @@ Pulse releases use annotated tags, exact commits and immutable assets. The norma
 
 `scripts/release-contract.json` owns the product, core, configuration and database contract. Tags must agree with Cargo, npm, lockfiles, Tauri, README, the docs index, changelog and `src/codex/UPSTREAM.json`.
 
-Pulse 1.9.1 consumes `codex-presence-core` 2.0.1 through the full Git revision recorded in `src/codex/UPSTREAM.json`, promoted from the upstream v1.11.2 release at commit `0caece60a71eb657d7b829e3b6c7c4896a0a536c`. Path dependencies and mismatched pins fail the release contract. The published v1.8.2 release used core 2.0.0 from upstream v1.10.3.
+Pulse 1.9.2 consumes `codex-presence-core` 2.0.1 through the full Git revision recorded in `src/codex/UPSTREAM.json`, promoted from the upstream v1.11.2 release at commit `0caece60a71eb657d7b829e3b6c7c4896a0a536c`. Path dependencies and mismatched pins fail the release contract. The published v1.8.2 release used core 2.0.0 from upstream v1.10.3.
 
 ## Commit and pull request checks
 
@@ -72,4 +72,4 @@ Accounts and the fourth provider are compatible additions in 1.9.1. Their additi
 
 The published canonical v1.11.2 core contains per-event Codex cost accumulation and reserved monetary-field space. Pulse pins core 2.0.1 at the immutable revision listed above. The release must use that pin, not the local source override used during earlier development.
 
-Keep package publication and installed-runtime acceptance separate. Record the downloaded installer hash, installed executable hash, embedded UI origin, database migration and real native provider results. See the [platform acceptance record](platforms.md#account-and-command-code-acceptance-in-191) for completed checks and remaining gaps. Never move an existing published tag to add later evidence or documentation.
+Keep package publication and installed-runtime acceptance separate. Record the downloaded installer hash, installed executable hash, embedded UI origin, database migration and real native provider results. See the [platform acceptance record](platforms.md#account-and-command-code-acceptance-in-192) for completed checks and remaining gaps. Never move an existing published tag to add later evidence or documentation.

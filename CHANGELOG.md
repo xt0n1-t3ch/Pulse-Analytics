@@ -4,6 +4,10 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Documentation
+
+- Record six-platform 1.9.2 publication, downloaded-asset verification and installed Windows upgrade evidence, with remaining host-specific acceptance gaps.
+
 ## [1.9.2] - 2026-09-20
 
 Patch correction for Command Code Rich Presence. The database remains schema 7, provider configuration is unchanged, and the immutable shared core stays at 2.0.1. Rollback to 1.9.1 needs only its package; rollback to 1.8.2 still requires the pre-schema-7 database backup. GitHub macOS packages have no Apple Developer ID signature or notarization.
