@@ -2,9 +2,9 @@
 
 ## Product and scope
 
-Pulse is the desktop analytics GUI for Claude Code, Codex and OpenCode. It uses Rust, Tauri 2, Svelte 5, TypeScript, Vite and SQLite. The `cc-discord-presence` binary is the Claude headless daemon; its CLI has `status`, `doctor` and `claude` commands. Do not describe that daemon as a Codex CLI.
+Pulse is the desktop analytics GUI for Claude Code, Codex, OpenCode and Command Code (unreleased). It uses Rust, Tauri 2, Svelte 5, TypeScript, Vite and SQLite. The `cc-discord-presence` binary is the Claude headless daemon; its CLI has `status`, `doctor` and `claude` commands. Do not describe that daemon as a Codex CLI.
 
-This checkout is Pulse 1.8.2. Read `package.json`, Cargo manifests, `scripts/release-contract.json` and `src/codex/UPSTREAM.json` for current version facts. Do not copy historical branch/version claims into current instructions.
+This checkout is Pulse 1.9.0, released from the six-platform Release workflow. Read `package.json`, Cargo manifests, `scripts/release-contract.json` and `src/codex/UPSTREAM.json` for current version facts. Do not copy historical branch/version claims into current instructions, and do not describe a local development build or installation as a release.
 
 - Origin: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics
 - Default branch: `main`; inspect the current branch before editing.
@@ -20,13 +20,15 @@ This checkout is Pulse 1.8.2. Read `package.json`, Cargo manifests, `scripts/rel
 | Codex model adapter | `src/codex/model.rs`, `src/codex/cost.rs`, `src/codex/model_catalog.json` | Alias, context, rate and completeness logic |
 | Shared Codex core | `codex-presence-core`, pinned in Cargo and `src/codex/UPSTREAM.json` | Canonical telemetry/presence contracts; no duplicate parser in the frontend |
 | OpenCode | `src/opencode/`, `src-tauri/src/opencode.rs` | Read-only local SQLite ingestion and snapshots |
+| Accounts | `src-tauri/src/accounts/`, `frontend/src/views/Accounts.svelte` | Per-connection identity, protected profiles, native allowances and tombstones; never change agent logins |
+| Command Code | `src/commandcode/`, `src-tauri/src/commandcode.rs` | Shared CLI/Desktop JSONL ingestion, reported costs and one Discord identity |
 | GUI backend | `src-tauri/src/main.rs`, `src-tauri/src/commands.rs` | Native lifecycle, polling, IPC and provider presentation |
 | Persistence and reports | `src/storage.rs`, `src-tauri/src/db.rs`, `src-tauri/src/report.rs`, `src-tauri/src/analyzers/` | Pulse-owned paths, safe migration, analytics, notifications and reports |
 | Frontend | `frontend/src/App.svelte`, `frontend/src/lib/`, `frontend/src/components/`, `frontend/src/views/` | Render backend facts; do not invent quotas, prices or context |
 | Discord identity | `src/discord_identity.rs`, `src/discord.rs`, Codex core compositor | Local IPC identity and shared publication/preview behavior |
 | Packaging | `.github/workflows/release.yml`, `scripts/release-*.ps1`, `src-tauri/tauri.conf.json` | Native artifacts, signing and explicit release effects |
 
-The current primary routes are Home (`dashboard`), Sessions, Costs, Reports, Discord and Settings. Context commands and components still exist; do not describe Context as a seventh primary route. `src/codex/app.rs` is residual code, not an active integration entry point.
+The current primary routes are Home (`dashboard`), Sessions, Costs, Reports, Discord, Accounts and Settings. Accounts is independent of the analytics and Discord provider selections. Context commands and components still exist; do not describe Context as a primary route. `src/codex/app.rs` is residual code, not an active integration entry point.
 
 ## Models, context and prices
 
@@ -53,7 +55,7 @@ The September 5, 2026 refresh identified GPT-5.6 pricing/context drift, an API-s
 | Claude transcripts | `~/.claude/projects/` | `src/config.rs`; `CLAUDE_HOME` |
 | Claude statusline | `~/.claude/discord-presence-data.json` | Authoritative Claude headline cost/duration when present |
 | Claude presence config | `~/.pulse-analytics/claude/discord-presence-config.json` | Schema 6 |
-| Pulse analytics | `~/.pulse-analytics/pulse-analytics.db` | Schema 6; SQLite WAL, migrations and consistent backups |
+| Pulse analytics | `~/.pulse-analytics/pulse-analytics.db` | Schema 7 since 1.9.0; SQLite WAL, migrations and consistent backups |
 | Codex sessions/inventory | `~/.codex/sessions/`, `~/.codex/models_cache.json` | `CODEX_HOME` |
 | Codex presence config | `~/.pulse-analytics/codex/discord-presence-config.json` | Schema 13 |
 | OpenCode integration config | `~/.pulse-analytics/pulse-opencode.json` | `PULSE_HOME`; database paths belong to OpenCode |

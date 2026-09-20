@@ -4,11 +4,32 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-09-19
+
+Pulse 1.9.0 is a compatible minor version: it adds Accounts, the Command Code provider and Codex cost coverage without removing existing behavior. The analytics database migrates additively to schema 7. Claude config schema 6 and Codex presence config schema 13 are unchanged. The shared `codex-presence-core` pin moves to 2.0.1 at `0caece60a71eb657d7b829e3b6c7c4896a0a536c` (canonical v1.11.2), which publishes per-event Codex cost accumulation and the reserved compositor cost space.
+
+Rollback: Pulse 1.8.2 cannot open a schema 7 database. Reinstall the published 1.8.2 package and restore the database backup taken before the schema 7 migration. Account removal writes a tombstone; it does not sign out a provider agent and does not delete transcripts. GitHub macOS packages carry no Apple Developer ID signature or notarization.
+
+### Added
+
+- Add Accounts with independent provider connections, native allowances, credits, banked resets, per-account refresh state and protected profiles. Removing a link leaves agent logins and session history intact.
+- Add one Command Code CLI/Desktop adapter across analytics, reports, Accounts and Discord, with official artwork and a shared identity.
+
+### Fixed
+
+- Preserve Codex known session-cost subtotals, cache-write telemetry and per-event model/speed pricing. Keep coverage and provenance in Pulse while showing currency-only amounts in Discord.
+- Reserve enabled monetary values when long model labels fill Discord's line budget.
+- Preserve native calendar-month usage and distinguish inactive OpenCode Go access from authenticated allowances.
+
+### Security
+
+- Update `rustls` to 0.23.45 and `rustls-webpki` to 0.103.15 for RUSTSEC-2026-0285, which affects TLS 1.3 handshake validation.
+
 ### Changed
 
 - Upgrade Vitest and coverage to 5.0.0, align the Node.js/Vite baseline, and synchronize npm and Bun resolution. This changes contributor tooling, not the application runtime or data schema.
-
 - Link verified 1.8.2 downloads for all six targets and record publication, checksum, signature and native-runtime acceptance boundaries.
+- Promote the shared `codex-presence-core` pin to 2.0.1 from the immutable upstream v1.11.2 release, replacing the 2.0.0 pin at canonical v1.10.3.
 
 ## [1.8.2] - 2026-09-05
 

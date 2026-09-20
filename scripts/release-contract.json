@@ -2,11 +2,11 @@
   "schema_version": 1,
   "product": {
     "name": "pulse",
-    "version": "1.8.2"
+    "version": "1.9.0"
   },
   "core": {
     "package": "codex-presence-core",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "repository": "https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence",
     "pin": "git-rev",
     "manifest": "src/codex/UPSTREAM.json"
@@ -16,7 +16,7 @@
     "source": "src/codex/config.rs"
   },
   "database": {
-    "schema_version": 6,
+    "schema_version": 7,
     "source": "src-tauri/src/db.rs"
   },
   "release": {

@@ -68,6 +68,7 @@ synthetic contract inputs, not live provider snapshots.
 |:---|:---|:---|
 | [workspace.spec.ts](../frontend/tests/e2e/browser/workspace.spec.ts) | Browser E2E | proofed provider sources remain separate, unproved API lanes stay hidden, exact metrics remain exact, Home occupies over 96% of the reference viewport, the zero-proof Home contract releases the allowance rail while keeping live work visible, and all primary views are checked at `390px` without page-level overflow |
 | [pulse.spec.ts](../frontend/tests/e2e/tauri/pulse.spec.ts) | Tauri CDP E2E | repo-owned WebView renders the current Provider limits/Live workspace Home shell through the real Tauri surface |
+| [production.spec.ts](../frontend/tests/e2e/tauri/production.spec.ts) | Installed production E2E | installed executable serves the embedded UI instead of the development URL, reports the expected product version, answers real native IPC, renders Accounts, and previews currency-only Codex subtotals. It runs against the installed application with Vite and the development bridge stopped |
 
 The zero-proof rail contract is enforced by the focused Vitest counterpart
 `bun run --cwd frontend test -- tests/components/Dashboard.test.ts` and the
@@ -110,7 +111,7 @@ the [fixtures/ChartStub.svelte](fixtures/ChartStub.svelte) stub so canvas-bound 
 | [Sessions.test.ts](components/Sessions.test.ts) | `Sessions` (view) | flat KPI strip labels, live session rows + "2 active", history table loaded from the api layer |
 | [Costs.test.ts](components/Costs.test.ts) | `Costs` (view) | Subscription Value Ledger for unavailable money, exact/partial coverage boundaries, token mix/trend, budget cockpit for known spend, Cost-by-Type reconciliation, window-aggregate KPIs, project refetch, and live-snapshot refresh |
 | [Heatmap.test.ts](components/Heatmap.test.ts) | `Heatmap` | 24 local-hour cells, total/coverage/peak summaries, proper AM/PM labels, and accessible volume context |
-| [VersionContract.test.ts](components/VersionContract.test.ts) | release owners | v1.7.0 synchronization across Cargo, Tauri, frontend, lockfiles, release contract, README, and changelog |
+| [VersionContract.test.ts](components/VersionContract.test.ts) | release owners | v1.9.0 synchronization across Cargo, Tauri, frontend, both lock surfaces of `frontend/package-lock.json`, the release contract and the changelog, plus the immutable canonical core release and commit |
 | [UpdateBanner.test.ts](components/UpdateBanner.test.ts) | `UpdateBanner` | automatic update popup, Later/Skip/Open release actions, skipped-version behavior, fake dev update, one explicit Update action followed by signed install and automatic relaunch, retryable failures |
 | [Reports.test.ts](components/Reports.test.ts) | `Reports` (view) | coherent analysis header/copy, sections populated from a single bundle call, reload feedback, and cost timeline totals/peaks |
 | [Discord.test.ts](components/Discord.test.ts) | `Discord` (view) | coherent Broadcast header, live-preview backend payload, provider capability gates, autosave saving/saved lifecycle, rollback on failed persistence, field reorder/toggles, and theme-aware preview |
@@ -226,7 +227,7 @@ npm --prefix frontend run build
 | Doc | Where | Purpose |
 |:---|:---|:---|
 | [README.md](../README.md) | repo root | Install, feature overview, daemon + GUI quick start |
-| [CHANGELOG.md](../CHANGELOG.md) | repo root | Release history (Claude config schema v6, Codex config schema v13, DB schema v6) |
+| [CHANGELOG.md](../CHANGELOG.md) | repo root | Release history (Claude config schema v6, Codex config schema v13, DB schema v6 in 1.8.2 and v7 in 1.9.0) |
 | [docs/index.md](../docs/index.md) | `docs/` | Documentation hub: architecture, Discord assets, reasoning-effort variants, analyzers, cost calculation |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | repo root | Contribution + local-dev workflow |
 
@@ -255,3 +256,19 @@ npm --prefix frontend run build
 `src/power.rs` tests option parsing and the Windows ABI layout. `scripts/check-windows-efficiency.ps1` reads the running process policy. Release checks validate versions, PE architecture, software bills of materials and checksums.
 
 Notification regressions cover per-item/bulk read state, soft clear and Undo, command routing and confirmation. OpenCode lifecycle tests distinguish null completion from completed responses and reject stale tool-state overrides.
+
+## Accounts, Command Code and cost coverage
+
+- `src-tauri/src/accounts/`: protected profile references, unlink tombstones, callback origin/state validation, zero/optional usage and monthly allocation independent of purchased/free credits.
+- `tests/components/Accounts.test.ts`: independent selection, two-account separation, reconnection, removal confirmation, stale and unavailable data, Pro tiers, reset counts and cycle-versus-expiry labels.
+- `tests/components/WorkspaceSurfaces.test.ts`: Command Code artwork and calendar-month allowances.
+- `src/commandcode/`: shared CLI/Desktop identity, message/session deduplication, active-versus-completed history, BYOK and privacy.
+- `tests/commandcode_live.rs`: ignored real-history proof and separately opted-in local Discord diagnostic acknowledgement. These tests never run in the ordinary workspace suite.
+- `frontend/tests/e2e/tauri/accounts.spec.ts`: real account observations through native IPC, no browser-proxy calls and the native folder-picker affordance. Requires an isolated native run and `PULSE_REAL_ACCOUNT_PROOF_DIR`.
+- `src/codex/session/costing.rs`: repeated events, cache writes, model/speed changes and per-request long-context pricing. Canonical equivalents live in the owner repository.
+
+The canonical core's reserved-cost compositor ships in the pinned `codex-presence-core` 2.0.1 from upstream v1.11.2, so the ordinary pinned build covers it and no Cargo override is required. Browser, native IPC, provider API, published asset inventory and Discord acknowledgement are separate proof layers. Discord visual rendering and native macOS/Linux account sign-in remain host-specific acceptance checks.
+
+A version bump must update `Cargo.toml`, `src-tauri/Cargo.toml`, both `Cargo.lock` workspace packages, `package.json`, `frontend/package.json`, both version fields in `frontend/package-lock.json`, `src-tauri/tauri.conf.json`, `scripts/release-contract.json`, `src/codex/UPSTREAM.json` and `tests/components/VersionContract.test.ts`. `frontend/bun.lock` records no product version, so a bump does not change it; do not regenerate that lockfile to synchronize a version.
+
+[production.spec.ts](../frontend/tests/e2e/tauri/production.spec.ts) proves the installed application, not a release. It requires a completed local installation, stopped ports 1420 and 1421, and the real user profile paths. A development installer that is built with a scratch Tauri configuration and `createUpdaterArtifacts=false` produces no updater artifact and no signature, so it cannot stand in for a published installer. Record the previous installed executable and its SHA-256 before replacement, so rollback stays possible.
