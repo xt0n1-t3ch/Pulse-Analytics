@@ -11,7 +11,6 @@ const token = randomBytes(32).toString("hex");
 // it in this process environment also lets the programmatic Vite server install
 // its authenticated same-origin proxy instead of serving a disconnected UI.
 process.env.PULSE_DEV_BRIDGE_TOKEN = token;
-const env = { ...process.env };
 
 function cliValue(name, fallback) {
   const exact = process.argv.indexOf(name);
@@ -23,23 +22,32 @@ function cliValue(name, fallback) {
 }
 
 const viteHost = cliValue("--host", "127.0.0.1");
-const vitePort = Number.parseInt(cliValue("--port", "1420"), 10);
+const vitePort = Number(cliValue("--port", process.env.PULSE_DEV_PORT ?? "1420"));
+const bridgePort = Number(cliValue("--bridge-port", process.env.PULSE_DEV_BRIDGE_PORT ?? "1421"));
 if (viteHost !== "127.0.0.1" && viteHost !== "localhost") {
   throw new Error("Pulse dev mode is loopback-only; --host must be 127.0.0.1 or localhost.");
 }
-if (vitePort !== 1420) {
-  throw new Error("Pulse dev mode requires port 1420 so the bridge Origin allowlist stays exact.");
+if (![vitePort, bridgePort].every((port) => Number.isInteger(port) && port >= 1024 && port <= 65535)
+    || vitePort === bridgePort) {
+  throw new Error("Pulse dev mode requires distinct UI and bridge ports between 1024 and 65535.");
 }
+process.env.PULSE_DEV_PORT = String(vitePort);
+process.env.PULSE_DEV_BRIDGE_PORT = String(bridgePort);
+const env = { ...process.env };
 
 function buildBridge() {
-  const result = spawnSync("cargo", [
+  const args = [
     "build",
     "-p",
     "pulse",
     "--bin",
     "pulse-dev-bridge",
     "--message-format=json-render-diagnostics",
-  ], {
+  ];
+  if (env.PULSE_CODEX_CORE_PATH) {
+    args.push("--config", `patch.\"https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence\".codex-presence-core.path=${JSON.stringify(path.resolve(env.PULSE_CODEX_CORE_PATH))}`);
+  }
+  const result = spawnSync("cargo", args, {
     cwd: workspaceRoot,
     env,
     encoding: "utf8",
@@ -142,7 +150,7 @@ async function waitForBridge() {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 400);
-      const response = await fetch("http://127.0.0.1:1421/invoke", {
+      const response = await fetch(`http://127.0.0.1:${bridgePort}/invoke`, {
         method: "POST",
         signal: controller.signal,
         headers: {

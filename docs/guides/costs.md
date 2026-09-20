@@ -39,11 +39,17 @@ Current prices, API limits and the cancelled Sonnet 5 price increase belong in t
 
 [Model resolution](../../src/codex/model.rs) normalizes known aliases and reads the [bundled catalog](../../src/codex/model_catalog.json). [Cost arithmetic](../../src/codex/cost.rs) resolves rates, explicit user overrides and completeness.
 
-Codex input totals include cached input; cached input is clamped to total input before uncached input is calculated. Missing cache-write telemetry stays missing. Do not reuse Claude's raw-token interpretation for Codex.
+Codex input totals include cache reads and cache writes; known categories are subtracted once from ordinary input. Cached input is clamped to total input before uncached input is calculated. Missing cache-write telemetry stays missing. Do not reuse Claude's raw-token interpretation for Codex.
 
 The bundled Astra entry records Fast at 2×. GPT-5.6 entries still lack a Fast multiplier and use older base rates. Aggregate input cannot prove each request's long-context price. The resolver preserves partial coverage when a required pricing condition is unresolved. [Current API facts and catalog gaps](../models/codex.md#bundled-catalog-gaps).
 
 API dollars and Codex subscription credits are separate units. A new API price does not establish a new credit conversion or account allowance.
+
+Session cost is accumulated per telemetry delta with that sample's model and speed. Duplicate cumulative events do not add value. A large cumulative input total does not trigger request-level long-context pricing. An observed Astra request over 272,000 input tokens applies the documented input/cache and output multipliers. Missing request boundaries keep the subtotal partial.
+
+## Command Code
+
+Pulse preserves the provider's `costUsd` values and marks incomplete message coverage as partial. SQLite records `commandcode_reported` separately from API-equivalent estimates. A reported amount is not proof of a settled invoice.
 
 ## OpenCode
 
@@ -59,7 +65,7 @@ Pulse preserves OpenCode's reported value and per-model contributions. A genuine
 
 `exact` does not prove that a rate is still current, or that an estimate equals a bill. Unknown Codex models do not borrow another model's rate. Claude's existing family fallback has a different limitation, documented in its model guide.
 
-`format_presentable_cost` does not publish a partial Codex subtotal as exact Discord money. Historical rows without monetary provenance retain `legacy/unknown`.
+Discord shows the best known amount as currency only, including partial subtotals, when the monetary field is enabled. Coverage and API-equivalent versus reported provenance remain available in Pulse; unknown amounts stay absent. A long model label cannot silently remove an enabled cost. Historical rows without monetary provenance retain `legacy/unknown`.
 
 ## Comparing totals
 

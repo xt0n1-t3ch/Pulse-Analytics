@@ -70,6 +70,6 @@ describe("unified provider selector", () => {
   });
   it("provides a single labelled native mobile selector", () => {
     const {getByRole}=render(AccessSourceBar); const select=getByRole("combobox",{name:"Provider"});
-    expect(select.querySelectorAll("option")).toHaveLength(4);
+    expect(Array.from(select.querySelectorAll("option")).map((option) => option.value)).toEqual(["claude", "codex", "opencode", "commandcode", "all"]);
   });
 });

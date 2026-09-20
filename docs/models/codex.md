@@ -114,3 +114,7 @@ Older and restricted IDs remain recognizable in the bundled catalog. Recognition
 6. For an authorized runtime catalog change, update the canonical owner first and run `scripts/check-model-catalog-parity.ps1`. Follow the [core integration contract](../maintainers/codex-core.md); do not silently change the pinned core.
 
 The snapshot documents exposed capacity. No maximum-size API request or account-wide availability test was run for this documentation refresh.
+
+## Unreleased session-cost behavior
+
+Per-event model/speed attribution and cache-write accounting now preserve useful session subtotals. Astra's observed request-level long-context multipliers were checked against its official model card on 2026-09-20. This focused correction does not refresh the older GPT-5.6 base-rate rows above. The immutable shared-core release pin stays unchanged; compositor validation uses an explicit local override.

@@ -1,5 +1,4 @@
 use std::io::{BufRead, BufReader, Write};
-#[cfg(windows)]
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
@@ -27,6 +26,7 @@ const RESPONSE_TIMEOUT: Duration = Duration::from_secs(8);
 /// not attach timestamps to `account/rateLimits/read` responses.
 #[derive(Clone, Debug)]
 pub struct AccountUsageReading {
+    pub account_email: Option<String>,
     pub account_plan_type: Option<String>,
     pub envelopes: Vec<RateLimitEnvelope>,
     pub individual_limits: Vec<IndividualSpendLimit>,
@@ -79,13 +79,44 @@ impl AccountUsageReading {
 /// would not make provider quota more accurate than this 30-second cadence.
 #[derive(Default)]
 pub struct AccountUsageManager {
+    read_only: bool,
+    home: Option<PathBuf>,
+    auth_modified: Option<std::time::SystemTime>,
     cached: Option<AccountUsageReading>,
     cached_at: Option<Instant>,
     last_attempt: Option<Instant>,
 }
 
 impl AccountUsageManager {
+    pub fn for_home(home: PathBuf, read_only: bool) -> Self {
+        Self {
+            home: Some(home),
+            read_only,
+            ..Self::default()
+        }
+    }
+
+    pub fn read_only() -> Self {
+        Self {
+            read_only: true,
+            ..Self::default()
+        }
+    }
+
     pub fn get_usage(&mut self, force: bool) -> Result<AccountUsageReading> {
+        let home = self
+            .home
+            .clone()
+            .unwrap_or_else(crate::codex::config::codex_home);
+        let modified = std::fs::metadata(home.join("auth.json"))
+            .and_then(|meta| meta.modified())
+            .ok();
+        if modified != self.auth_modified {
+            self.cached = None;
+            self.cached_at = None;
+            self.last_attempt = None;
+            self.auth_modified = modified;
+        }
         let now = Instant::now();
         if !force
             && let (Some(cached), Some(cached_at)) = (&self.cached, self.cached_at)
@@ -102,7 +133,7 @@ impl AccountUsageManager {
         }
 
         self.last_attempt = Some(now);
-        let reading = query_account_usage(RESPONSE_TIMEOUT)?;
+        let reading = query_account_usage(RESPONSE_TIMEOUT, self.read_only, &home)?;
         self.store_reading(reading.clone(), now);
         Ok(reading)
     }
@@ -147,8 +178,40 @@ pub fn fresh_envelopes(
         .collect()
 }
 
-fn query_account_usage(timeout: Duration) -> Result<AccountUsageReading> {
-    let mut child = codex_app_server_command()
+fn query_account_usage(
+    timeout: Duration,
+    read_only: bool,
+    home: &Path,
+) -> Result<AccountUsageReading> {
+    let isolated_home = read_only.then(tempfile::tempdir).transpose()?;
+    let external_auth = if read_only {
+        let bytes = std::fs::read(home.join("auth.json"))
+            .context("Codex local credentials are unavailable")?;
+        let auth: Value = serde_json::from_slice(&bytes)?;
+        let access = auth
+            .pointer("/tokens/access_token")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .context("Codex access token is unavailable")?;
+        let account = auth
+            .pointer("/tokens/account_id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .context("Codex account identity is unavailable")?;
+        Some(
+            serde_json::json!({"type": "chatgptAuthTokens", "accessToken": access, "chatgptAccountId": account}),
+        )
+    } else {
+        None
+    };
+    let mut command = codex_app_server_command();
+    if let Some(home) = &isolated_home {
+        command.env("CODEX_HOME", home.path());
+        command.args(["-c", "cli_auth_credentials_store=\"file\""]);
+    } else {
+        command.env("CODEX_HOME", home);
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -183,7 +246,7 @@ fn query_account_usage(timeout: Duration) -> Result<AccountUsageReading> {
             &serde_json::json!({
                 "id": 1,
                 "method": "initialize",
-                "params": { "clientInfo": { "name": "pulse", "version": env!("CARGO_PKG_VERSION") } }
+                "params": { "clientInfo": { "name": "pulse", "version": env!("CARGO_PKG_VERSION") }, "capabilities": { "experimentalApi": true } }
             }),
         )?;
         let initialized = read_response(&rx, 1, timeout)?;
@@ -195,6 +258,16 @@ fn query_account_usage(timeout: Duration) -> Result<AccountUsageReading> {
             &mut stdin,
             &serde_json::json!({ "method": "initialized", "params": {} }),
         )?;
+        if let Some(auth) = external_auth {
+            write_json_line(
+                &mut stdin,
+                &serde_json::json!({"id": 5, "method": "account/login/start", "params": auth}),
+            )?;
+            let response = read_response(&rx, 5, timeout)?;
+            if response.get("error").is_some() {
+                bail!("Codex read-only account connection is unavailable");
+            }
+        }
         write_json_line(
             &mut stdin,
             &serde_json::json!({ "id": 2, "method": ACCOUNT_RATE_LIMITS_METHOD, "params": null }),
@@ -206,15 +279,21 @@ fn query_account_usage(timeout: Duration) -> Result<AccountUsageReading> {
             &mut stdin,
             &serde_json::json!({"id": 3, "method": "account/read", "params": {"refreshToken": false}}),
         )?;
-        let account_plan_type = read_response(&rx, 3, timeout)
-            .ok()
-            .and_then(|response| account_plan_type(&response));
+        let account = read_response(&rx, 3, timeout).ok();
+        let account_plan_type = account.as_ref().and_then(account_plan_type);
+        let account_email = account
+            .as_ref()
+            .and_then(|value| value.pointer("/result/account/email"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         match usage {
             Ok(mut reading) => {
+                reading.account_email = account_email;
                 reading.account_plan_type = account_plan_type;
                 Ok(reading)
             }
             Err(_) if account_plan_type.is_some() => Ok(AccountUsageReading {
+                account_email,
                 account_plan_type,
                 envelopes: Vec::new(),
                 individual_limits: Vec::new(),
@@ -250,6 +329,13 @@ fn codex_app_server_command() -> Command {
         command.args(["app-server", "--stdio"]);
         command
     }
+}
+
+pub fn isolated_app_server_command(home: &Path) -> Command {
+    let mut command = codex_app_server_command();
+    command.env("CODEX_HOME", home);
+    command.args(["-c", "cli_auth_credentials_store=\"file\""]);
+    command
 }
 
 #[cfg(windows)]
@@ -410,6 +496,7 @@ pub fn parse_rate_limits_response(
     } = parse_account_rate_limits_response(response, observed_at)
         .map_err(|error| anyhow::anyhow!(error))?;
     Ok(AccountUsageReading {
+        account_email: None,
         account_plan_type: None,
         envelopes,
         individual_limits,
@@ -438,6 +525,7 @@ mod tests {
         windows: Vec<codex_presence_core::UsageWindow>,
     ) -> AccountUsageReading {
         AccountUsageReading {
+            account_email: None,
             account_plan_type: None,
             envelopes: vec![RateLimitEnvelope {
                 limit_id: Some("codex".to_string()),
@@ -611,6 +699,7 @@ mod tests {
                 .is_none()
         );
         let reading = AccountUsageReading {
+            account_email: None,
             account_plan_type: Some("prolite".into()),
             envelopes: Vec::new(),
             individual_limits: Vec::new(),

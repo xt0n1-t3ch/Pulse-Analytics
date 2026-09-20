@@ -1,4 +1,5 @@
 <script lang="ts">
+  import commandCodeMark from "../assets/rp/commandcode.png";
   import OpenCodeMark from "./OpenCodeMark.svelte";
   import codexMark from "../assets/rp/codex-app.png";
   import claudeMark from "../assets/rp/claude.svg";
@@ -18,11 +19,11 @@
     return route.availability === "available" && route.freshness === "fresh" ? "live" : "attention";
   }
   let entries = $derived.by<Entry[]>(() => {
-    const native: Entry[] = (["claude", "codex", "opencode"] as const).map((id) => {
-      const route = routes.find((route) => route.source.provider === id && (route.source.kind === `${id}_subscription` || (id === "opencode" && route.source.kind === "open_code_go")));
-      return { id, name: route ? accessSourceName(route.source) : id === "claude" ? "Claude" : id === "codex" ? "Codex" : "OpenCode",
-        subtitle: id === "opencode" ? route ? "Go subscription" : "Desktop · CLI · OpenChamber" : route?.source.proof !== "none" && route ? "Subscription" : "Local sessions",
-        image: id === "claude" ? claudeMark : id === "codex" ? codexMark : openCodeMark, route, state: routeState(route) };
+    const native: Entry[] = (["claude", "codex", "opencode", "commandcode"] as const).map((id) => {
+      const route = routes.find((route) => route.source.provider === id && (route.source.kind === `${id}_subscription` || (id === "commandcode" && route.source.kind === "command_code_subscription") || (id === "opencode" && route.source.kind === "open_code_go")));
+      return { id, name: route && route.source.proof !== "none" ? accessSourceName(route.source) : id === "claude" ? "Claude" : id === "codex" ? "Codex" : id === "commandcode" ? "Command Code" : "OpenCode",
+        subtitle: id === "opencode" ? route && route.source.proof !== "none" ? "Go subscription" : "Desktop · CLI · OpenChamber" : route?.source.proof !== "none" && route ? "Subscription" : "Local sessions",
+        image: id === "claude" ? claudeMark : id === "codex" ? codexMark : id === "commandcode" ? commandCodeMark : openCodeMark, route, state: routeState(route) };
     });
     for (const route of routes.filter((route) => route.source.kind.endsWith("_api"))) {
       native.push({ id: route.source.provider, name: accessSourceName(route.source), subtitle: "API", image: route.source.kind === "open_ai_api" ? openAiMark : claudeMark, route, state: routeState(route) });
@@ -30,7 +31,7 @@
     native.push({id:"all", name:"All providers", subtitle:"Combined analytics", image:null, state:"aggregate"});
     return native;
   });
-  const nativeIds = new Set<string>(["claude","codex","opencode"]);
+  const nativeIds = new Set<string>(["claude","codex","opencode","commandcode"]);
   async function selectSource(id: AnalyticsProviderScope): Promise<void> {
     if (pending) return;
     pending = true;

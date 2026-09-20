@@ -154,7 +154,7 @@
   );
 
   let liveInstances = $derived(scopedSessions.filter((session) => !session.is_idle));
-  let visibleInstances = $derived(liveInstances.length > 0 ? liveInstances : scopedSessions.filter((session) => session.provider !== "opencode"));
+  let visibleInstances = $derived(liveInstances.length > 0 ? liveInstances : scopedSessions.filter((session) => session.provider !== "opencode" && session.provider !== "commandcode"));
   $effect(() => {
     const instances = visibleInstances;
     if (!instances.some((session) => session.session_id === selectedFocusId)) {
@@ -172,7 +172,7 @@
   );
   let focusHistory = $derived(histSessions[0] ?? null);
   let focusHistoryFallback = $derived(
-    focusSession || $selectedAnalyticsProviderScope === "opencode" ? null : focusHistory,
+    focusSession || $selectedAnalyticsProviderScope === "opencode" || $selectedAnalyticsProviderScope === "commandcode" ? null : focusHistory,
   );
   let focusName = $derived(
     focusSession?.session_name
@@ -210,11 +210,12 @@
     if (focusCostBasis === "partial") {
       const priced = summary?.priced_sessions ?? 0;
       const sessions = summary?.total_sessions ?? 0;
+      if (focusSession) return focusSession.cost_source?.endsWith("api_equivalent") || (!focusSession.cost_source && focusSession.provider === "codex") ? "API-equivalent subtotal; some usage components are unavailable" : "Known subtotal; some usage components are unavailable";
       return priced > 0 && sessions > priced
         ? `Known subtotal · ${priced}/${sessions} sessions priced`
         : "Known subtotal · incomplete provider coverage";
     }
-    if (focusCostBasis === "exact") return "Exact total";
+    if (focusCostBasis === "exact") return focusSession?.provider === "codex" ? "API-equivalent estimate" : "Exact total";
     return "Exact total not reported";
   });
   let focusTokens = $derived(
@@ -369,7 +370,7 @@
       {:else}
         {#if focusSession || focusHistoryFallback}
         <MetricStrip>
-          {#if focusCostAvailable}<StatCard label="Reported value" value={fmtCost(focusCost)} />{/if}
+          {#if focusCostAvailable}<StatCard label={focusCostBasis === "partial" ? "Known subtotal" : focusSession?.cost_source?.endsWith("api_equivalent") || (!focusSession?.cost_source && focusSession?.provider === "codex") ? "API-equivalent estimate" : "Reported value"} value={fmtCost(focusCost)}>{#snippet extra()}<span class="cost-coverage-note" title={focusCostNote}>{focusCostBasis === "partial" ? "Partial coverage" : ""}</span>{/snippet}</StatCard>{/if}
           {#if focusCostAvailable && burnRate > 0}<StatCard label="Value per hour" value={`${fmtCost(burnRate)}/hr`} />{/if}
           <StatCard label="Session tokens" value={fmtTokens(focusTokens)} />
           {#if focusSession}<StatCard label="Output tokens" value={fmtTokens(focusSession.output_tokens)} />{/if}

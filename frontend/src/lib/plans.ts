@@ -8,6 +8,7 @@ export interface PlanOption {
 /** Provider-owned catalogs. Keeping these separate prevents a stale plan from
  * being rendered under the wrong product while a provider switch is settling. */
 const PLAN_CATALOGS: Record<Provider, readonly PlanOption[]> = {
+  commandcode: [],
   opencode: [],
   codex: [
     { value: "free", label: "Free" },

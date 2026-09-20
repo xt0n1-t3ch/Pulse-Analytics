@@ -1,6 +1,7 @@
 <script lang="ts">
   import OpenCodeMark from "./OpenCodeMark.svelte";
   import { IconShieldCheck } from "@tabler/icons-svelte";
+  import commandCodeMark from "../assets/rp/commandcode.png";
   import codexMark from "../assets/rp/codex-app.png";
   import claudeMark from "../assets/rp/claude.svg";
   import openCodeMark from "../assets/rp/opencode-v2.png";
@@ -41,6 +42,7 @@
   });
 
   function markFor(kind: AccessKind): string {
+    if (kind === "command_code_subscription" || kind === "command_code_local") return commandCodeMark;
     if (kind === "open_code_go") return openCodeMark;
     if (kind === "claude_subscription" || kind === "anthropic_api") return claudeMark;
     if (kind === "open_ai_api") return openAiMark;
@@ -60,6 +62,7 @@
   }
 
   function canonicalWindowLabel(window: AccessQuotaWindow): string {
+    if (window.key === "monthly" || window.key === "commandcode:monthly") return "Monthly limit";
     if (window.key.startsWith("opencode-go:") && window.label) return window.label;
     const minutes = window.window_minutes;
     if (minutes == null || !Number.isFinite(minutes) || minutes <= 0) {
@@ -85,7 +88,7 @@
 
   function modelWindowLabel(window: AccessQuotaWindow): string | null {
     const label = window.label?.trim();
-    const durationLabel = /^(?:weekly|[0-9]+(?:[ -]?(?:hour|day|week|month)s?|[hdw]))(?: limit)?$/i;
+    const durationLabel = /^(?:weekly|[0-9]+(?:[ -]?(?:hour|day|week|month)s?|[hdw]))(?: (?:limit|usage))?$/i;
     if (!label || label === canonicalWindowLabel(window) || durationLabel.test(label)) return null;
     return label;
   }

@@ -32,19 +32,46 @@ const MAX_CHUNK_COUNT: usize = 1024;
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 const MAX_DAYS: i64 = 3_660;
 const MAX_LIMIT: i64 = 500;
-const ALLOWED_ORIGINS: [&str; 2] = ["http://localhost:1420", "http://127.0.0.1:1420"];
+fn configured_port(name: &str, default: u16) -> io::Result<u16> {
+    match std::env::var(name) {
+        Ok(value) => value
+            .parse::<u16>()
+            .ok()
+            .filter(|port| *port >= 1024)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, format!("invalid {name}"))),
+        Err(std::env::VarError::NotPresent) => Ok(default),
+        Err(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid {name}"),
+        )),
+    }
+}
 
-fn bind_address() -> SocketAddr {
-    SocketAddr::from((Ipv4Addr::LOCALHOST, DEV_BRIDGE_PORT))
+fn bind_address() -> io::Result<SocketAddr> {
+    let bridge_port = configured_port("PULSE_DEV_BRIDGE_PORT", DEV_BRIDGE_PORT)?;
+    if bridge_port == configured_port("PULSE_DEV_PORT", 1420)? {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "UI and bridge ports must differ",
+        ));
+    }
+    Ok(SocketAddr::from((Ipv4Addr::LOCALHOST, bridge_port)))
 }
 
 fn allowed_origin(origin: Option<&str>) -> Option<&str> {
+    allowed_origin_for_port(origin, configured_port("PULSE_DEV_PORT", 1420).ok()?)
+}
+
+fn allowed_origin_for_port(origin: Option<&str>, port: u16) -> Option<&str> {
     match origin {
         None => Some(""),
-        Some(value) => ALLOWED_ORIGINS
-            .iter()
-            .find(|allowed| **allowed == value)
-            .copied(),
+        Some(value)
+            if value == format!("http://localhost:{port}")
+                || value == format!("http://127.0.0.1:{port}") =>
+        {
+            Some(value)
+        }
+        Some(_) => None,
     }
 }
 
@@ -85,6 +112,8 @@ struct InvokeRequest {
 
 #[derive(Debug, Default)]
 struct BridgeTarget {
+    account_id: Option<String>,
+    account_request: Option<crate::accounts::ConnectAccountRequest>,
     command: String,
     days: Option<i64>,
     session_id: Option<String>,
@@ -219,6 +248,14 @@ impl BridgeTarget {
         }
         let notification_limit = limit.map(|value| value as usize);
         Ok(Self {
+            account_id: optional_string("accountId")?,
+            account_request: args
+                .get("request")
+                .map(|request| {
+                    serde_json::from_value(request.clone())
+                        .map_err(|_| "Invalid account connection request".to_string())
+                })
+                .transpose()?,
             command,
             days,
             session_id: optional_string("sessionId")?,
@@ -289,6 +326,36 @@ fn dispatch(target: &BridgeTarget) -> Result<String, DispatchError> {
     let project = target.project.clone();
     let command = target.command.as_str();
     match command {
+        "list_accounts" => crate::accounts::list_accounts()
+            .map_err(DispatchError::Unavailable)
+            .and_then(serialize),
+        "discover_accounts" => crate::accounts::discover_accounts()
+            .map_err(DispatchError::Unavailable)
+            .and_then(serialize),
+        "connect_account" => {
+            let request = required(target.account_request.as_ref(), "request")?;
+            crate::accounts::connect_account(crate::accounts::ConnectAccountRequest {
+                account_id: request.account_id.clone(),
+                provider: request.provider.clone(),
+                method: request.method.clone(),
+                label: request.label.clone(),
+                path: request.path.clone(),
+                api_key: request.api_key.clone(),
+            })
+            .map_err(DispatchError::Unavailable)
+            .and_then(serialize)
+        }
+        "remove_account" | "refresh_account" | "cancel_account_connection" => {
+            let id = required(target.account_id.clone(), "accountId")?;
+            let result = match command {
+                "remove_account" => crate::accounts::remove_account(id),
+                "refresh_account" => crate::accounts::refresh_account(id),
+                _ => crate::accounts::cancel_account_connection(id),
+            };
+            result
+                .map_err(DispatchError::Unavailable)
+                .and_then(serialize)
+        }
         // Live state and settings are read from the same shared command layer
         // the native Tauri window uses. No fixture branch exists here.
         "get_health" => serialize(crate::commands::get_health()),
@@ -627,8 +694,9 @@ pub fn run() -> io::Result<()> {
 }
 
 fn run_with_token(token: &str) -> io::Result<()> {
-    let listener = TcpListener::bind(bind_address())?;
-    tracing::info!("dev bridge listening on http://127.0.0.1:{DEV_BRIDGE_PORT}");
+    let address = bind_address()?;
+    let listener = TcpListener::bind(address)?;
+    tracing::info!(%address, "dev bridge listening");
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
@@ -965,10 +1033,29 @@ mod tests {
     #[test]
     fn bridge_binds_only_to_ipv4_loopback() {
         assert_eq!(
-            bind_address().ip(),
+            bind_address().expect("valid address").ip(),
             std::net::IpAddr::V4(Ipv4Addr::LOCALHOST)
         );
-        assert_eq!(bind_address().port(), DEV_BRIDGE_PORT);
+        assert_eq!(
+            bind_address().expect("valid address").port(),
+            DEV_BRIDGE_PORT
+        );
+    }
+
+    #[test]
+    fn custom_port_only_accepts_its_exact_loopback_origins() {
+        assert_eq!(
+            allowed_origin_for_port(Some("http://localhost:1430"), 1430),
+            Some("http://localhost:1430")
+        );
+        for origin in [
+            "http://localhost:1420",
+            "http://localhost:1430.evil.example",
+            "http://127.0.0.1:1431",
+            "https://localhost:1430",
+        ] {
+            assert_eq!(allowed_origin_for_port(Some(origin), 1430), None);
+        }
     }
 
     #[test]

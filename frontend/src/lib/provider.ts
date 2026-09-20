@@ -6,7 +6,7 @@ import {
     type ProviderCopyInfo,
 } from "./api";
 
-export type Provider = "claude" | "codex" | "opencode";
+export type Provider = "claude" | "codex" | "opencode" | "commandcode";
 
 export interface ProviderProfile {
     id: Provider;
@@ -35,6 +35,12 @@ export interface ProviderProfile {
 }
 
 const BASE: Record<Provider, ProviderProfile> = {
+    commandcode: {
+        id: "commandcode", label: "Command Code", productName: "Command Code", tagline: "Command Code Analytics",
+        accent: "var(--text-primary)", defaultAssetKey: "commandcode", supportsExtraUsage: false,
+        sessionsPath: "~/.commandcode/projects/**/*.jsonl", instructionFile: "AGENTS.md",
+        homeDir: "~/.commandcode", fixLabel: "Fix with Command Code", globalStateSource: "Local transcripts and account API",
+    },
     opencode: {
         id: "opencode", label: "OpenCode", productName: "OpenCode", tagline: "OpenCode Analytics",
         accent: "var(--text-primary)", defaultAssetKey: "opencode-v2", supportsExtraUsage: false,
@@ -95,8 +101,8 @@ const NEUTRAL_PROFILE: ProviderProfile = {
 const STORAGE_KEY = "pulse-provider";
 const storage = globalThis.localStorage;
 const stored = storage?.getItem(STORAGE_KEY) ?? null;
-const hasStoredProvider = stored === "codex" || stored === "claude" || stored === "opencode";
-const initialProvider: Provider = stored === "opencode" ? "opencode" : stored === "codex" ? "codex" : "claude";
+const hasStoredProvider = stored === "codex" || stored === "claude" || stored === "opencode" || stored === "commandcode";
+const initialProvider: Provider = stored === "commandcode" ? "commandcode" : stored === "opencode" ? "opencode" : stored === "codex" ? "codex" : "claude";
 
 export const provider: Writable<Provider> = writable<Provider>(initialProvider);
 export const providerCopy: Writable<ProviderCopyInfo | null> = writable(null);
@@ -192,7 +198,7 @@ void (async () => {
     try {
         const info = await getActiveProvider();
         if (bootstrapGeneration !== providerGeneration) return;
-        const p = info.active_provider === "opencode" ? "opencode" : info.active_provider === "codex" ? "codex" : "claude";
+        const p = info.active_provider === "commandcode" ? "commandcode" : info.active_provider === "opencode" ? "opencode" : info.active_provider === "codex" ? "codex" : "claude";
         confirmedProvider = p;
         publishProvider(p);
         const copy = await getProviderCopy();

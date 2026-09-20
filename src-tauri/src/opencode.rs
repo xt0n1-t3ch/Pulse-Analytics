@@ -27,6 +27,7 @@ pub fn session_info(session: &Session) -> SessionInfo {
         },
         cost: session.cost.unwrap_or(0.0),
         cost_available: session.cost.is_some(),
+        cost_source: "opencode_reported".into(),
         cost_basis: if session.cost.is_some() {
             "exact"
         } else {

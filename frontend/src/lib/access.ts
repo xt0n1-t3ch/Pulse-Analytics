@@ -4,9 +4,11 @@ export type AccessKind =
   | "claude_subscription"
   | "anthropic_api"
   | "open_code_local"
-  | "open_code_go";
+  | "open_code_go"
+  | "command_code_local"
+  | "command_code_subscription";
 
-export type AccessProvider = "codex" | "claude" | "openai" | "anthropic" | "opencode";
+export type AccessProvider = "codex" | "claude" | "openai" | "anthropic" | "opencode" | "commandcode";
 export type AnalyticsProviderScope = AccessProvider | "opencode" | "all";
 export type AccessProof =
   | "authenticated_probe"
@@ -98,6 +100,8 @@ const KIND_LABELS: Record<
   AccessKind,
   { product: string; access: "Subscription" | "API" | "Local" }
 > = {
+  command_code_local: { product: "Command Code", access: "Local" },
+  command_code_subscription: { product: "Command Code", access: "Subscription" },
   open_code_go: { product: "OpenCode Go", access: "Subscription" },
   open_code_local: { product: "OpenCode", access: "Local" },
   codex_subscription: { product: "Codex", access: "Subscription" },
