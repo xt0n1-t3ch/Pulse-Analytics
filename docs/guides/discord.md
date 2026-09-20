@@ -108,3 +108,7 @@ OpenCode uses Application ID `1545590419763761303` and image key `opencode-v2`. 
 CLI and Desktop both use application `1551026507806281829`, the name **Command Code**, and asset key `commandcode`. The public inventory and a local diagnostic acknowledgement resolved asset `1551028194629521428`. See [Command Code](command-code.md) for artwork provenance and acceptance limits.
 
 Codex publishes an enabled known subtotal as currency only. Pulse retains coverage and monetary provenance. Unknown cost remains absent. The shared compositor in `codex-presence-core` 2.0.1 reserves room for an enabled cost without changing field privacy settings.
+
+### Command Code idle presence
+
+With Command Code selected and Rich Presence enabled, Pulse publishes its own name and artwork even when no session is active. The status is Idle, without historical session fields or an invented session timer. Disabling the switch clears presence. A disconnected Discord client is shown as waiting, not as a successful idle broadcast.

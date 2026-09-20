@@ -395,11 +395,14 @@
    * "Broadcasting" would contradict the IPC diagnostic beside it.
    */
   let broadcastState = $derived(
-    !discordEnabled ? "paused" : ($provider === "opencode" || $provider === "commandcode") && scopedPresencePreview?.has_session === false ? "idle" : ipcConnected ? "live" : "waiting",
+    !discordEnabled ? "paused"
+      : scopedPresencePreview?.has_session === false && ($provider === "opencode" || ($provider === "commandcode" && ipcConnected)) ? "idle"
+      : ipcConnected ? "live" : "waiting",
   );
+  let idlePublished = $derived($provider === "commandcode" && broadcastState === "idle" && ipcConnected);
   let broadcastLabel = $derived(
     !discordEnabled ? "Paused"
-      : broadcastState === "idle" ? "OpenCode is idle"
+      : broadcastState === "idle" ? `${presenceAppName} is idle`
       : $discordSettings?.publisher === "external_daemon" ? "Desktop app controls presence"
       : broadcastState === "live" ? "Broadcasting"
       : "Waiting for Discord",
@@ -464,7 +467,7 @@
            stay quiet rather than competing as three identical pills. -->
       <span
         class="hm-state"
-        class:live={broadcastState === "live"}
+        class:live={broadcastState === "live" || idlePublished}
         class:waiting={broadcastState === "waiting"}
         title={broadcastState === "waiting"
           ? "Rich Presence is enabled but Discord IPC is not connected"
@@ -472,7 +475,7 @@
       >
         <span
           class="hm-beacon"
-          class:live={broadcastState === "live"}
+          class:live={broadcastState === "live" || idlePublished}
           class:waiting={broadcastState === "waiting"}
         ></span>
         {broadcastLabel}
@@ -506,7 +509,10 @@
             <span class="bt-sub">
               {broadcastState === "live"
                 ? `Publishing your ${presenceAppName} session to Discord`
-                : discordEnabled ? `Ready to publish ${presenceAppName} when this instance owns Discord` : "Presence is paused"}
+                : idlePublished ? `Publishing idle ${presenceAppName} status to Discord`
+                : !discordEnabled ? "Presence is paused"
+                : broadcastState === "idle" ? `Waiting for an active ${presenceAppName} session`
+                : "Waiting for Discord to connect"}
             </span>
           </span>
         </label>

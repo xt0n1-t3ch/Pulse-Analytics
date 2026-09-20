@@ -4,6 +4,20 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.9.2] - 2026-09-20
+
+Patch correction for Command Code Rich Presence. The database remains schema 7, provider configuration is unchanged, and the immutable shared core stays at 2.0.1. Rollback to 1.9.1 needs only its package; rollback to 1.8.2 still requires the pre-schema-7 database backup. GitHub macOS packages have no Apple Developer ID signature or notarization.
+
+### Fixed
+
+- Keep Command Code visible on Discord while idle when it is the selected broadcaster and Rich Presence is enabled. Use the same application and artwork for CLI and Desktop. Clear presence when disabled or when another broadcaster is selected.
+- Exclude historical session fields and session elapsed time from idle activity. Active sessions still publish their current data with existing privacy controls.
+- Show Command Code's own idle label instead of "OpenCode is idle". Distinguish a published idle activity from a disconnected Discord client and remove the misleading publisher-ownership copy.
+
+### Tests
+
+- Cover idle, stale/completed sessions, disabled publication, provider labels and disconnected states. Verify the production idle publisher with real Discord acknowledgement and native UI toggle-off/toggle-on checks.
+
 ## [1.9.1] - 2026-09-20
 
 Pulse 1.9.1 delivers the compatible 1.9 feature line: it adds Accounts, the Command Code provider and Codex cost coverage without removing existing behavior. The analytics database migrates additively to schema 7. Claude config schema 6 and Codex presence config schema 13 are unchanged. The shared `codex-presence-core` pin moves to 2.0.1 at `0caece60a71eb657d7b829e3b6c7c4896a0a536c` (canonical v1.11.2), which publishes per-event Codex cost accumulation and the reserved compositor cost space.

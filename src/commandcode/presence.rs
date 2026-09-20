@@ -14,7 +14,7 @@ pub fn lines(
 ) -> PresenceLines {
     let Some(session) = session else {
         return PresenceLines {
-            details: "No active session".into(),
+            details: "Idle".into(),
             state: "Waiting for Command Code".into(),
         };
     };
@@ -58,11 +58,38 @@ pub fn lines(
     compose_presence(&config.layout, &values, NAME, "Command Code session")
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Payload {
+    details: String,
+    state: String,
+    started_at: Option<i64>,
+}
+
+fn desired_payload(
+    session: Option<&Session>,
+    config: &Config,
+    quotas: Option<&str>,
+    credits: Option<&str>,
+    now: i64,
+) -> Option<Payload> {
+    if !config.enabled {
+        return None;
+    }
+    let session = session.filter(|session| session.is_active(now));
+    let lines = lines(session, config, quotas, credits);
+    Some(Payload {
+        details: lines.details,
+        state: lines.state,
+        started_at: session
+            .and_then(|session| (session.created > 0).then_some(session.created / 1000)),
+    })
+}
+
 #[derive(Default)]
 pub struct Publisher {
     client: Option<DiscordIpcClient>,
     client_id: String,
-    sent: Option<(String, String, i64)>,
+    sent: Option<Payload>,
     last_sent: Option<Instant>,
     last_attempt: Option<Instant>,
     status: String,
@@ -86,16 +113,15 @@ impl Publisher {
         quotas: Option<&str>,
         credits: Option<&str>,
     ) {
-        if !config.enabled {
+        let Some(payload) = desired_payload(
+            session,
+            config,
+            quotas,
+            credits,
+            chrono::Utc::now().timestamp_millis(),
+        ) else {
             self.shutdown();
             self.status = "Disabled".into();
-            return;
-        }
-        let Some(session) =
-            session.filter(|session| session.is_active(chrono::Utc::now().timestamp_millis()))
-        else {
-            self.shutdown();
-            self.status = "Waiting for Command Code session".into();
             return;
         };
         if self.client_id != config.client_id {
@@ -118,8 +144,6 @@ impl Publisher {
             }
             self.client = Some(client);
         }
-        let lines = lines(Some(session), config, quotas, credits);
-        let payload = (lines.details, lines.state, session.created / 1000);
         if self.sent.as_ref() == Some(&payload)
             && self
                 .last_sent
@@ -127,11 +151,13 @@ impl Publisher {
         {
             return;
         }
-        let activity = Activity::new()
-            .details(&payload.0)
-            .state(&payload.1)
-            .assets(Assets::new().large_image(ASSET_KEY).large_text(NAME))
-            .timestamps(Timestamps::new().start(payload.2));
+        let mut activity = Activity::new()
+            .details(&payload.details)
+            .state(&payload.state)
+            .assets(Assets::new().large_image(ASSET_KEY).large_text(NAME));
+        if let Some(started_at) = payload.started_at {
+            activity = activity.timestamps(Timestamps::new().start(started_at));
+        }
         if self
             .client
             .as_mut()
@@ -150,6 +176,117 @@ impl Publisher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "Publishes real idle presence to local Discord; stop other Pulse publishers first"]
+    fn local_discord_acknowledges_idle_from_the_production_publisher() {
+        let output =
+            std::env::var("PULSE_COMMANDCODE_IDLE_PROOF").expect("Explicit proof path required");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = (|| -> anyhow::Result<serde_json::Value> {
+                let mut publisher = Publisher::default();
+                let mut config = Config::default();
+                publisher.update(None, &config, None, None);
+                anyhow::ensure!(publisher.status() == "Connected", "Idle did not connect");
+                let (_, accepted) = publisher.client.as_mut().unwrap().recv()?;
+                config.enabled = false;
+                publisher.update(None, &config, None, None);
+                anyhow::ensure!(
+                    publisher.client.is_none() && publisher.status() == "Disabled",
+                    "Disabled publisher remained connected"
+                );
+                anyhow::ensure!(
+                    accepted["cmd"] == "SET_ACTIVITY" && accepted["evt"] != "ERROR",
+                    "Discord rejected idle presence"
+                );
+                anyhow::ensure!(
+                    accepted["data"]["name"] == NAME,
+                    "Incorrect application name"
+                );
+                anyhow::ensure!(
+                    accepted["data"]["application_id"] == super::super::CLIENT_ID,
+                    "Incorrect application identity"
+                );
+                anyhow::ensure!(accepted["data"]["details"] == "Idle", "Missing idle state");
+                anyhow::ensure!(
+                    accepted["data"]["timestamps"].is_null(),
+                    "Idle retained an elapsed session timer"
+                );
+                Ok(
+                    serde_json::json!({"application_id": accepted["data"]["application_id"], "name": accepted["data"]["name"], "details": accepted["data"]["details"], "state": accepted["data"]["state"], "assets": accepted["data"]["assets"], "idle_acknowledged":true,"disabled_disconnected":true,"timer_absent":true}),
+                )
+            })();
+            let _ = tx.send(result);
+        });
+        let result = rx
+            .recv_timeout(Duration::from_secs(15))
+            .expect("Discord IPC timed out")
+            .expect("Idle publisher proof failed");
+        std::fs::write(output, serde_json::to_vec_pretty(&result).unwrap()).unwrap();
+        println!("{result}");
+    }
+    #[test]
+    fn enabled_idle_presence_has_no_session_values_or_elapsed_timer() {
+        let config = Config::default();
+        let now = 1_789_920_000_000;
+        let idle =
+            desired_payload(None, &config, Some("5h 12% used"), Some("Credits 20"), now).unwrap();
+        assert_eq!(idle.details, "Idle");
+        assert_eq!(idle.state, "Waiting for Command Code");
+        assert_eq!(idle.started_at, None);
+        let completed = Session {
+            project: "old-project".into(),
+            model: "old-model".into(),
+            created: now - 60_000,
+            updated: now,
+            activity: "Waiting for input".into(),
+            known_cost: Some(25.0),
+            ..Default::default()
+        };
+        assert_eq!(
+            desired_payload(Some(&completed), &config, None, None, now),
+            Some(idle.clone())
+        );
+        let stale = Session {
+            updated: now - 180_000,
+            activity: "Thinking".into(),
+            ..completed.clone()
+        };
+        assert_eq!(
+            desired_payload(Some(&stale), &config, None, None, now),
+            Some(idle)
+        );
+        let active = Session {
+            activity: "Thinking".into(),
+            ..completed
+        };
+        assert_eq!(
+            desired_payload(Some(&active), &config, None, None, now)
+                .unwrap()
+                .started_at,
+            Some(active.created / 1000)
+        );
+    }
+
+    #[test]
+    fn disabling_presence_clears_both_active_and_idle_publication() {
+        let config = Config {
+            enabled: false,
+            ..Default::default()
+        };
+        let now = 1_789_920_000_000;
+        let active = Session {
+            created: now,
+            updated: now,
+            activity: "Thinking".into(),
+            ..Default::default()
+        };
+        assert_eq!(desired_payload(None, &config, None, None, now), None);
+        assert_eq!(
+            desired_payload(Some(&active), &config, None, None, now),
+            None
+        );
+    }
     #[test]
     fn byok_sessions_do_not_inherit_command_subscription_allowances() {
         let config = Config::default();
