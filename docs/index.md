@@ -2,9 +2,9 @@
 
 # ![](../assets/icons/map.svg) Pulse documentation
 
-Local analytics and Discord Rich Presence for **Claude Code, Codex and OpenCode**. Find a task, understand its data, then follow the relevant implementation or release contract.
+Local analytics and Discord Rich Presence for **Claude Code, Codex, OpenCode and Command Code**. Find a task, understand its data, then follow the relevant implementation or release contract.
 
-**Pulse v1.8.2** · **Docs refreshed September 5, 2026**
+**Published: Pulse v1.9.0** · **Previous release: v1.8.2** · **Docs refreshed September 19, 2026**
 
 [Start here](#start-here) · [Models and analytics](#models-and-analytics) · [Build and maintain](#build-and-maintain) · [Version](#version)
 
@@ -14,6 +14,8 @@ Local analytics and Discord Rich Presence for **Claude Code, Codex and OpenCode*
 | --- | --- |
 | Install Pulse or check my operating system | [Install](../README.md#install) · [Platform support](maintainers/platforms.md) |
 | Connect Claude, Codex or OpenCode | [Use Pulse](../README.md#use-pulse) · [Plans and access](guides/plans.md) |
+| Manage multiple provider accounts | [Accounts](guides/accounts.md) |
+| Connect Command Code CLI and Desktop | [Command Code](guides/command-code.md) |
 | Configure OpenCode sessions and Go limits | [OpenCode and Astra](guides/opencode.md) |
 | Choose what Discord shows | [Discord controls](../README.md#discord-controls) · [Assets and application IDs](guides/discord.md) |
 | Understand notifications or updates | [Notifications](guides/notifications.md) · [Update checks](guides/updates.md) |
@@ -43,13 +45,16 @@ Local analytics and Discord Rich Presence for **Claude Code, Codex and OpenCode*
 | Quality and security | [Test map](../tests/index.md) · [Dependency audit](maintainers/dependencies.md) |
 | Releases | [Release procedure](maintainers/releases.md) · [Six-platform acceptance](maintainers/platforms.md) |
 
-The immutable v1.8.2 release includes all six platform/architecture targets, checksums and signed updater payloads. Native package checks passed; installed-GUI acceptance is separate. See [current platform status](maintainers/platforms.md#current-release-status).
+The immutable v1.9.0 release includes all six platform/architecture targets, checksums and signed updater payloads. Native package checks passed; installed-GUI acceptance is recorded separately per operating system. See [current platform status](maintainers/platforms.md#current-release-status).
+
+Version **v1.9.0** adds Accounts, the Command Code provider, native allowances and promoted Codex per-event cost. It is published through the six-platform Release workflow with signed updater artifacts. GitHub macOS packages carry no Apple Developer ID signature or notarization.
 
 ## Version
 
-- Current app: **v1.8.2**
-- Shared core: **2.0.0**, immutable v1.10.3 pin
-- Schema: **Claude config v6 / Codex config v13 / Pulse analytics DB v6**
+- Latest published app: **v1.9.0**
+- Version owners in this checkout: **v1.9.0**
+- Shared core: **2.0.1**, immutable v1.11.2 pin
+- Schema: **Claude config v6 / Codex config v13 / Pulse analytics DB v6 in 1.8.2; v7 in 1.9.0**
 - Version owners: [release contract](../scripts/release-contract.json) and [upstream manifest](../src/codex/UPSTREAM.json).
 - Windows WSL discovery is opt-in through `CC_PRESENCE_INCLUDE_WSL=1`.
 

@@ -528,7 +528,7 @@ dependencies = [
 
 [[package]]
 name = "cc-discord-presence"
-version = "1.8.2"
+version = "1.9.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -657,8 +657,8 @@ checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
 name = "codex-presence-core"
-version = "2.0.0"
-source = "git+https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence?rev=9d20ffdb1c4ec6fa37edc00952badd041ec5bc02#9d20ffdb1c4ec6fa37edc00952badd041ec5bc02"
+version = "2.0.1"
+source = "git+https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence?rev=0caece60a71eb657d7b829e3b6c7c4896a0a536c#0caece60a71eb657d7b829e3b6c7c4896a0a536c"
 dependencies = [
  "chrono",
  "serde",
@@ -3374,12 +3374,13 @@ dependencies = [
 
 [[package]]
 name = "pulse"
-version = "1.8.2"
+version = "1.9.0"
 dependencies = [
  "anyhow",
  "cc-discord-presence",
  "chrono",
  "codex-presence-core",
+ "dirs",
  "fs2",
  "rusqlite",
  "serde",
@@ -3728,9 +3729,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.36"
+version = "0.23.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c665f33d38cea657d9614f766881e4d510e0eda4239891eea56b4cadcf01801b"
+checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
 dependencies = [
  "log",
  "once_cell",
@@ -3791,9 +3792,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.13"
+version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61c429a8649f110dddef65e2a5ad240f747e85f7758a6bccc7e5777bd33f756e"
+checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
 dependencies = [
  "ring",
  "rustls-pki-types",

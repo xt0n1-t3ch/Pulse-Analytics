@@ -1,18 +1,18 @@
 {
   "schema_version": 3,
   "repository": "https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence",
-  "canonical_release": "v1.10.3",
-  "canonical_commit": "9d20ffdb1c4ec6fa37edc00952badd041ec5bc02",
+  "canonical_release": "v1.11.2",
+  "canonical_commit": "0caece60a71eb657d7b829e3b6c7c4896a0a536c",
   "integration": {
     "mode": "git-rev",
     "package": "codex-presence-core",
-    "version": "2.0.0",
-    "rev": "9d20ffdb1c4ec6fa37edc00952badd041ec5bc02",
+    "version": "2.0.1",
+    "rev": "0caece60a71eb657d7b829e3b6c7c4896a0a536c",
     "promotion_mode": "git-rev",
     "promotion_status": "promoted"
   },
   "compatibility": {
-    "pulse": "1.8.2",
+    "pulse": "1.9.0",
     "presence_config_schema": 13,
     "usage_snapshot_revision": 1,
     "app_snapshot_revision": 1
@@ -38,8 +38,10 @@
       "gpt-6-astra"
     ],
     "behavior": [
-      "omit unknown account plan from Discord model label"
+      "omit unknown account plan from Discord model label",
+      "read-only linked-account app-server probes"
     ],
-    "catalog_owner": "Codex-Discord-Rich-Presence/src/model_catalog.json"
+    "catalog_owner": "Codex-Discord-Rich-Presence/src/model_catalog.json",
+    "core_override": "none; the pinned canonical release v1.11.2 provides per-event cost accumulation, currency-only known subtotals, preserved cost coverage and the reserved compositor cost space"
   }
 }
