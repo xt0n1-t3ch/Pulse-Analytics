@@ -6,7 +6,7 @@ Pulse releases use annotated tags, exact commits and immutable assets. The norma
 
 `scripts/release-contract.json` owns the product, core, configuration and database contract. Tags must agree with Cargo, npm, lockfiles, Tauri, README, the docs index, changelog and `src/codex/UPSTREAM.json`.
 
-Pulse 1.9.0 consumes `codex-presence-core` 2.0.1 through the full Git revision recorded in `src/codex/UPSTREAM.json`, promoted from the upstream v1.11.2 release at commit `0caece60a71eb657d7b829e3b6c7c4896a0a536c`. Path dependencies and mismatched pins fail the release contract. The published v1.8.2 release used core 2.0.0 from upstream v1.10.3.
+Pulse 1.9.1 consumes `codex-presence-core` 2.0.1 through the full Git revision recorded in `src/codex/UPSTREAM.json`, promoted from the upstream v1.11.2 release at commit `0caece60a71eb657d7b829e3b6c7c4896a0a536c`. Path dependencies and mismatched pins fail the release contract. The published v1.8.2 release used core 2.0.0 from upstream v1.10.3.
 
 ## Commit and pull request checks
 
@@ -66,19 +66,10 @@ A local installation is a development check, not a release step. If the host has
 
 For 1.8.2, verify the provider-neutral storage migration before promotion. Keep legacy files, check a WAL database with FTS5, confirm history and preferences in the real consumer, and verify that test runs do not write to the user data directory. Follow [storage and recovery](../guides/storage.md).
 
-## Unreleased Accounts and Command Code
+## Accounts and Command Code upgrade
 
-Accounts and the fourth provider are compatible feature additions. Their additive SQLite migration is schema 7. Every version owner in this checkout now reads 1.9.0, which is the prepared minor version. This is a source-tree preparation, not a replacement for the published 1.8.2 release. Keep the pre-v7 backup for rollback.
+Accounts and the fourth provider are compatible additions in 1.9.1. Their additive SQLite migration is schema 7. Before replacing an installed package, close that exact Pulse instance and take a consistent SQLite backup, including committed WAL data. Retain its configuration and executable. Pulse 1.8.2 cannot open the newer database: rollback requires the pre-v7 backup and the previous package together.
 
-New cost-compositor behavior currently uses an explicit local canonical-core override during validation. A release must first promote an authorized immutable core containing that behavior. Do not publish the local path override or reuse an existing release tag.
+The published canonical v1.11.2 core contains per-event Codex cost accumulation and reserved monetary-field space. Pulse pins core 2.0.1 at the immutable revision listed above. The release must use that pin, not the local source override used during earlier development.
 
-### Remaining gates for a 1.9.0 release
-
-A local Windows build or installation does not satisfy any of these gates:
-
-1. Promote the canonical compositor work in Codex-Discord-Rich-Presence to an authorized immutable release, then update the core version, `rev`, `canonical_release` and `canonical_commit` in `src/codex/UPSTREAM.json`, `scripts/release-contract.json` and both Cargo manifests. Until then the pinned build does not contain the new reserved-cost compositor.
-2. Move the reviewed `Unreleased` entries into a `## [1.9.0] - <date>` changelog section. `scripts/check-release-contract.ps1` requires that section; with the current preparation it stops at `CHANGELOG.md has no section for 1.9.0`, which is the expected state while the work stays under `Unreleased`. All other version surfaces and documentation surfaces already pass that script.
-3. Obtain explicit authorization for the commit, the push, and the annotated `v1.9.0` tag on the reviewed commit, which must be reachable from `origin/main`.
-4. Dispatch Release with `publish_release=false` and pass all six native targets.
-5. Complete the [native runtime checklist](platforms.md#native-runtime-acceptance) on real hosts, including the macOS and Linux account flows that remain unverified.
-6. Configure the updater signing secret, then dispatch with `publish_release=true` and verify six updater entries, the required installers, checksums and the Windows SPDX files.
+Keep package publication and installed-runtime acceptance separate. Record the downloaded installer hash, installed executable hash, embedded UI origin, database migration and real native provider results. See the [platform acceptance record](platforms.md#account-and-command-code-acceptance-in-191) for completed checks and remaining gaps. Never move an existing published tag to add later evidence or documentation.

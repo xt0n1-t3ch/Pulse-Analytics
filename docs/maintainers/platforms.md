@@ -65,14 +65,14 @@ Record the OS version, architecture, tag commit, installer SHA-256, result and k
 - [Tauri macOS signing and notarization](https://v2.tauri.app/distribute/sign/macos/)
 - [Release workflow](../../.github/workflows/release.yml), [release contract](../../scripts/release-contract.json), [Tauri configuration](../../src-tauri/tauri.conf.json)
 
-## Account and Command Code acceptance in 1.9.0
+## Account and Command Code acceptance in 1.9.1
 
 The Windows development build rendered real Accounts data through native Tauri IPC with the browser proxy unused. The native folder-picker affordance was visible. An isolated Command Code key connection passed authentication, same-ID reconnection, protected-profile access checks and removal without changing the source credential.
 
 The shared reader accepted real CLI and Desktop history without duplicate IDs. Local Discord acknowledged the requested Command Code name and published asset ID, then acknowledged the diagnostic clear. Discord visual rendering, fresh browser OAuth completion for every provider, and native macOS/Linux account flows remain separate acceptance gaps. No installed binary was replaced.
 
-v1.9.0 is published through the manual six-platform Release workflow. Publication requires native Clippy and tests on each of the six runners, the complete installer set per platform, both Windows SPDX documents, `SHA256SUMS.txt`, and `latest.json` with a signed updater payload for `windows-x86_64`, `windows-aarch64`, `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64` and `linux-aarch64`. The workflow refuses to publish when any of those checks fails, and it never rewrites an existing immutable release.
+v1.9.1 is published through the manual six-platform Release workflow. Publication requires native Clippy and tests on each of the six runners, the complete installer set per platform, both Windows SPDX documents, `SHA256SUMS.txt`, and `latest.json` with a signed updater payload for `windows-x86_64`, `windows-aarch64`, `darwin-aarch64`, `darwin-x86_64`, `linux-x86_64` and `linux-aarch64`. The workflow refuses to publish when any of those checks fails, and it never rewrites an existing immutable release.
 
-Native job success is build and test evidence, not installed-application evidence. Installed-runtime acceptance for 1.9.0 is recorded on Windows x64 only. Installed macOS and Linux runtime, fresh browser OAuth completion for every provider, and Discord visual rendering of the Command Code asset remain open acceptance gaps for this version.
+Native job success is build and test evidence, not installed-application evidence. Installed-runtime acceptance for 1.9.1 is recorded on Windows x64 only. Installed macOS and Linux runtime, fresh browser OAuth completion for every provider, and Discord visual rendering of the Command Code asset remain open acceptance gaps for this version.
 
 A local development installation may use a scratch Tauri configuration with `createUpdaterArtifacts=false` when no updater signing key exists on the host. That path produces no updater artifact and no signature, so it cannot satisfy the publication gate, and it leaves the checked-in `src-tauri/tauri.conf.json` unchanged. Before you replace an installed executable, record its path, file version and SHA-256, and keep the previous package for rollback.

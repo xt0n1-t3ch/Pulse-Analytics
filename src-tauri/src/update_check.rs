@@ -1,11 +1,12 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-const REPO_RELEASES_URL: &str =
+const REPO_RELEASES_URL: &str = "https://github.com/xt0n1-t3ch/Pulse-Analytics/releases";
+const LEGACY_RELEASES_URL: &str =
     "https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases";
 const LATEST_RELEASE_API_URL: &str =
-    "https://api.github.com/repos/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/latest";
-const USER_AGENT: &str = "Pulse-Claude-Code-Analytics";
+    "https://api.github.com/repos/xt0n1-t3ch/Pulse-Analytics/releases/latest";
+const USER_AGENT: &str = "Pulse-Analytics";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct AppUpdateAsset {
@@ -170,8 +171,9 @@ fn platform_for_asset(name: &str) -> Option<String> {
 }
 
 fn is_allowed_release_url(url: &str) -> bool {
-    url == REPO_RELEASES_URL
-        || url.starts_with("https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/")
+    [REPO_RELEASES_URL, LEGACY_RELEASES_URL]
+        .iter()
+        .any(|base| url == *base || url.starts_with(&format!("{base}/")))
 }
 
 fn open_url_with_os(url: &str) -> Result<(), String> {
@@ -266,6 +268,29 @@ mod tests {
         assert!(!is_allowed_release_url(
             "https://example.com/releases/tag/v1.3.0"
         ));
+    }
+
+    #[test]
+    fn release_url_allowlist_accepts_renamed_repository_without_broadening_scope() {
+        for base in [REPO_RELEASES_URL, LEGACY_RELEASES_URL] {
+            assert!(is_allowed_release_url(base));
+            assert!(is_allowed_release_url(&format!("{base}/tag/v1.9.1")));
+            assert!(is_allowed_release_url(&format!(
+                "{base}/download/v1.9.1/pulse.exe"
+            )));
+            assert!(!is_allowed_release_url(&format!("{base}-other/tag/v1.9.1")));
+        }
+        assert!(!is_allowed_release_url(
+            "https://github.com/another-owner/Pulse-Analytics/releases/tag/v1.9.1"
+        ));
+        assert!(!is_allowed_release_url(
+            "https://github.com.evil.test/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.9.1"
+        ));
+        assert!(!is_allowed_release_url(
+            "http://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.9.1"
+        ));
+        let info = update_info_from_release("1.8.2", release("v1.9.1"));
+        assert!(is_allowed_release_url(&info.release_url));
     }
 
     #[test]

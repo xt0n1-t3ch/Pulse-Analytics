@@ -111,7 +111,7 @@ the [fixtures/ChartStub.svelte](fixtures/ChartStub.svelte) stub so canvas-bound 
 | [Sessions.test.ts](components/Sessions.test.ts) | `Sessions` (view) | flat KPI strip labels, live session rows + "2 active", history table loaded from the api layer |
 | [Costs.test.ts](components/Costs.test.ts) | `Costs` (view) | Subscription Value Ledger for unavailable money, exact/partial coverage boundaries, token mix/trend, budget cockpit for known spend, Cost-by-Type reconciliation, window-aggregate KPIs, project refetch, and live-snapshot refresh |
 | [Heatmap.test.ts](components/Heatmap.test.ts) | `Heatmap` | 24 local-hour cells, total/coverage/peak summaries, proper AM/PM labels, and accessible volume context |
-| [VersionContract.test.ts](components/VersionContract.test.ts) | release owners | v1.9.0 synchronization across Cargo, Tauri, frontend, both lock surfaces of `frontend/package-lock.json`, the release contract and the changelog, plus the immutable canonical core release and commit |
+| [VersionContract.test.ts](components/VersionContract.test.ts) | release owners | v1.9.1 synchronization across Cargo, Tauri, frontend, both lock surfaces of `frontend/package-lock.json`, the release contract and the changelog, plus the immutable canonical core release and commit |
 | [UpdateBanner.test.ts](components/UpdateBanner.test.ts) | `UpdateBanner` | automatic update popup, Later/Skip/Open release actions, skipped-version behavior, fake dev update, one explicit Update action followed by signed install and automatic relaunch, retryable failures |
 | [Reports.test.ts](components/Reports.test.ts) | `Reports` (view) | coherent analysis header/copy, sections populated from a single bundle call, reload feedback, and cost timeline totals/peaks |
 | [Discord.test.ts](components/Discord.test.ts) | `Discord` (view) | coherent Broadcast header, live-preview backend payload, provider capability gates, autosave saving/saved lifecycle, rollback on failed persistence, field reorder/toggles, and theme-aware preview |
@@ -227,7 +227,7 @@ npm --prefix frontend run build
 | Doc | Where | Purpose |
 |:---|:---|:---|
 | [README.md](../README.md) | repo root | Install, feature overview, daemon + GUI quick start |
-| [CHANGELOG.md](../CHANGELOG.md) | repo root | Release history (Claude config schema v6, Codex config schema v13, DB schema v6 in 1.8.2 and v7 in 1.9.0) |
+| [CHANGELOG.md](../CHANGELOG.md) | repo root | Release history (Claude config schema v6, Codex config schema v13, DB schema v6 in 1.8.2 and v7 in 1.9.1) |
 | [docs/index.md](../docs/index.md) | `docs/` | Documentation hub: architecture, Discord assets, reasoning-effort variants, analyzers, cost calculation |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | repo root | Contribution + local-dev workflow |
 
@@ -252,6 +252,8 @@ npm --prefix frontend run build
 `src/storage.rs::tests` checks consistent migration from an active WAL database, schema retention, settings copies, credential exclusion, repeat startup, existing destination preservation, corrupt JSON recovery and corrupt database rejection. GUI command tests isolate `PULSE_HOME` as well as both provider roots. The native/browser E2E launcher also isolates `PULSE_HOME`.
 
 ## Windows efficiency and release validation
+
+`src-tauri/src/update_check.rs` checks canonical and legacy GitHub release URLs. Its repository-rename regression rejects unrelated repositories, lookalike domains and non-HTTPS links while preserving valid release-page and installer links.
 
 `src/power.rs` tests option parsing and the Windows ABI layout. `scripts/check-windows-efficiency.ps1` reads the running process policy. Release checks validate versions, PE architecture, software bills of materials and checksums.
 

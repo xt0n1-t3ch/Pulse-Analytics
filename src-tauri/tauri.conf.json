@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicehash/tauri/refs/heads/dev/.schema/config.schema.json",
   "productName": "Pulse",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "identifier": "com.xt0n1.pulse",
   "build": {
     "beforeDevCommand": "bun --cwd frontend run dev:ui",
@@ -39,10 +39,10 @@
     "createUpdaterArtifacts": true,
     "category": "DeveloperTool",
     "shortDescription": "AI coding analytics & Discord Rich Presence.",
-    "longDescription": "Pulse is a native, local-first analytics dashboard for Claude Code, Codex and OpenCode. Track provider-billed and API-equivalent value by session, inspect context and model usage, catch costly usage patterns, and share your coding flow on Discord via Rich Presence.",
+    "longDescription": "Pulse is a native, local-first analytics dashboard for Claude Code, Codex, OpenCode and Command Code. Track provider-billed and API-equivalent value by session, inspect context and model usage, catch costly usage patterns, and share your coding flow on Discord via Rich Presence.",
     "copyright": "\u00a9 2026 xt0n1-t3ch \u00b7 Apache-2.0 \u2014 attribution required (see NOTICE)",
     "publisher": "xt0n1-t3ch",
-    "homepage": "https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics",
+    "homepage": "https://github.com/xt0n1-t3ch/Pulse-Analytics",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -70,7 +70,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/latest/download/latest.json"
+        "https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFEMEI3RTc2MDJDMkEwQQpSV1FLS2l4ZzU3ZlFDcEdiYnZhSklJYTZXT25KbG9wUGpaN3diak5aN1BqUmZ4VTZ0eGpMWUlGaQo="
     }
