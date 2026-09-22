@@ -1213,6 +1213,15 @@ mod tests {
     }
 
     #[test]
+    fn opus_5_5_renders_a_clean_rich_presence_label() {
+        let config = PresenceConfig::default();
+        let session = mythos_class_session("claude-opus-5-5");
+        let (_details, state, _tooltip) = presence_lines(&session, None, None, &config);
+        assert!(state.contains("Opus 5.5 (1M)"), "{state}");
+        assert!(!state.contains("Opus 5 (1M)"), "{state}");
+    }
+
+    #[test]
     fn branch_toggle_and_systems_toggle_control_claude_presence_lines() {
         let mut session = mythos_class_session("claude-opus-4-8");
         session.project_name = "PropertyAlpha-Agent".to_string();

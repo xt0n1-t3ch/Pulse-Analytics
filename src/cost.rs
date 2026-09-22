@@ -7,7 +7,7 @@ use serde::Serialize;
 ///
 /// Prompt caching pricing (5-minute TTL, default):
 ///   cache write = 1.25x base input price
-///   cache read  = 0.10x base input price
+///   cache read  = 0.10x base input price (Claude Opus 5.5: 0.05x)
 ///
 /// Note: 1-hour TTL cache writes cost 2x base input, but Claude Code JSONL
 /// doesn't distinguish cache TTL, so we use the 5-minute rate.
@@ -21,7 +21,8 @@ pub struct ModelPricing {
 
 /// Fast-mode (priority speed) rate multiplier. When a turn runs at Fast speed on
 /// a fast-capable model, every token category is billed at this multiple of the
-/// model's standard rate. Opus 4.8 fast mode is exactly 2x standard.
+/// model's standard rate. Fast mode is exactly 2x standard on every
+/// fast-capable model: Opus 4.8 and Opus 5 ($10 / $50) and Opus 5.5 ($8 / $40).
 pub const FAST_RATE_MULTIPLIER: f64 = 2.0;
 
 /// Strips context window suffixes like `[1m]` from model IDs.
@@ -34,20 +35,31 @@ fn is_mythos_class(id: &str) -> bool {
     id.contains("fable") || id.contains("mythos")
 }
 
-/// Matches Claude Opus 5 ids ("claude-opus-5", dated and `[1m]`-suffixed
-/// variants) without colliding with a hypothetical future "Opus 50". Mirrors
-/// `is_sonnet_5_class`: the character immediately after "opus-5" must be one
-/// of the real Anthropic id continuations (`-` before a date suffix, `[`
-/// before a context suffix) or the end of the string.
+/// Matches Claude Opus 5 ids ("claude-opus-5" and dated variants) without
+/// absorbing Claude Opus 5.5 ("claude-opus-5-5") or a hypothetical "Opus 50".
+/// Expects an id with any `[1m]` context suffix already stripped. The version
+/// parser ignores eight-digit date suffixes, so a dated Opus 5 id still reads
+/// as exactly 5.0.
 fn is_opus_5_class(id: &str) -> bool {
-    match id.find("opus-5") {
-        None => false,
-        Some(pos) => matches!(
-            id[pos + "opus-5".len()..].chars().next(),
-            None | Some('-') | Some('[')
-        ),
-    }
+    family_version(id, "opus") == Some((5, 0))
 }
+
+/// Matches Claude Opus 5.5 ids ("claude-opus-5-5" and dated variants).
+/// Expects an id with any `[1m]` context suffix already stripped.
+fn is_opus_5_5_class(id: &str) -> bool {
+    family_version(id, "opus") == Some((5, 5))
+}
+
+/// Claude Opus 5.5 official API rates: $4 input, $20 output, $5 5-minute cache
+/// write (1.25x) and $0.20 cache read. Its cache-read multiplier is 0.05x, not
+/// the standard 0.10x.
+/// <https://platform.claude.com/docs/en/about-claude/pricing>, verified 2026-09-22.
+const OPUS_5_5_PRICING: ModelPricing = ModelPricing {
+    input_per_million: 4.0,
+    output_per_million: 20.0,
+    cache_write_per_million: 5.0,
+    cache_read_per_million: 0.20,
+};
 
 /// Matches Claude Sonnet 5 ids ("claude-sonnet-5", dated and `[1m]`-suffixed
 /// variants) without colliding with a hypothetical future "Sonnet 50" or any
@@ -143,6 +155,9 @@ pub fn model_pricing_at(model_id: &str, now: DateTime<Utc>) -> ModelPricing {
         } else {
             SONNET_5_REGULAR_PRICING
         };
+    }
+    if is_opus_5_5_class(&id) {
+        return OPUS_5_5_PRICING;
     }
     if id.contains("opus") {
         if is_new_opus(&id) {
@@ -480,14 +495,17 @@ pub fn has_inflated_tokenizer(model_id: &str) -> bool {
     // publishes no Opus 5 figure, so Pulse reports only what is documented
     // per-model rather than inferring a multiplier. This flag is display-only
     // and feeds no cost math, so the choice cannot skew billing either way.
-    if is_opus_5_class(&id) {
+    // Claude Opus 5.5 uses the same tokenizer as Opus 5, so it keeps the same
+    // exclusion.
+    if is_opus_5_class(&id) || is_opus_5_5_class(&id) {
         return false;
     }
     is_version_at_least(&id, "opus", 4, 7)
 }
 
 /// True when the model supports fast mode (priority speed) billing.
-/// Fast mode launched with Opus 4.8 — Opus 4.8+ only.
+/// Fast mode launched with Opus 4.8 — Opus 4.8+ only (currently Opus 4.8,
+/// Opus 5 and Opus 5.5).
 pub fn is_fast_capable(model_id: &str) -> bool {
     let id = strip_context_suffix(model_id).to_lowercase();
     if !id.contains("opus") {
@@ -1605,6 +1623,136 @@ mod tests {
         assert!(!is_fast_capable("opus"));
         assert!(!is_ga_1m_context("claude-opus-4"));
         assert!(!has_inflated_tokenizer("claude-opus-4"));
+    }
+
+    // ---- Claude Opus 5.5 ----------------------------------------------
+    // `claude-opus-5-5` is a two-segment id that begins with the Opus 5 id,
+    // so it must never inherit Opus 5 rates. Every value below is taken
+    // literally from <https://platform.claude.com/docs/en/about-claude/pricing>
+    // (verified 2026-09-22).
+
+    const OPUS_5_5_IDS: [&str; 3] = [
+        "claude-opus-5-5",
+        "claude-opus-5-5-20261001",
+        "claude-opus-5-5[1m]",
+    ];
+
+    /// $4 input, $20 output, $5 5-minute cache write and $0.20 cache read.
+    /// The cache read is 0.05x input, not the standard 0.10x.
+    #[test]
+    fn opus_5_5_pricing_matches_official_rates() {
+        for model in OPUS_5_5_IDS {
+            let p = model_pricing(model);
+            assert!((p.input_per_million - 4.0).abs() < 0.001, "{model} input");
+            assert!(
+                (p.output_per_million - 20.0).abs() < 0.001,
+                "{model} output"
+            );
+            assert!(
+                (p.cache_write_per_million - 5.0).abs() < 0.001,
+                "{model} cache write"
+            );
+            assert!(
+                (p.cache_read_per_million - 0.20).abs() < 0.001,
+                "{model} cache read"
+            );
+        }
+    }
+
+    #[test]
+    fn opus_5_5_is_not_classified_as_opus_5() {
+        assert!(!is_opus_5_class("claude-opus-5-5"));
+        assert!(!is_opus_5_class("claude-opus-5-5-20261001"));
+        assert!(is_opus_5_5_class("claude-opus-5-5"));
+        assert!(is_opus_5_5_class("claude-opus-5-5-20261001"));
+        assert!(is_opus_5_class("claude-opus-5"));
+        assert!(is_opus_5_class("claude-opus-5-20260724"));
+        assert!(!is_opus_5_5_class("claude-opus-5"));
+        assert!(!is_opus_5_5_class("claude-opus-5-20260724"));
+        assert!(!is_opus_5_5_class("claude-opus-5-50"));
+        assert!(!is_opus_5_class("claude-opus-50"));
+    }
+
+    /// Adding Opus 5.5 must not move Opus 5 off its own rates.
+    #[test]
+    fn opus_5_keeps_its_rates_next_to_opus_5_5() {
+        let opus_5 = model_pricing("claude-opus-5");
+        let opus_5_5 = model_pricing("claude-opus-5-5");
+        assert!((opus_5.input_per_million - 5.0).abs() < 0.001);
+        assert!((opus_5.cache_read_per_million - 0.50).abs() < 0.001);
+        assert_ne!(opus_5, opus_5_5);
+    }
+
+    /// One turn with every category, checked against hand-computed arithmetic.
+    #[test]
+    fn opus_5_5_turn_cost_arithmetic() {
+        let cost = calculate_cost("claude-opus-5-5", 100_000, 20_000, 50_000, 1_000_000);
+        // 0.1M x $4 + 0.02M x $20 + 0.05M x $5 + 1M x $0.20
+        let expected = 0.40 + 0.40 + 0.25 + 0.20;
+        assert!((cost - expected).abs() < 0.000_001, "{cost} != {expected}");
+    }
+
+    #[test]
+    fn opus_5_5_id_variants_price_identically() {
+        let costs: Vec<f64> = OPUS_5_5_IDS
+            .iter()
+            .map(|model| calculate_cost(model, 12_345, 6_789, 4_321, 9_876))
+            .collect();
+        assert!((costs[0] - costs[1]).abs() < 0.000_001);
+        assert!((costs[0] - costs[2]).abs() < 0.000_001);
+    }
+
+    /// 1M is Opus 5.5's default and maximum window at standard pricing.
+    #[test]
+    fn opus_5_5_has_ga_1m_context_without_surcharge() {
+        for model in OPUS_5_5_IDS {
+            assert!(supports_1m_context(model), "{model} supports 1M");
+            assert!(is_ga_1m_context(model), "{model} is GA 1M");
+        }
+        let (input, output, cache_write, cache_read) =
+            (300_000u64, 20_000u64, 50_000u64, 40_000u64);
+        let with_ctx =
+            calculate_cost_with_context("claude-opus-5-5", input, output, cache_write, cache_read);
+        let plain = calculate_cost("claude-opus-5-5", input, output, cache_write, cache_read);
+        assert!((with_ctx - plain).abs() < 0.000_001);
+    }
+
+    /// Fast mode for Opus 5.5 is published as $8 / $40 per MTok, 2x standard.
+    #[test]
+    fn opus_5_5_fast_mode_matches_published_8_and_40_rates() {
+        let model = "claude-opus-5-5";
+        for id in OPUS_5_5_IDS {
+            assert!(is_fast_capable(id), "{id}");
+        }
+        let fast_input = calculate_cost_with_context_and_speed(model, 1_000_000, 0, 0, 0, true);
+        let fast_output = calculate_cost_with_context_and_speed(model, 0, 1_000_000, 0, 0, true);
+        assert!((fast_input - 8.0).abs() < 0.001, "fast input $8/MTok");
+        assert!((fast_output - 40.0).abs() < 0.001, "fast output $40/MTok");
+
+        let standard = calculate_category_costs(model, 50_000, 5_000, 100_000, 100_000, false);
+        let fast = calculate_category_costs(model, 50_000, 5_000, 100_000, 100_000, true);
+        assert!((fast.cache_read_cost - standard.cache_read_cost * 2.0).abs() < 0.000_001);
+        assert!((fast.total() - standard.total() * 2.0).abs() < 0.000_001);
+    }
+
+    /// Opus 5.5 uses Opus 5's tokenizer, so it carries no inflation flag.
+    #[test]
+    fn opus_5_5_has_no_inflated_tokenizer_flag() {
+        for model in OPUS_5_5_IDS {
+            assert!(!has_inflated_tokenizer(model), "{model}");
+        }
+    }
+
+    #[test]
+    fn opus_5_5_display_names() {
+        for model in OPUS_5_5_IDS {
+            assert_eq!(model_display_name(model), "Claude Opus 5.5", "{model}");
+        }
+        assert_eq!(
+            model_display_with_context("claude-opus-5-5", "Claude Opus 5.5", 0),
+            "Claude Opus 5.5 (1M)"
+        );
+        assert_eq!(strip_claude_prefix("Claude Opus 5.5"), "Opus 5.5");
     }
 
     /// Opus 4.7 gained the tokenizer change but not fast mode; fast mode

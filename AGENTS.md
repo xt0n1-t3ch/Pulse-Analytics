@@ -4,7 +4,7 @@
 
 Pulse is the desktop analytics GUI for Claude Code, Codex, OpenCode and Command Code. It uses Rust, Tauri 2, Svelte 5, TypeScript, Vite and SQLite. The `cc-discord-presence` binary is the Claude headless daemon; its CLI has `status`, `doctor` and `claude` commands. Do not describe that daemon as a Codex CLI.
 
-This checkout targets Pulse 1.9.2 through the six-platform Release workflow. Read `package.json`, Cargo manifests, `scripts/release-contract.json` and `src/codex/UPSTREAM.json` for current version facts. Verify publication and installed-runtime status separately. Do not copy historical branch/version claims into current instructions, and do not describe a local development build or installation as a release.
+This checkout targets Pulse 1.9.3 through the six-platform Release workflow. Read `package.json`, Cargo manifests, `scripts/release-contract.json` and `src/codex/UPSTREAM.json` for current version facts. Verify publication and installed-runtime status separately. Do not copy historical branch/version claims into current instructions, and do not describe a local development build or installation as a release.
 
 - Origin: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics
 - Default branch: `main`; inspect the current branch before editing.
