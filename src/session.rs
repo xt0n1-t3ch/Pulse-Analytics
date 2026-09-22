@@ -674,6 +674,60 @@ struct SessionAccumulator {
     /// Most recent full file path from Read/Write/Edit tool calls.
     /// Used to determine active workspace in multi-workspace VS Code setups.
     last_file_target: Option<PathBuf>,
+    /// Usage already counted for each API response, keyed by `message.id`.
+    /// Claude Code writes one JSONL line per content block (thinking, text,
+    /// tool_use), and every line repeats the response's usage; `output_tokens`
+    /// can grow while the response streams. Each response is counted once,
+    /// at its latest reported usage.
+    #[serde(default)]
+    counted_usage: HashMap<String, CountedUsage>,
+}
+
+/// Tokens and category costs one API response contributed to the totals.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+struct CountedUsage {
+    input_tokens: u64,
+    output_tokens: u64,
+    cache_creation_tokens: u64,
+    cache_read_tokens: u64,
+    input_cost: f64,
+    output_cost: f64,
+    cache_write_cost: f64,
+    cache_read_cost: f64,
+}
+
+impl SessionAccumulator {
+    fn add_usage(&mut self, usage: CountedUsage, sign: f64) {
+        if sign >= 0.0 {
+            self.total_input_tokens +=
+                usage.input_tokens + usage.cache_creation_tokens + usage.cache_read_tokens;
+            self.total_output_tokens += usage.output_tokens;
+            self.total_cache_creation_tokens += usage.cache_creation_tokens;
+            self.total_cache_read_tokens += usage.cache_read_tokens;
+        } else {
+            self.total_input_tokens = self.total_input_tokens.saturating_sub(
+                usage.input_tokens + usage.cache_creation_tokens + usage.cache_read_tokens,
+            );
+            self.total_output_tokens = self.total_output_tokens.saturating_sub(usage.output_tokens);
+            self.total_cache_creation_tokens = self
+                .total_cache_creation_tokens
+                .saturating_sub(usage.cache_creation_tokens);
+            self.total_cache_read_tokens = self
+                .total_cache_read_tokens
+                .saturating_sub(usage.cache_read_tokens);
+        }
+        self.input_cost = (self.input_cost + sign * usage.input_cost).max(0.0);
+        self.output_cost = (self.output_cost + sign * usage.output_cost).max(0.0);
+        self.cache_write_cost = (self.cache_write_cost + sign * usage.cache_write_cost).max(0.0);
+        self.cache_read_cost = (self.cache_read_cost + sign * usage.cache_read_cost).max(0.0);
+        self.total_cost = (self.total_cost
+            + sign
+                * (usage.input_cost
+                    + usage.output_cost
+                    + usage.cache_write_cost
+                    + usage.cache_read_cost))
+            .max(0.0);
+    }
 }
 
 impl SessionAccumulator {
@@ -1142,6 +1196,8 @@ struct CompactMetadata {
 
 #[derive(Debug, Deserialize)]
 struct JsonlMessageContent {
+    #[serde(default)]
+    id: Option<String>,
     #[serde(default)]
     model: Option<String>,
     #[serde(default)]
@@ -1715,11 +1771,6 @@ fn process_jsonl_message(acc: &mut SessionAccumulator, msg: &JsonlMessage) {
                 acc.max_turn_api_input = acc.max_turn_api_input.max(all_input);
                 acc.current_context_tokens = all_input;
 
-                acc.total_input_tokens += all_input;
-                acc.total_output_tokens += output;
-                acc.total_cache_creation_tokens += cache_creation;
-                acc.total_cache_read_tokens += cache_read;
-
                 let model_id = acc.model.as_deref().unwrap_or("claude-sonnet-4-20250514");
                 let turn_costs = cost::calculate_category_costs(
                     model_id,
@@ -1729,11 +1780,24 @@ fn process_jsonl_message(acc: &mut SessionAccumulator, msg: &JsonlMessage) {
                     cache_read,
                     turn_speed.is_fast(),
                 );
-                acc.input_cost += turn_costs.input_cost;
-                acc.output_cost += turn_costs.output_cost;
-                acc.cache_write_cost += turn_costs.cache_write_cost;
-                acc.cache_read_cost += turn_costs.cache_read_cost;
-                acc.total_cost += turn_costs.total();
+                let counted = CountedUsage {
+                    input_tokens: input,
+                    output_tokens: output,
+                    cache_creation_tokens: cache_creation,
+                    cache_read_tokens: cache_read,
+                    input_cost: turn_costs.input_cost,
+                    output_cost: turn_costs.output_cost,
+                    cache_write_cost: turn_costs.cache_write_cost,
+                    cache_read_cost: turn_costs.cache_read_cost,
+                };
+                // A repeated response replaces its earlier contribution
+                // instead of adding to it.
+                if let Some(id) = message.id.as_deref().filter(|id| !id.is_empty())
+                    && let Some(previous) = acc.counted_usage.insert(id.to_string(), counted)
+                {
+                    acc.add_usage(previous, -1.0);
+                }
+                acc.add_usage(counted, 1.0);
 
                 acc.last_turn_tokens = Some(all_input + output);
                 acc.last_token_event_at = observed_at;
@@ -3631,6 +3695,75 @@ mod tests {
             }
         }))
         .unwrap()
+    }
+
+    /// One API response as Claude Code writes it: one line per content block,
+    /// each carrying the same `message.id` and the response's usage.
+    fn response_block_line(id: &str, block: &str, output: u64) -> JsonlMessage {
+        serde_json::from_value(serde_json::json!({
+            "type": "assistant",
+            "requestId": format!("req_{id}"),
+            "message": {
+                "id": id,
+                "model": "claude-opus-5-5",
+                "type": "message",
+                "role": "assistant",
+                "usage": {
+                    "input_tokens": 2,
+                    "output_tokens": output,
+                    "cache_creation_input_tokens": 12_491,
+                    "cache_read_input_tokens": 79_255
+                },
+                "content": [{"type": block}]
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn repeated_content_block_lines_count_one_response_once() {
+        let mut acc = SessionAccumulator::with_default_effort(ReasoningEffort::Medium);
+        for block in ["thinking", "text", "tool_use", "tool_use"] {
+            process_jsonl_message(&mut acc, &response_block_line("msg_a", block, 467));
+        }
+
+        let once = cost::calculate_category_costs("claude-opus-5-5", 2, 467, 12_491, 79_255, false);
+        assert_eq!(acc.total_output_tokens, 467);
+        assert_eq!(acc.total_cache_creation_tokens, 12_491);
+        assert_eq!(acc.total_cache_read_tokens, 79_255);
+        assert_eq!(acc.total_input_tokens, 2 + 12_491 + 79_255);
+        assert!((acc.total_cost - once.total()).abs() < 1e-9);
+        assert!((acc.cache_read_cost - once.cache_read_cost).abs() < 1e-9);
+        assert_eq!(acc.session_total_tokens, Some(2 + 12_491 + 79_255 + 467));
+    }
+
+    /// `output_tokens` can grow across a streamed response's lines; the
+    /// latest value replaces the earlier one, even when another response's
+    /// lines are interleaved.
+    #[test]
+    fn streamed_response_keeps_its_latest_usage_across_interleaved_lines() {
+        let mut acc = SessionAccumulator::with_default_effort(ReasoningEffort::Medium);
+        process_jsonl_message(&mut acc, &response_block_line("msg_a", "thinking", 6));
+        process_jsonl_message(&mut acc, &response_block_line("msg_b", "text", 100));
+        process_jsonl_message(&mut acc, &response_block_line("msg_a", "tool_use", 368));
+
+        let a = cost::calculate_category_costs("claude-opus-5-5", 2, 368, 12_491, 79_255, false);
+        let b = cost::calculate_category_costs("claude-opus-5-5", 2, 100, 12_491, 79_255, false);
+        assert_eq!(acc.total_output_tokens, 468);
+        assert_eq!(acc.total_cache_read_tokens, 2 * 79_255);
+        assert!((acc.total_cost - (a.total() + b.total())).abs() < 1e-9);
+        let sum = acc.input_cost + acc.output_cost + acc.cache_write_cost + acc.cache_read_cost;
+        assert!((sum - acc.total_cost).abs() < 1e-9);
+    }
+
+    #[test]
+    fn lines_without_a_message_id_still_count_individually() {
+        let mut acc = SessionAccumulator::with_default_effort(ReasoningEffort::Medium);
+        let line = assistant_usage_message_with_cache("claude-opus-5-5", 10, 20, 30, 40, None);
+        process_jsonl_message(&mut acc, &line);
+        process_jsonl_message(&mut acc, &line);
+        assert_eq!(acc.total_output_tokens, 40);
+        assert!(acc.counted_usage.is_empty());
     }
 
     #[test]

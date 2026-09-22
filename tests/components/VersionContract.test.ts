@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const VERSION = "1.9.3";
+const VERSION = "1.9.4";
 
 describe("Pulse version contract", () => {
   const read = (path: string) => readFileSync(resolve(process.cwd(), "..", path), "utf8");
@@ -13,7 +13,7 @@ describe("Pulse version contract", () => {
     expect(script).toContain("cargo tauri build --no-bundle");
   });
 
-  it("keeps every product and release owner on v1.9.3", () => {
+  it("keeps every product and release owner on v1.9.4", () => {
     expect(read("Cargo.toml")).toContain(`version = "${VERSION}"`);
     expect(read("src-tauri/Cargo.toml")).toContain(`version = "${VERSION}"`);
     expect(JSON.parse(read("src-tauri/tauri.conf.json")).version).toBe(VERSION);

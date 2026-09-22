@@ -4,9 +4,14 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.9.4] - 2026-09-22
+
+Claude token and cost accuracy fix. The database remains schema 7, Claude config schema 6 and Codex presence config schema 13 are unchanged, and the immutable shared core stays at 2.0.1. Rollback to 1.9.3 needs only its package. Session checkpoints from earlier builds are ignored, so the first poll after an upgrade re-reads active Claude transcripts once. Rows already stored in analytics history are rewritten only when Pulse re-reads a session that is still active. GitHub macOS packages have no Apple Developer ID signature or notarization.
+
 ### Fixed
 
-- Discard Claude session checkpoints written by another Pulse build. Before this fix, a session that started before an upgrade kept the costs the older build had accumulated, so new model rates applied only to later turns. After an upgrade, Pulse re-reads each session once from its transcript.
+- Count each Claude API response once. Claude Code writes one JSONL line per content block, and every line repeats the response's usage. Pulse added every line, which overstated tokens and costs, often by two to three times. Pulse now keys usage by `message.id` and keeps the latest value, because `output_tokens` can grow while a response streams.
+- Discard Claude session checkpoints written by another Pulse build. Before this fix, a session that started before an upgrade kept the costs the older build had accumulated, so new model rates applied only to later turns.
 
 ## [1.9.3] - 2026-09-22
 
