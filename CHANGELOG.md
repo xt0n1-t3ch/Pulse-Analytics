@@ -4,8 +4,21 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.9.3] - 2026-09-22
+
+Claude Opus 5.5 release. The database remains schema 7, Claude config schema 6 and Codex presence config schema 13 are unchanged, and the immutable shared core stays at 2.0.1. Rollback to 1.9.2 needs only its package; historical session costs already stored are not repriced. GitHub macOS packages have no Apple Developer ID signature or notarization.
+
+### Added
+
+- Claude Opus 5.5 (`claude-opus-5-5`) support: official $4/$20 per million input/output, $5 5-minute cache writes and $0.20 cache reads (0.05x input), 1M GA context without a long-context surcharge, Fast mode at $8/$40, display names, Rich Presence labels, model routing and reports. Rates verified September 22, 2026 against Anthropic's pricing page.
+
+### Fixed
+
+- `claude-opus-5-5` no longer falls through to Opus 5's $5/$25 rates, which overstated Opus 5.5 estimates by 25% and cache reads by 150%. Opus 5 classification now requires exactly version 5.0.
+
 ### Documentation
 
+- Add Opus 5.5 to the Claude model guide, price table, Fast list and implementation-gap table.
 - Record six-platform 1.9.2 publication, downloaded-asset verification and installed Windows upgrade evidence, with remaining host-specific acceptance gaps.
 
 ## [1.9.2] - 2026-09-20

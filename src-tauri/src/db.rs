@@ -2783,6 +2783,16 @@ mod tests {
                 .expect("claude opus 5 has published API rates");
         assert!((claude.total - 30.0).abs() < 0.01, "got {}", claude.total);
 
+        // Claude Opus 5.5 ($4 in / $20 out per 1M) must not inherit Opus 5 rates.
+        let opus_5_5 =
+            estimate_api_equivalent_cost("claude", "claude-opus-5-5", 1_000_000, 1_000_000, 0, 0)
+                .expect("claude opus 5.5 has published API rates");
+        assert!(
+            (opus_5_5.total - 24.0).abs() < 0.01,
+            "got {}",
+            opus_5_5.total
+        );
+
         // Codex GPT-5.6 Sol ($5 in / $30 out per 1M): 1M pure input + 1M output.
         let codex =
             estimate_api_equivalent_cost("codex", "gpt-5.6-sol", 1_000_000, 1_000_000, 0, 0)
@@ -3311,7 +3321,7 @@ mod tests {
         assert_eq!(session_window_tokens(&two_hundred_k), 200_000);
     }
 
-    /// Opus 5 ships 1M as both its default and maximum window, so it must
+    /// Opus 5 and Opus 5.5 ship 1M as both default and maximum window, so they must
     /// report 1M even when a stale snapshot still says "200K".
     #[test]
     fn session_window_tokens_reports_1m_for_opus_5() {
@@ -3319,6 +3329,8 @@ mod tests {
             "claude-opus-5",
             "claude-opus-5-20260724",
             "claude-opus-5[1m]",
+            "claude-opus-5-5",
+            "claude-opus-5-5[1m]",
         ] {
             let stale = sample_session_info("200K", model, 10, 10);
             assert_eq!(session_window_tokens(&stale), 1_000_000, "{model}");

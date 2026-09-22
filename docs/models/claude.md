@@ -4,7 +4,7 @@
 
 Compare Claude API limits, Claude Code behavior and Pulse's implemented estimates. This is the Claude counterpart to the [Codex model guide](codex.md); neither provider inherits the other's capacity or prices.
 
-**Verified:** September 5, 2026 · **Installed Claude Code:** 2.1.251 · **Pulse:** 1.8.1
+**Verified:** September 5, 2026 · **Installed Claude Code:** 2.1.251 · **Pulse:** 1.8.1 · **Opus 5.5 rows verified:** September 22, 2026 against the official models overview and pricing pages
 
 [Models](#current-models) · [Claude Code capacity](#claude-code-capacity) · [Prices](#current-api-prices) · [Implementation gaps](#pulse-implementation-gaps) · [Verification](#verify-an-installation)
 
@@ -16,11 +16,12 @@ Compare Claude API limits, Claude Code behavior and Pulse's implemented estimate
 | --- | --- | ---: | ---: |
 | Fable 5.1 | `claude-fable-5-1` | 1,000,000 | 128,000 |
 | Mythos 5.1, restricted access | `claude-mythos-5-1` | 1,000,000 | 128,000 |
-| Opus 5 | `claude-opus-5` | 1,000,000 | 128,000 |
+| Opus 5.5 | `claude-opus-5-5` | 1,000,000 | 128,000 |
+| Opus 5, legacy | `claude-opus-5` | 1,000,000 | 128,000 |
 | Sonnet 5 | `claude-sonnet-5` | 1,000,000 | 128,000 |
 | Haiku 4.5 | `claude-haiku-4-5-20251001` | 200,000 | 64,000 |
 
-The current general lineup is Fable 5.1, Opus 5, Sonnet 5 and Haiku 4.5. Mythos 5.1 shares Fable 5.1's specifications but requires invitation through Project Glasswing. Model recognition in Pulse does not establish account access. [Models overview](https://platform.claude.com/docs/en/models/overview), [Fable/Mythos 5.1 reference](https://platform.claude.com/docs/en/models/fable-5-1/overview).
+The current general lineup is Fable 5.1, Opus 5.5, Sonnet 5 and Haiku 4.5. Opus 5 remains available as a legacy model. Mythos 5.1 shares Fable 5.1's specifications but requires invitation through Project Glasswing. Model recognition in Pulse does not establish account access. [Models overview](https://platform.claude.com/docs/en/models/overview), [Fable/Mythos 5.1 reference](https://platform.claude.com/docs/en/models/fable-5-1/overview), [Opus 5.5 reference](https://platform.claude.com/docs/en/models/opus-5-5/overview).
 
 Fable 5, Mythos 5, Opus 4.6/4.7/4.8 and Sonnet 4.6 also have a documented 1M API window and 128K output cap. API context includes the conversation and generated output; 128K is an output ceiling, not extra capacity. Do not invent an independently guaranteed input maximum by subtracting two headline values. Use the Models API's `max_input_tokens` and `max_tokens` for the selected deployment when available. [API context limits](https://platform.claude.com/docs/en/build-with-claude/context-windows#context-window-sizes-by-model), [Models API](https://platform.claude.com/docs/en/api/models/list).
 
@@ -43,9 +44,9 @@ The approximately 967K Sonnet threshold is not a universal 96.7% rule. No active
 
 ## Effort, speed and caching
 
-Fable 5.1/5, Opus 5/4.8/4.7 and Sonnet 5 expose `low`, `medium`, `high`, `xhigh` and `max` in the current Claude Code guide. Older Opus/Sonnet 4.6 omit `xhigh`. Haiku does not use that effort selector. `ultracode` is a Claude Code orchestration setting, not another model effort value. [Effort configuration](https://code.claude.com/docs/en/model-config#adjust-effort-level).
+Fable 5.1/5, Opus 5/4.8/4.7 and Sonnet 5 expose `low`, `medium`, `high`, `xhigh` and `max` in the current Claude Code guide. The API also accepts all five levels for Opus 5.5, whose API default is `medium` instead of `high`; its thinking is always on. Pulse reads effort from the transcript or `settings.json` and does not infer a per-model default. Older Opus/Sonnet 4.6 omit `xhigh`. Haiku does not use that effort selector. `ultracode` is a Claude Code orchestration setting, not another model effort value. [Effort configuration](https://code.claude.com/docs/en/model-config#adjust-effort-level).
 
-Fast processing is separate from reasoning effort and subscription plan. The current API offers Fast for Opus 5 and Opus 4.8, not Fable, Sonnet or Haiku. Cache lifetime and cache-read price are also separate capabilities. [API Fast and cache pricing](https://platform.claude.com/docs/en/about-claude/pricing#feature-specific-pricing).
+Fast processing is separate from reasoning effort and subscription plan. The current API offers Fast for Opus 5.5, Opus 5 and Opus 4.8, not Fable, Sonnet or Haiku. Cache lifetime and cache-read price are also separate capabilities. [API Fast and cache pricing](https://platform.claude.com/docs/en/about-claude/pricing#feature-specific-pricing).
 
 ## Current API prices
 
@@ -54,11 +55,12 @@ USD per million tokens, direct Claude API, Standard processing. Subscription all
 | Model | Input | Write 5m | Write 1h | Cache read | Output |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Fable 5.1 / Mythos 5.1 | $10.00 | $12.50 | $20.00 | $0.25 | $50.00 |
+| Opus 5.5 | $4.00 | $5.00 | $8.00 | $0.20 | $20.00 |
 | Opus 5 | $5.00 | $6.25 | $10.00 | $0.50 | $25.00 |
 | Sonnet 5 | $2.00 | $2.50 | $4.00 | $0.20 | $10.00 |
 | Haiku 4.5 | $1.00 | $1.25 | $2.00 | $0.10 | $5.00 |
 
-Sonnet 5's launch price is now its standard price. Anthropic cancelled the planned September 1 increase to $3/$15. Fable/Mythos 5.1 cache reads cost $0.25, compared with $1 for version 5. Opus 5/4.8 Fast input/output cost $10/$50, with cache modifiers applied to Fast rates. [Official pricing](https://platform.claude.com/docs/en/about-claude/pricing#model-pricing).
+Sonnet 5's launch price is now its standard price. Anthropic cancelled the planned September 1 increase to $3/$15. Fable/Mythos 5.1 cache reads cost $0.25, compared with $1 for version 5. Opus 5.5 cache reads cost 0.05x input ($0.20), not the standard 0.10x. Opus 5.5 Fast input/output cost $8/$40; Opus 5/4.8 Fast input/output cost $10/$50. Cache modifiers apply to Fast rates. [Official pricing](https://platform.claude.com/docs/en/about-claude/pricing#model-pricing).
 
 ## Pulse implementation gaps
 
@@ -68,6 +70,7 @@ The [Claude cost owner](../../src/cost.rs) and [session parser](../../src/sessio
 | --- | --- | --- |
 | Sonnet 5 | Switches to $3/$15 after the old UTC cutoff | Provider retained $2/$10; fallback estimates can overstate cost |
 | Fable/Mythos 5.1 cache | Family matching uses $1 per million reads | Version 5.1 publishes $0.25; reads need version-specific rates |
+| Opus 5.5 | Version-specific $4/$20 rates, $5 write and $0.20 read; Fast at 2x | Implemented September 22, 2026; `claude-opus-5-5` no longer inherits Opus 5 rates |
 | Context | Model/suffix/peak heuristic selects 1M or 200K | Does not prove the active plan, gateway or compaction setting |
 | Cache writes | JSONL estimates use the 5-minute write rate | A missing TTL cannot establish the 1-hour rate |
 | Unknown Claude model | Existing pricing fallback is Sonnet-like | Do not mistake fallback recognition for an authoritative rate |
