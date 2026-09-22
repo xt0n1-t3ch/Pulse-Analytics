@@ -4,6 +4,10 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Documentation
+
+- Record six-platform 1.9.3 and 1.9.4 publication and the installed Windows x64 upgrade evidence, including the Opus 5.5 cost recomputation.
+
 ## [1.9.4] - 2026-09-22
 
 Claude token and cost accuracy fix. The database remains schema 7, Claude config schema 6 and Codex presence config schema 13 are unchanged, and the immutable shared core stays at 2.0.1. Rollback to 1.9.3 needs only its package. Session checkpoints from earlier builds are ignored, so the first poll after an upgrade re-reads active Claude transcripts once. Rows already stored in analytics history are rewritten only when Pulse re-reads a session that is still active. GitHub macOS packages have no Apple Developer ID signature or notarization.
