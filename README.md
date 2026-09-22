@@ -55,33 +55,33 @@ These repository captures show earlier Claude and Codex presence layouts. They a
 
 <h2 id="whats-new"><img src="assets/icons/sparkles.svg" alt="" width="28" height="28" align="center">&nbsp; What's new</h2>
 
-Pulse v1.9.3 ships Windows, macOS and Linux packages for x64 and ARM64. It adds Claude Opus 5.5 support, Accounts, the Command Code provider and promoted Codex per-event session costs, and keeps the 1.8 storage and OpenCode work. Highlights:
-
-- Track Claude Opus 5.5 sessions at official $4/$20 rates, with $0.20 cache reads, 1M context and $8/$40 Fast mode. Opus 5 keeps its own rates.
-
-- Connect several accounts per provider in Accounts, with provider-native allowances, credits and banked resets. Removing a link never signs a coding client out.
-- Track Command Code CLI and Desktop sessions through one deduplicated reader with reported costs and a single Discord identity.
-- Read Codex session costs accumulated per usage event, with currency-only known amounts in Discord and full coverage in Pulse.
-
-- Keep Pulse data under `~/.pulse-analytics`, with a `PULSE_HOME` override and a non-destructive migration from legacy storage.
-
-- Track OpenCode sessions from local SQLite, including mixed-model history and provider-reported costs.
-- See OpenCode Go limits for five-hour, weekly and monthly windows, separate from other providers.
-- Identify GPT-6 Astra sessions, context and Standard/Fast pricing. Missing price coverage stays visible.
-- Review seven days of activity by provider in a dashboard with dark and light themes.
-- Manage notifications with read/unread controls and an Undo action that survives an app restart.
-- Reduce background process priority with Windows Efficiency mode and EcoQoS.
-- Customize OpenCode presence with model-first fields, saved field order and two-decimal currency. Completed sessions stop broadcasting.
-
-See the [changelog](CHANGELOG.md) for the release history.
+Pulse v1.9.3 is available for Windows, macOS and Linux, on both x64 and ARM64.
 
 <h3 id="new-in-v193">New in v1.9.3</h3>
 
-Pulse **v1.9.3** adds Claude Opus 5.5 (`claude-opus-5-5`): official API rates of $4 input, $20 output, $5 5-minute cache writes and $0.20 cache reads, a 1M context window without a long-context surcharge, Fast mode at $8/$40, and "Opus 5.5 (1M)" labels in Pulse and Discord. Before this release, Opus 5.5 estimates used Opus 5 rates and were too high. Schemas and configuration are unchanged from 1.9.2. See the [1.9.3 changelog section](CHANGELOG.md#193---2026-09-22).
+Pulse now supports Claude Opus 5.5. Sessions use Anthropic's published rates: $4 per million input tokens, $20 per million output tokens and $0.20 per million cache reads. Fast mode costs $8/$40, and the full 1M context window has no long-context surcharge. Earlier versions priced Opus 5.5 like Opus 5, so estimates came out too high. Pulse and Discord now show the model as "Opus 5.5 (1M)".
+
+Your database, settings and Discord configuration carry over from 1.9.2 unchanged. See the [1.9.3 changelog](CHANGELOG.md#193---2026-09-22).
 
 <h3 id="new-in-v192">New in v1.9.2</h3>
 
-Pulse **v1.9.2** keeps Command Code visible in Discord while idle and includes [Accounts](docs/guides/accounts.md), [Command Code CLI/Desktop support](docs/guides/command-code.md), provider-native allowances and promoted Codex per-event session costs. The analytics database migrates additively to schema 7. See the [1.9.2 changelog section](CHANGELOG.md#192---2026-09-20) for compatibility, rollback and scope.
+Command Code stays visible in Discord while it is idle. See the [1.9.2 changelog](CHANGELOG.md#192---2026-09-20).
+
+<h3 id="highlights-of-v19">Highlights of the 1.9 line</h3>
+
+- Link several accounts per provider in [Accounts](docs/guides/accounts.md) and see each account's allowances, credits and banked resets. Removing a link never signs your coding client out.
+- Track [Command Code](docs/guides/command-code.md) sessions from the CLI and the desktop app together, with the costs Command Code reports and one Discord identity.
+- See Codex session costs add up event by event. Discord shows the known amount, and Pulse shows the full cost coverage.
+- Track OpenCode sessions from its local database, including sessions that mix models and the costs the provider reports.
+- Check OpenCode Go limits for the five-hour, weekly and monthly windows, separately from other providers.
+- Recognize GPT-6 Astra sessions with their context and Standard/Fast pricing. When a price is missing, Pulse shows that instead of guessing.
+- Customize OpenCode's Discord presence: put the model first, keep your own field order and show costs to two decimals. Finished sessions stop broadcasting.
+- Review the last seven days of activity per provider on the dashboard, in a dark or light theme.
+- Mark notifications as read or unread, and undo a clear even after you restart the app.
+- Keep your data in `~/.pulse-analytics`, or choose another folder with `PULSE_HOME`. Data from older versions is copied over and never overwritten.
+- On Windows, Pulse lowers its background priority with Efficiency mode and EcoQoS.
+
+The [changelog](CHANGELOG.md) has the full release history.
 
 <h2 id="install"><img src="assets/icons/download.svg" alt="" width="28" height="28" align="center">&nbsp; Install</h2>
 
