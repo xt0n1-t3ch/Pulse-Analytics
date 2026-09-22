@@ -19,6 +19,10 @@ const SESSION_SCAN_MAX_DEPTH: usize = 16;
 const SESSION_SCAN_MAX_ENTRIES: usize = 100_000;
 const SESSION_TAIL_ANCHOR_BYTES: u64 = 64;
 const SESSION_CHECKPOINT_SCHEMA_VERSION: u32 = 1;
+/// Checkpoints store accumulated costs, so they are only reusable by the build
+/// that priced them. A release that changes model rates must not restore costs
+/// that an older build computed at the old rates.
+const SESSION_CHECKPOINT_APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const SESSION_CHECKPOINT_MAX_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -457,6 +461,10 @@ impl CachedSessionEntry {
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistentSessionCheckpoint {
     schema_version: u32,
+    /// Build that computed `accumulator` costs. Missing in checkpoints written
+    /// before 1.9.4, which therefore never match.
+    #[serde(default)]
+    app_version: String,
     source_path: PathBuf,
     cursor: u64,
     file_len: u64,
@@ -499,6 +507,7 @@ fn persist_session_checkpoint_to(
     })?;
     let checkpoint = PersistentSessionCheckpoint {
         schema_version: SESSION_CHECKPOINT_SCHEMA_VERSION,
+        app_version: SESSION_CHECKPOINT_APP_VERSION.to_string(),
         source_path: source_path.to_path_buf(),
         cursor: entry.cursor,
         file_len: entry.file_len,
@@ -546,6 +555,7 @@ fn load_session_checkpoint_from(
     let bytes = fs::read(&checkpoint_path).ok()?;
     let checkpoint: PersistentSessionCheckpoint = serde_json::from_slice(&bytes).ok()?;
     if checkpoint.schema_version != SESSION_CHECKPOINT_SCHEMA_VERSION
+        || checkpoint.app_version != SESSION_CHECKPOINT_APP_VERSION
         || checkpoint.source_path != source_path
         || checkpoint.cursor > checkpoint.file_len
         || checkpoint.file_len > metadata.len()
@@ -2714,6 +2724,48 @@ mod tests {
             .is_none(),
             "a matching size cannot promote a checkpoint with a stale tail anchor"
         );
+    }
+
+    /// A checkpoint written by another build holds costs priced at that build's
+    /// rates, so it must be discarded and the session re-parsed from JSONL.
+    #[test]
+    fn checkpoint_from_another_build_is_not_restored() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("session.jsonl");
+        let checkpoint_root = dir.path().join("checkpoints");
+        fs::write(
+            &path,
+            format!(
+                "{}
+",
+                parser_test_line(dir.path(), 10)
+            ),
+        )
+        .expect("JSONL");
+        let mut cache = SessionParseCache::default();
+        parse_test_session(&path, 1, &mut cache);
+        persist_session_checkpoint_to(&checkpoint_root, &path, &cache.entries[&path])
+            .expect("persist checkpoint");
+        let checkpoint_path = session_checkpoint_path(&checkpoint_root, &path);
+        let load = || {
+            load_session_checkpoint_from(
+                &checkpoint_root,
+                &path,
+                &fs::metadata(&path).unwrap(),
+                SystemTime::UNIX_EPOCH + Duration::from_secs(1),
+            )
+        };
+        assert!(load().is_some(), "same build restores its own checkpoint");
+
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&checkpoint_path).unwrap()).unwrap();
+        value["app_version"] = serde_json::json!("0.0.0-older-build");
+        fs::write(&checkpoint_path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(load().is_none(), "another build's costs are not reused");
+
+        value.as_object_mut().unwrap().remove("app_version");
+        fs::write(&checkpoint_path, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(load().is_none(), "unversioned checkpoints are not reused");
     }
 
     #[test]

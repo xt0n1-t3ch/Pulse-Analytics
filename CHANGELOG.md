@@ -4,6 +4,10 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Fixed
+
+- Discard Claude session checkpoints written by another Pulse build. Before this fix, a session that started before an upgrade kept the costs the older build had accumulated, so new model rates applied only to later turns. After an upgrade, Pulse re-reads each session once from its transcript.
+
 ## [1.9.3] - 2026-09-22
 
 Claude Opus 5.5 release. The database remains schema 7, Claude config schema 6 and Codex presence config schema 13 are unchanged, and the immutable shared core stays at 2.0.1. Rollback to 1.9.2 needs only its package; historical session costs already stored are not repriced. GitHub macOS packages have no Apple Developer ID signature or notarization.
