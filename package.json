@@ -1,6 +1,6 @@
 {
   "name": "pulse",
-  "version": "1.9.3",
+  "version": "1.9.4",
   "private": true,
   "description": "Local-first analytics for Claude Code, OpenAI Codex, OpenCode and Command Code, with Discord Rich Presence.",
   "scripts": {

@@ -6,7 +6,7 @@ Pulse releases use annotated tags, exact commits and immutable assets. The norma
 
 `scripts/release-contract.json` owns the product, core, configuration and database contract. Tags must agree with Cargo, npm, lockfiles, Tauri, README, the docs index, changelog and `src/codex/UPSTREAM.json`.
 
-Pulse 1.9.3 consumes `codex-presence-core` 2.0.1 through the full Git revision recorded in `src/codex/UPSTREAM.json`, promoted from the upstream v1.11.2 release at commit `0caece60a71eb657d7b829e3b6c7c4896a0a536c`. Path dependencies and mismatched pins fail the release contract. The published v1.8.2 release used core 2.0.0 from upstream v1.10.3.
+Pulse 1.9.4 consumes `codex-presence-core` 2.0.1 through the full Git revision recorded in `src/codex/UPSTREAM.json`, promoted from the upstream v1.11.2 release at commit `0caece60a71eb657d7b829e3b6c7c4896a0a536c`. Path dependencies and mismatched pins fail the release contract. The published v1.8.2 release used core 2.0.0 from upstream v1.10.3.
 
 ## Commit and pull request checks
 

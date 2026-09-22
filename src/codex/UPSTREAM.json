@@ -12,7 +12,7 @@
     "promotion_status": "promoted"
   },
   "compatibility": {
-    "pulse": "1.9.3",
+    "pulse": "1.9.4",
     "presence_config_schema": 13,
     "usage_snapshot_revision": 1,
     "app_snapshot_revision": 1

@@ -21,6 +21,8 @@ Raw JSONL usage has four independent token categories:
 
 The [parser](../../src/session.rs) adds all three input categories to Pulse's aggregate `input_tokens`. Only that aggregate includes cached input. Do not subtract cache tokens from the raw uncached-input field.
 
+Claude Code writes one JSONL line per content block of a response (thinking, text, tool_use), and each line repeats that response's `usage`. While a response streams, `output_tokens` can grow from one line to the next. Pulse counts each `message.id` once, at its latest usage, even when lines from other responses come in between. Lines without a `message.id` still count one by one. Before 1.9.4, Pulse counted every line, so tokens and costs were overstated.
+
 ```text
 turn input = uncached input + cache creation + cache read
 turn cost = (uncached input × input rate
