@@ -7,6 +7,8 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 ### Fixed
 
 - Show the current Claude plan after an upgrade or downgrade. Claude Code keeps the login-time `rateLimitTier` in `.credentials.json` but refreshes `oauthAccount` in `.claude.json`, so Pulse kept showing Max 5x after an upgrade to Max 20x. Pulse now prefers the account profile's recognized tier (`userRateLimitTier`, then `organizationRateLimitTier`) and falls back to the credentials file.
+- Bill Claude Sonnet 5 at its permanent $2/$10 rates ($2.50 cache writes, $0.20 cache reads). Anthropic cancelled the scheduled September 1, 2026 increase, but Pulse switched to $3/$15 after that date. The "Intro Pricing" badge is removed.
+- Bill Claude Fable/Mythos 5.1 cache reads at $0.25 per million. Pulse used version 5's $1 rate for every Fable/Mythos version.
 
 ### Documentation
 

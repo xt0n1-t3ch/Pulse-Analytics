@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SessionInfo } from "../lib/api";
-  import { fmtTokens, fmtCost, fmtExactCost, fmtDuration, fmtTps, classifyActivity, fmtPromoEndDate } from "../lib/utils";
+  import { fmtTokens, fmtCost, fmtExactCost, fmtDuration, fmtTps, classifyActivity } from "../lib/utils";
   import { slide } from "svelte/transition";
 
   let { session }: { session: SessionInfo } = $props();
@@ -21,11 +21,6 @@
   );
 
   let isMythosClass = $derived(/(?:fable|mythos)/.test(session.model_id.toLowerCase()));
-  let introPricingTitle = $derived(
-    session.intro_pricing
-      ? `Introductory pricing — $${session.intro_pricing.intro.input_per_million.toFixed(2)} / $${session.intro_pricing.intro.output_per_million.toFixed(2)} per MTok in/out through ${fmtPromoEndDate(session.intro_pricing.ends_at)}, then $${session.intro_pricing.regular.input_per_million.toFixed(2)} / $${session.intro_pricing.regular.output_per_million.toFixed(2)} automatically.`
-      : "",
-  );
 </script>
 
 <div
@@ -46,9 +41,6 @@
           class="inflated-marker"
           title="Inflated tokenizer — this model can produce more tokens than its predecessor for the same text, raising cost at unchanged per-token rates."
         >⚠</span>{/if}</span>
-    {#if session.intro_pricing}
-      <span class="badge promo" title={introPricingTitle}>Intro Pricing</span>
-    {/if}
     {#if session.fast}
       <span class="badge fast" title="Fast mode — priority speed billing on this turn">⚡ Fast</span>
     {/if}
@@ -212,7 +204,6 @@
   .badge.thinking { color: var(--token-cache-read); background: var(--token-cache-read-dim); }
   .badge.subagent { color: var(--info); background: var(--info-dim); }
   .badge.fast { color: var(--warning); background: var(--warning-dim); }
-  .badge.promo { color: var(--success); background: var(--success-dim); cursor: help; }
 
   .inflated-marker {
     margin-left: 4px;

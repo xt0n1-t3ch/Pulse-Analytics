@@ -142,8 +142,7 @@ function liveSession(
     speed: "standard",
     fast: false,
     service_tier: null,
-    intro_pricing: null,
-    has_inflated_tokenizer: false,
+      has_inflated_tokenizer: false,
   };
 }
 

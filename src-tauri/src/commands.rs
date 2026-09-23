@@ -2124,10 +2124,6 @@ pub struct SessionInfo {
     pub fast: bool,
     /// Service tier of the most recent turn ("priority"/"standard"), display only.
     pub service_tier: Option<String>,
-    /// This session's model's currently-active introductory-pricing window, if
-    /// any. `None` both for models with no promo and for a promo'd model once
-    /// its window has closed — the frontend never computes its own expiry.
-    pub intro_pricing: Option<cost::IntroPricingBadge>,
     /// True when this session's model uses a newer tokenizer that bills more
     /// tokens than its predecessor for the same input text at an unchanged
     /// per-token rate (currently: Opus 4.7+, Claude Sonnet 5).
@@ -2213,7 +2209,6 @@ pub(crate) fn build_claude_session_infos(snapshots: &[ClaudeSessionSnapshot]) ->
                 0.0
             };
             let model_id_raw = s.model.clone().unwrap_or_default();
-            let intro_pricing = cost::active_intro_pricing(&model_id_raw, chrono::Utc::now());
             let has_inflated_tokenizer = cost::has_inflated_tokenizer(&model_id_raw);
             let has_1m = cost::is_ga_1m_context(&model_id_raw)
                 || model_id_raw.contains("[1m]")
@@ -2317,7 +2312,6 @@ pub(crate) fn build_claude_session_infos(snapshots: &[ClaudeSessionSnapshot]) ->
                 speed: s.speed.as_str().to_string(),
                 fast,
                 service_tier: s.service_tier.clone(),
-                intro_pricing,
                 has_inflated_tokenizer,
             }
         })
@@ -2466,7 +2460,6 @@ pub(crate) fn build_codex_session_infos(
                         "standard".to_string()
                     }
                 }),
-                intro_pricing: None,
                 has_inflated_tokenizer: false,
             }
         })
@@ -6118,15 +6111,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn claude_session_info_carries_the_real_time_sonnet_5_intro_pricing_badge() {
-        let snapshots = [sample_claude_snapshot("claude-sonnet-5")];
-        let infos = build_claude_session_infos(&snapshots);
-        let expected = cost::active_intro_pricing("claude-sonnet-5", chrono::Utc::now());
-
-        assert_eq!(infos[0].intro_pricing, expected);
-    }
-
     /// `CLAUDE_HOME` / `CODEX_HOME` are process-global, so every test that
     /// redirects them must hold this lock or they clobber each other under
     /// libtest's default multi-threaded runner.
@@ -6646,14 +6630,6 @@ mod tests {
     }
 
     #[test]
-    fn claude_session_info_has_no_intro_pricing_badge_for_a_model_with_no_promo() {
-        let snapshots = [sample_claude_snapshot("claude-sonnet-4-6")];
-        let infos = build_claude_session_infos(&snapshots);
-
-        assert!(infos[0].intro_pricing.is_none());
-    }
-
-    #[test]
     fn claude_session_info_flags_inflated_tokenizer_for_sonnet_5_and_opus_4_7_plus() {
         for model_id in ["claude-sonnet-5", "claude-opus-4-8"] {
             let snapshots = [sample_claude_snapshot(model_id)];
@@ -6671,14 +6647,13 @@ mod tests {
     }
 
     #[test]
-    fn codex_session_info_never_carries_an_intro_pricing_badge_or_inflated_tokenizer_flag() {
+    fn codex_session_info_never_carries_an_inflated_tokenizer_flag() {
         let standard = build_codex_session_infos(
             &[sample_codex_snapshot()],
             &TestCodexPresenceConfig::default(),
             TestPresenceSurface::Cli,
         );
 
-        assert!(standard[0].intro_pricing.is_none());
         assert!(!standard[0].has_inflated_tokenizer);
     }
 

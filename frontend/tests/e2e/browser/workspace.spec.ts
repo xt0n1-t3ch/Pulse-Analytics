@@ -47,7 +47,6 @@ const session = {
   fast: false,
   service_tier: null,
   app_name: "ChatGPT App",
-  intro_pricing: null,
   has_inflated_tokenizer: false,
 };
 
