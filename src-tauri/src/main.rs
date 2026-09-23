@@ -218,6 +218,8 @@ fn main() {
             commands::mark_all_notifications_unread,
             commands::dismiss_all_notifications,
             commands::restore_notifications,
+            commands::preview_claude_history_repair,
+            commands::apply_claude_history_repair,
             commands::get_metrics,
             commands::get_live_sessions,
             commands::get_discord_preview,

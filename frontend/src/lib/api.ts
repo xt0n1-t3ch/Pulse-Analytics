@@ -804,6 +804,27 @@ export function getDbSize(): Promise<number> {
     return invoke("get_db_size");
 }
 
+/** Stored Claude sessions checked against their transcripts. */
+export interface ClaudeHistoryRepairSummary {
+    rows_checked: number;
+    rows_to_update: number;
+    rows_without_transcript: number;
+    tokens_before: number;
+    tokens_after: number;
+    cost_before: number;
+    cost_after: number;
+    backup_path: string | null;
+    applied: boolean;
+}
+
+export function previewClaudeHistoryRepair(): Promise<ClaudeHistoryRepairSummary> {
+    return invoke("preview_claude_history_repair");
+}
+
+export function applyClaudeHistoryRepair(): Promise<ClaudeHistoryRepairSummary> {
+    return invoke("apply_claude_history_repair");
+}
+
 export function generateHtmlReport(
     days?: number,
     project?: string,

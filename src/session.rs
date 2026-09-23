@@ -412,6 +412,20 @@ fn fetch_git_branch(project_path: &Path) -> Option<String> {
 #[derive(Debug, Default)]
 pub struct SessionParseCache {
     entries: HashMap<PathBuf, CachedSessionEntry>,
+    /// When set, parsing may read checkpoints but never writes them. Used by
+    /// one-off scans of the whole history, which would otherwise leave a
+    /// checkpoint behind for every old transcript.
+    read_only_checkpoints: bool,
+}
+
+impl SessionParseCache {
+    /// A cache for a one-off full scan that writes no checkpoints.
+    pub fn without_checkpoint_writes() -> Self {
+        Self {
+            read_only_checkpoints: true,
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1583,6 +1597,7 @@ fn parse_session_file_cached(
 ) -> Result<Option<ClaudeSessionSnapshot>> {
     let file_len = metadata.len();
     let path_buf = path.to_path_buf();
+    let write_checkpoints = !parse_cache.read_only_checkpoints;
 
     if !parse_cache.entries.contains_key(&path_buf) {
         let restored = load_session_checkpoint(path, metadata, modified)
@@ -1707,7 +1722,9 @@ fn parse_session_file_cached(
         Some(id) if !id.is_empty() => id.to_string(),
         _ => {
             entry.snapshot = None;
-            persist_session_checkpoint(path, entry);
+            if write_checkpoints {
+                persist_session_checkpoint(path, entry);
+            }
             return Ok(None);
         }
     };
@@ -1820,7 +1837,9 @@ fn parse_session_file_cached(
     };
 
     entry.snapshot = Some(snapshot.clone());
-    persist_session_checkpoint(path, entry);
+    if write_checkpoints {
+        persist_session_checkpoint(path, entry);
+    }
     Ok(Some(snapshot))
 }
 

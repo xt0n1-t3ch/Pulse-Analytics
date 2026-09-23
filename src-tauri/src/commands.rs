@@ -4846,6 +4846,49 @@ pub async fn generate_markdown_report(
     .await
 }
 
+/// Re-reads every Claude transcript under the configured projects roots, as
+/// one-off input for the history repair. Writes no parse checkpoints.
+fn claude_history_session_infos() -> Result<Vec<SessionInfo>, String> {
+    const WHOLE_HISTORY: Duration = Duration::from_secs(60 * 60 * 24 * 365 * 50);
+    let roots = cc_discord_presence::config::projects_paths();
+    let snapshots = session::collect_active_sessions_multi(
+        &roots,
+        WHOLE_HISTORY,
+        WHOLE_HISTORY,
+        &mut GitBranchCache::new(Duration::from_secs(300)),
+        &mut SessionParseCache::without_checkpoint_writes(),
+        &cc_discord_presence::config::read_ide_workspace_folders(),
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(build_claude_session_infos(&snapshots))
+}
+
+/// Shows how many stored Claude sessions differ from their transcripts and by
+/// how much, without changing anything.
+pub fn preview_claude_history_repair_blocking()
+-> Result<crate::db::ClaudeHistoryRepairSummary, String> {
+    let infos = claude_history_session_infos()?;
+    crate::db::preview_claude_history_repair(&infos).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn preview_claude_history_repair() -> Result<crate::db::ClaudeHistoryRepairSummary, String>
+{
+    offload(preview_claude_history_repair_blocking).await
+}
+
+/// Backs up the analytics database, then rewrites stored Claude sessions from
+/// their transcripts. Sessions whose transcript is gone are left unchanged.
+#[tauri::command]
+pub async fn apply_claude_history_repair() -> Result<crate::db::ClaudeHistoryRepairSummary, String>
+{
+    offload(|| {
+        let infos = claude_history_session_infos()?;
+        crate::db::apply_claude_history_repair(&infos).map_err(|error| format!("{error:#}"))
+    })
+    .await
+}
+
 async fn offload<T, F>(work: F) -> T
 where
     T: Send + 'static,

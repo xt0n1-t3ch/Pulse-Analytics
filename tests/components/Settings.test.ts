@@ -29,6 +29,23 @@ const setActiveProvider = vi.fn(async () => undefined);
 const getProviderCopy = vi.fn(async () => null);
 const clearHistory = vi.fn(async () => 7);
 const exportAllData = vi.fn(async () => ({ ok: true }));
+const repairPreview = {
+  rows_checked: 40,
+  rows_to_update: 12,
+  rows_without_transcript: 3,
+  tokens_before: 90_000_000,
+  tokens_after: 35_000_000,
+  cost_before: 180.5,
+  cost_after: 64.25,
+  backup_path: null,
+  applied: false,
+};
+const previewClaudeHistoryRepair = vi.fn(async () => repairPreview);
+const applyClaudeHistoryRepair = vi.fn(async () => ({
+  ...repairPreview,
+  applied: true,
+  backup_path: "C:/pulse/pulse-analytics.db.pre-history-repair-20260922T120000Z.bak",
+}));
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -42,6 +59,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
     getProviderCopy: () => getProviderCopy(),
     clearHistory: () => clearHistory(),
     exportAllData: (providerScope?: string) => exportAllData(providerScope),
+    previewClaudeHistoryRepair: () => previewClaudeHistoryRepair(),
+    applyClaudeHistoryRepair: () => applyClaudeHistoryRepair(),
   };
 });
 
@@ -236,6 +255,29 @@ describe("Settings.svelte", () => {
     await fireEvent.click(getByText("Confirm clear"));
     await waitFor(() => expect(clearHistory).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(getByText("Cleared 7 sessions")).toBeTruthy());
+  });
+
+  it("previews the Claude history correction and applies it only after confirmation", async () => {
+    previewClaudeHistoryRepair.mockClear();
+    applyClaudeHistoryRepair.mockClear();
+    const Settings = (await import("@/views/Settings.svelte")).default;
+    const { getByText, container } = render(Settings, {
+      props: { onToggleTheme: () => {}, currentTheme: "dark" },
+    });
+    await tick();
+
+    await fireEvent.click(getByText("Check history"));
+    await waitFor(() => expect(previewClaudeHistoryRepair).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(getByText("of 40 saved")).toBeTruthy());
+    expect(container.textContent).toContain("3 saved sessions no longer have a transcript");
+    expect(applyClaudeHistoryRepair).not.toHaveBeenCalled();
+
+    await fireEvent.click(getByText("Correct sessions…"));
+    expect(applyClaudeHistoryRepair).not.toHaveBeenCalled();
+    await fireEvent.click(getByText("Back up and correct 12 sessions"));
+    await waitFor(() => expect(applyClaudeHistoryRepair).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(container.textContent).toContain("Corrected 12 sessions"));
+    expect(container.textContent).toContain("pre-history-repair-20260922T120000Z.bak");
   });
 
   it("toggles the theme through the appearance control", async () => {

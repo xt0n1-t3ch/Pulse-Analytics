@@ -33,6 +33,16 @@ Stop Pulse before restoring data. Retain the new directory first; use a consiste
 
 Do not delete the receipt to merge databases. Pulse does not automatically merge divergent databases. Keep both copies until recovery is verified.
 
+### Correct saved Claude history
+
+Earlier versions counted parts of some Claude responses more than once and priced Sonnet 5 and Fable 5.1 cache reads at outdated rates. Pulse corrects a session while it is active, but saved sessions that already ended keep their old totals until you correct them:
+
+1. Open **Settings** and select **Check history** under **Claude history correction**. Pulse re-reads your transcripts and shows how many sessions would change, with token and cost totals before and after. Nothing is written.
+2. Select **Correct sessions…**, then confirm. Pulse writes `pulse-analytics.db.pre-history-repair-<UTC time>.bak` with `VACUUM INTO`, checks it, and updates the sessions in one transaction.
+3. Sessions whose transcript is no longer on this computer stay unchanged. Sessions priced by Claude's statusline keep their cost and receive corrected token counts only.
+
+To undo the correction, stop Pulse and restore the backup file as `pulse-analytics.db`.
+
 ## Privacy
 
 Pulse does not upload prompts or session transcripts and sends no analytics telemetry. Local reports can contain sensitive details; inspect them before sharing. Provider quota checks, update checks and enabled Discord fields still use the network. Storage migration sends no data over the network.
