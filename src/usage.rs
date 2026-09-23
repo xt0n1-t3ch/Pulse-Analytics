@@ -146,6 +146,11 @@ struct UsageCacheFile {
     /// Without this field, a legacy `subscriptionType=max` cache is unclaimed.
     #[serde(default)]
     rate_limit_tier: Option<String>,
+    /// `account_fingerprint` of the account these figures belong to. A cache
+    /// written for another account is ignored, so an account switch never
+    /// shows the previous account's usage.
+    #[serde(default)]
+    account: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -194,6 +199,40 @@ fn read_plan_fields_from_path(path: &Path) -> Option<PlanFields> {
     ))
 }
 
+/// `oauthAccount` from Claude Code's account config, if readable.
+fn read_oauth_account(credentials_path: &Path) -> Option<serde_json::Value> {
+    let text = account_config_candidates(credentials_path)
+        .into_iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())?;
+    let mut config = serde_json::from_str::<serde_json::Value>(&text).ok()?;
+    config.get_mut("oauthAccount").map(serde_json::Value::take)
+}
+
+/// Identifies the signed-in Claude account without storing its identifiers:
+/// an FNV-1a hash of the account and organization UUIDs. `None` when Claude
+/// Code has not recorded an account.
+fn account_fingerprint(credentials_path: &Path) -> Option<String> {
+    let account = read_oauth_account(credentials_path)?;
+    let id = |name: &str| {
+        account
+            .get(name)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    let identity = format!("{}|{}", id("accountUuid"), id("organizationUuid"));
+    if identity == "|" {
+        return None;
+    }
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in identity.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    Some(format!("{hash:016x}"))
+}
+
 /// Claude Code's account config sits next to the credentials directory
 /// (`~/.claude.json` beside `~/.claude/`), or inside a custom Claude home.
 fn account_config_candidates(credentials_path: &Path) -> Vec<PathBuf> {
@@ -211,11 +250,7 @@ fn account_config_candidates(credentials_path: &Path) -> Vec<PathBuf> {
 /// keeps the `rateLimitTier` recorded at login, so an upgrade from Max 5x to
 /// Max 20x shows up here first.
 fn read_account_plan_fields(credentials_path: &Path) -> Option<PlanFields> {
-    let text = account_config_candidates(credentials_path)
-        .into_iter()
-        .find_map(|path| std::fs::read_to_string(path).ok())?;
-    let config = serde_json::from_str::<serde_json::Value>(&text).ok()?;
-    let account = config.get("oauthAccount")?;
+    let account = read_oauth_account(credentials_path)?;
     let field = |name: &str| {
         account
             .get(name)
@@ -520,10 +555,15 @@ impl UsageManager {
     /// Returns the cached figures together with the subscription they were
     /// fetched for, so the caller can report provenance without borrowing the
     /// tier from whatever credentials happen to be loaded now.
-    fn try_read_file_cache() -> Option<FileUsageCache> {
+    fn try_read_file_cache(expected_account: Option<&str>) -> Option<FileUsageCache> {
         let path = crate::config::usage_cache_path();
         let raw = std::fs::read_to_string(path).ok()?;
         let cache: UsageCacheFile = serde_json::from_str(&raw).ok()?;
+        if let Some(expected) = expected_account
+            && cache.account.as_deref() != Some(expected)
+        {
+            return None;
+        }
         let now_unix = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
         if cache.fetched_at_unix > now_unix || cache.fetched_at_unix > i64::MAX as u64 {
             return None;
@@ -548,21 +588,23 @@ impl UsageManager {
         data: &UsageData,
         subscription: Option<String>,
         rate_limit_tier: Option<String>,
+        account: Option<String>,
     ) {
         let path = crate::config::usage_cache_path();
         let fetched_at_unix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let Ok(json) = serde_json::to_string(&UsageCacheFile {
+        let cache = UsageCacheFile {
             fetched_at_unix,
             data: data.clone(),
             subscription,
             rate_limit_tier,
-        }) else {
-            return;
+            account,
         };
-        if let Err(err) = std::fs::write(&path, json) {
+        // The daemon and the GUI can both write this file; an atomic replace
+        // keeps a reader from seeing a half-written cache.
+        if let Err(err) = crate::codex::util::write_json_pretty_atomic(&path, &cache) {
             tracing::warn!(
                 path = %path.display(),
                 error = %err,
@@ -587,7 +629,7 @@ impl UsageManager {
 
         if self.credentials_path_override.is_none()
             && let Some((cached, cached_subscription, cached_rate_limit_tier, observed_at)) =
-                Self::try_read_file_cache()
+                Self::try_read_file_cache(account_fingerprint(&self.credentials_path()).as_deref())
         {
             // No request was made this cycle; say so instead of implying a live
             // read, and name only the tier stored alongside these very figures.
@@ -792,6 +834,7 @@ impl UsageManager {
                                 self.last_usage_origin
                                     .as_ref()
                                     .and_then(|origin| origin.rate_limit_tier.clone()),
+                                account_fingerprint(&self.credentials_path()),
                             );
                         }
                         Some(usage)
@@ -1630,6 +1673,7 @@ mod tests {
                 data: data.clone(),
                 subscription: None,
                 rate_limit_tier: None,
+                account: None,
             };
             std::fs::write(
                 crate::config::usage_cache_path(),
@@ -1644,14 +1688,69 @@ mod tests {
             .as_secs();
         write_cache(now.saturating_add(3600));
         assert!(
-            UsageManager::try_read_file_cache().is_none(),
+            UsageManager::try_read_file_cache(None).is_none(),
             "future cache observations must not become fresh quota"
         );
 
         write_cache(i64::MAX as u64 + 1);
         assert!(
-            UsageManager::try_read_file_cache().is_none(),
+            UsageManager::try_read_file_cache(None).is_none(),
             "timestamps outside DateTime's Unix range must be rejected"
         );
+    }
+
+    #[test]
+    fn usage_cache_from_another_account_is_ignored() {
+        let _home = IsolatedPulseHome::new();
+        let data = UsageData {
+            five_hour: UsageWindow {
+                utilization: 42.0,
+                resets_at: None,
+            },
+            seven_day: UsageWindow {
+                utilization: 7.0,
+                resets_at: None,
+            },
+            sonnet_free: None,
+            limits: Vec::new(),
+            extra_usage: None,
+        };
+        UsageManager::write_file_cache(&data, None, None, Some("aaaa".to_string()));
+
+        assert!(UsageManager::try_read_file_cache(Some("aaaa")).is_some());
+        assert!(
+            UsageManager::try_read_file_cache(Some("bbbb")).is_none(),
+            "another account's figures are not served"
+        );
+        assert!(
+            UsageManager::try_read_file_cache(None).is_some(),
+            "an unknown current account cannot contradict the cache"
+        );
+        let raw = std::fs::read_to_string(crate::config::usage_cache_path()).unwrap();
+        assert!(raw.contains("\"account\": \"aaaa\""), "{raw}");
+    }
+
+    #[test]
+    fn account_fingerprint_hashes_ids_and_changes_with_the_account() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let credentials = dir.path().join(".credentials.json");
+        assert_eq!(account_fingerprint(&credentials), None, "no account config");
+
+        let config = dir.path().join(".claude.json");
+        std::fs::write(
+            &config,
+            r#"{"oauthAccount": {"accountUuid": "acct-1", "organizationUuid": "org-1"}}"#,
+        )
+        .unwrap();
+        let first = account_fingerprint(&credentials).expect("fingerprint");
+        assert_eq!(first.len(), 16);
+        assert!(!first.contains("acct-1"));
+
+        std::fs::write(
+            &config,
+            r#"{"oauthAccount": {"accountUuid": "acct-2", "organizationUuid": "org-1"}}"#,
+        )
+        .unwrap();
+        assert_ne!(account_fingerprint(&credentials).unwrap(), first);
     }
 }
