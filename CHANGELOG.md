@@ -10,6 +10,7 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 - Bill Claude Sonnet 5 at its permanent $2/$10 rates ($2.50 cache writes, $0.20 cache reads). Anthropic cancelled the scheduled September 1, 2026 increase, but Pulse switched to $3/$15 after that date. The "Intro Pricing" badge is removed.
 - Bill Claude Fable/Mythos 5.1 cache reads at $0.25 per million. Pulse used version 5's $1 rate for every Fable/Mythos version.
 - Point the Discord button, updater fallback links, install scripts, crate metadata and documentation at the repository's current name, `xt0n1-t3ch/Pulse-Analytics`. The updater still accepts release links under the former name.
+- Store Claude session checkpoints under `PULSE_HOME/claude/session-checkpoints/` instead of inside Claude's own `~/.claude` folder. File names use a stable hash, so a Rust toolchain update no longer orphans them. At startup, Pulse removes checkpoints from another version, checkpoints for deleted transcripts and the old folder in `~/.claude`.
 
 ### Documentation
 

@@ -263,6 +263,7 @@ fn tick_session_cycle(
     let config = &*config;
 
     let ide_workspaces = config::read_ide_workspace_folders();
+    crate::session::prune_session_checkpoints_once();
     let mut sessions = collect_active_sessions_multi(
         projects_roots,
         runtime.stale_threshold,

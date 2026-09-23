@@ -11,6 +11,7 @@ Pulse stores its own data in `~/.pulse-analytics/`. Set `PULSE_HOME` to an absol
 | `pulse-opencode.json` | OpenCode integration and presence settings |
 | `pulse-last-app-snapshot.json` | Cached application snapshot |
 | `claude/` | Presence settings, usage cache, daemon metrics and diagnostic log |
+| `claude/session-checkpoints/v1/` | Parse checkpoints for Claude transcripts. Each file records the Pulse version that wrote it; files from another version or for a deleted transcript are removed at startup |
 | `codex/` | Presence settings and plan cache |
 | `legacy-migration-v1.json`, `migration.lock` | Migration receipt and coordination |
 

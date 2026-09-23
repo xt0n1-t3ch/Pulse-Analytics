@@ -1,7 +1,6 @@
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -24,6 +23,7 @@ const SESSION_CHECKPOINT_SCHEMA_VERSION: u32 = 1;
 /// that an older build computed at the old rates.
 const SESSION_CHECKPOINT_APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const SESSION_CHECKPOINT_MAX_BYTES: u64 = 16 * 1024 * 1024;
+const SESSION_CHECKPOINT_TEMP_GRACE: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -474,24 +474,148 @@ struct PersistentSessionCheckpoint {
     snapshot: Option<ClaudeSessionSnapshot>,
 }
 
+/// Pulse-owned checkpoint directory under `PULSE_HOME`.
+fn session_checkpoint_home() -> PathBuf {
+    crate::storage::home()
+        .join("claude")
+        .join("session-checkpoints")
+        .join(format!("v{SESSION_CHECKPOINT_SCHEMA_VERSION}"))
+}
+
+/// Checkpoints are only kept for transcripts under a configured Claude
+/// projects root, so parsing an arbitrary file never writes Pulse state.
 fn session_checkpoint_root(path: &Path) -> Option<PathBuf> {
     config::projects_paths()
         .into_iter()
-        .find_map(|projects_root| {
-            path.starts_with(&projects_root).then(|| {
-                projects_root
-                    .parent()
-                    .unwrap_or(&projects_root)
-                    .join("pulse-session-checkpoints")
-                    .join(format!("v{SESSION_CHECKPOINT_SCHEMA_VERSION}"))
-            })
+        .any(|projects_root| path.starts_with(&projects_root))
+        .then(session_checkpoint_home)
+}
+
+/// Directory where builds before 1.9.5 wrote checkpoints, inside Claude's own
+/// home. Pulse removes its files from there during pruning.
+fn legacy_session_checkpoint_roots() -> Vec<PathBuf> {
+    config::projects_paths()
+        .into_iter()
+        .filter_map(|projects_root| {
+            projects_root
+                .parent()
+                .map(|parent| parent.join("pulse-session-checkpoints"))
         })
+        .collect()
+}
+
+/// FNV-1a over the path text. Unlike `DefaultHasher`, the result is stable
+/// across Rust releases, so a toolchain update never orphans checkpoints.
+fn stable_path_hash(path: &Path) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in path.to_string_lossy().as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 fn session_checkpoint_path(checkpoint_root: &Path, source_path: &Path) -> PathBuf {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source_path.hash(&mut hasher);
-    checkpoint_root.join(format!("{:016x}.json", hasher.finish()))
+    checkpoint_root.join(format!("{:016x}.json", stable_path_hash(source_path)))
+}
+
+/// Header fields read when pruning; the accumulator itself is ignored.
+#[derive(Deserialize)]
+struct CheckpointHeader {
+    schema_version: u32,
+    #[serde(default)]
+    app_version: String,
+    source_path: PathBuf,
+}
+
+/// Removes checkpoints another build wrote, checkpoints whose transcript is
+/// gone, unreadable files and leftover temporary files. Returns the number of
+/// files removed.
+fn prune_session_checkpoints_in(checkpoint_root: &Path) -> usize {
+    let Ok(entries) = fs::read_dir(checkpoint_root) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let is_json = path.extension().is_some_and(|ext| ext == "json");
+        // A non-JSON file is a temporary write; a fresh one may still be in
+        // progress on the polling thread.
+        let recently_written =
+            entry
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .is_ok_and(|modified| {
+                    modified.elapsed().unwrap_or_default() < SESSION_CHECKPOINT_TEMP_GRACE
+                });
+        if !is_json && recently_written {
+            continue;
+        }
+        let keep = is_json
+            && entry
+                .metadata()
+                .is_ok_and(|meta| meta.len() <= SESSION_CHECKPOINT_MAX_BYTES)
+            && fs::read(&path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<CheckpointHeader>(&bytes).ok())
+                .is_some_and(|header| {
+                    header.schema_version == SESSION_CHECKPOINT_SCHEMA_VERSION
+                        && header.app_version == SESSION_CHECKPOINT_APP_VERSION
+                        && header.source_path.is_file()
+                        && session_checkpoint_path(checkpoint_root, &header.source_path) == path
+                });
+        if !keep && fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// Removes every file in a legacy checkpoint directory, then the empty
+/// directories. Only Pulse ever wrote there.
+fn remove_legacy_session_checkpoints(legacy_root: &Path) -> usize {
+    let mut removed = 0;
+    for version_dir in fs::read_dir(legacy_root).into_iter().flatten().flatten() {
+        let dir = version_dir.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        for file in fs::read_dir(&dir).into_iter().flatten().flatten() {
+            if file.path().is_file() && fs::remove_file(file.path()).is_ok() {
+                removed += 1;
+            }
+        }
+        let _ = fs::remove_dir(&dir);
+    }
+    let _ = fs::remove_dir(legacy_root);
+    removed
+}
+
+/// Prunes checkpoints once per process, on a background thread so the first
+/// poll is not delayed.
+pub fn prune_session_checkpoints_once() {
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    STARTED.call_once(|| {
+        let root = session_checkpoint_home();
+        let legacy = legacy_session_checkpoint_roots();
+        let spawned = std::thread::Builder::new()
+            .name("pulse-checkpoint-prune".to_string())
+            .spawn(move || {
+                let mut removed = prune_session_checkpoints_in(&root);
+                for legacy_root in legacy {
+                    removed += remove_legacy_session_checkpoints(&legacy_root);
+                }
+                if removed > 0 {
+                    tracing::info!(removed, "pruned stale session checkpoints");
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::warn!(%error, "failed to start session checkpoint pruning");
+        }
+    });
 }
 
 fn persist_session_checkpoint_to(
@@ -1228,6 +1352,7 @@ pub fn collect_active_sessions(
     stale_threshold: Duration,
     active_sticky_window: Duration,
 ) -> Result<Vec<ClaudeSessionSnapshot>> {
+    prune_session_checkpoints_once();
     let projects_roots = config::projects_paths();
     let ide_workspaces = config::read_ide_workspace_folders();
     collect_active_sessions_multi(
@@ -2743,6 +2868,72 @@ mod tests {
             cache.entries[&path].body_bytes_read_last_poll,
             fs::metadata(&path).unwrap().len()
         );
+    }
+
+    /// FNV-1a reference values; a change here would orphan every checkpoint.
+    #[test]
+    fn checkpoint_file_names_use_a_stable_hash() {
+        assert_eq!(stable_path_hash(Path::new("")), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(stable_path_hash(Path::new("a")), 0xaf63_dc4c_8601_ec8c);
+        assert_eq!(
+            session_checkpoint_path(Path::new("root"), Path::new("a")),
+            Path::new("root").join("af63dc4c8601ec8c.json")
+        );
+    }
+
+    #[test]
+    fn pruning_keeps_current_checkpoints_and_removes_stale_ones() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path().join("checkpoints");
+        let live = dir.path().join("live.jsonl");
+        let gone = dir.path().join("gone.jsonl");
+        for path in [&live, &gone] {
+            fs::write(path, format!("{}\n", parser_test_line(dir.path(), 10))).expect("JSONL");
+            let mut cache = SessionParseCache::default();
+            parse_test_session(path, 1, &mut cache);
+            persist_session_checkpoint_to(&root, path, &cache.entries[path]).expect("persist");
+        }
+        fs::remove_file(&gone).expect("remove transcript");
+
+        let live_checkpoint = session_checkpoint_path(&root, &live);
+        let mut other_build: serde_json::Value =
+            serde_json::from_slice(&fs::read(&live_checkpoint).unwrap()).unwrap();
+        other_build["app_version"] = serde_json::json!("0.0.0-older-build");
+        let other_path = dir.path().join("other.jsonl");
+        fs::write(&other_path, "{}\n").unwrap();
+        other_build["source_path"] = serde_json::json!(other_path);
+        fs::write(
+            session_checkpoint_path(&root, &other_path),
+            serde_json::to_vec(&other_build).unwrap(),
+        )
+        .unwrap();
+        fs::write(root.join("corrupt.json"), b"{").unwrap();
+        let fresh_temp = root.join(".tmpA1b2C3");
+        fs::write(&fresh_temp, b"partial").unwrap();
+
+        assert_eq!(prune_session_checkpoints_in(&root), 3);
+        assert!(fresh_temp.exists(), "a temporary write in progress is kept");
+        fs::remove_file(&fresh_temp).unwrap();
+        let remaining: Vec<_> = fs::read_dir(&root)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.path())
+            .collect();
+        assert_eq!(remaining, vec![live_checkpoint]);
+        assert_eq!(prune_session_checkpoints_in(&dir.path().join("missing")), 0);
+    }
+
+    #[test]
+    fn legacy_checkpoint_directory_is_removed() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let legacy = dir.path().join("pulse-session-checkpoints");
+        fs::create_dir_all(legacy.join("v1")).unwrap();
+        fs::write(legacy.join("v1").join("0123456789abcdef.json"), b"{}").unwrap();
+        fs::write(legacy.join("v1").join(".tmpXYZ"), b"").unwrap();
+
+        assert_eq!(remove_legacy_session_checkpoints(&legacy), 2);
+        assert!(!legacy.exists());
+        assert!(dir.path().exists(), "the parent Claude directory is kept");
     }
 
     #[test]
