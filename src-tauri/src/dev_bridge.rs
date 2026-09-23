@@ -374,6 +374,12 @@ fn dispatch(target: &BridgeTarget) -> Result<String, DispatchError> {
         "get_rate_limits" => serialize(crate::commands::get_rate_limits()),
         "get_discord_user" => serialize(crate::commands::get_discord_user()),
         "get_plan_info" => serialize(crate::commands::get_plan_info()),
+        // Read-only: the repair itself stays native-only.
+        "preview_claude_history_repair" => {
+            crate::commands::preview_claude_history_repair_blocking()
+                .map_err(DispatchError::Unavailable)
+                .and_then(serialize)
+        }
         "get_active_provider" => serialize(crate::commands::get_active_provider()),
         "get_app_settings" => serialize(crate::commands::get_app_settings()),
         "get_provider_copy" => serialize(crate::commands::get_provider_copy()),

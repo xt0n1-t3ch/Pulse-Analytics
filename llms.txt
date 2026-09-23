@@ -2,7 +2,7 @@
 
 > Pulse is a local-first analytics GUI for Claude Code, Codex and OpenCode, with Discord Rich Presence. Rust, Tauri 2, Svelte 5 and SQLite own the implementation. Provider access, session history and monetary provenance stay separate. Targeted operating systems are not proof of published installers.
 
-The canonical repository is https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics. This file is a navigation aid for readers and language-model tools, not a promise of search ranking or provider endorsement.
+The canonical repository is https://github.com/xt0n1-t3ch/Pulse-Analytics. This file is a navigation aid for readers and language-model tools, not a promise of search ranking or provider endorsement.
 
 ## Start
 

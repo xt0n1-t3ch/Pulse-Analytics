@@ -23,8 +23,10 @@ pub const DEFAULT_DISCORD_CLIENT_ID: &str = "1466664856261230716";
 pub const DEFAULT_LARGE_IMAGE_KEY: &str = "large";
 const PREVIOUS_DEFAULT_LARGE_IMAGE_KEY: &str = "claude-code";
 
-/// Fallback URL for the `mp:external` asset pathway. Points at the committed
-/// mascot under the canonical repo so it resolves on a fresh clone.
+/// Default large image of configs written before schema 3. The schema-3
+/// migration compares stored configs against this exact string, so it keeps
+/// the repository's former name even though GitHub now serves it as
+/// `Pulse-Analytics`.
 pub const DEFAULT_MASCOT_ASSET_URL: &str = "https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/main/assets/branding/claude-mascot.jpg";
 
 /// Default small activity asset keys — each must exist in the Developer Portal.

@@ -1,12 +1,12 @@
 [package]
 name = "pulse"
-version = "1.9.4"
+version = "1.9.5"
 edition = "2024"
 description = "Pulse - Claude Code, Codex and OpenCode analytics"
 default-run = "pulse"
 license = "Apache-2.0"
-repository = "https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics"
-homepage = "https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics"
+repository = "https://github.com/xt0n1-t3ch/Pulse-Analytics"
+homepage = "https://github.com/xt0n1-t3ch/Pulse-Analytics"
 authors = ["xt0n1-t3ch"]
 
 [dependencies]

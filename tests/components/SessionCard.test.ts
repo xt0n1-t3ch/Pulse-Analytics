@@ -41,7 +41,6 @@ function makeSession(overrides: Partial<SessionInfo> = {}): SessionInfo {
     fast: false,
     service_tier: null,
     app_name: null,
-    intro_pricing: null,
     has_inflated_tokenizer: false,
     ...overrides,
   };
@@ -158,51 +157,6 @@ describe("SessionCard", () => {
     });
     expect(getByText(/Claude Mythos 5/).classList.contains("mythos-class")).toBe(true);
     expect(queryByTitle(/Inflated tokenizer/i)).toBeNull();
-  });
-
-  it("shows the intro-pricing badge with the discounted rate and the human end date when the backend reports an active promo", () => {
-    const { getByText, getByTitle } = render(SessionCard, {
-      props: {
-        session: makeSession({
-          model: "Claude Sonnet 5",
-          model_id: "claude-sonnet-5",
-          has_inflated_tokenizer: true,
-          intro_pricing: {
-            intro: {
-              input_per_million: 2.0,
-              output_per_million: 10.0,
-              cache_write_per_million: 2.5,
-              cache_read_per_million: 0.2,
-            },
-            regular: {
-              input_per_million: 3.0,
-              output_per_million: 15.0,
-              cache_write_per_million: 3.75,
-              cache_read_per_million: 0.3,
-            },
-            ends_at: "2026-09-01T00:00:00+00:00",
-          },
-        }),
-      },
-    });
-    expect(getByText("Intro Pricing")).toBeTruthy();
-    const badge = getByTitle(/\$2\.00.*\$10\.00.*Aug 31, 2026/s);
-    expect(badge).toBeTruthy();
-    expect(badge.title).toContain("$3.00");
-    expect(badge.title).toContain("$15.00");
-  });
-
-  it("omits the intro-pricing badge once the backend stops reporting an active promo", () => {
-    const { queryByText } = render(SessionCard, {
-      props: {
-        session: makeSession({
-          model: "Claude Sonnet 5",
-          model_id: "claude-sonnet-5",
-          intro_pricing: null,
-        }),
-      },
-    });
-    expect(queryByText("Intro Pricing")).toBeNull();
   });
 
   it("fails missing pricing proof closed in both summary and expanded details", async () => {

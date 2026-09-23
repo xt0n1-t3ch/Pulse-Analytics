@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1371,6 +1371,246 @@ fn upsert_session_into(
         params![storage_id],
     )?;
     Ok(())
+}
+
+/// Values of one stored Claude history row that a transcript re-read can
+/// correct.
+#[derive(Debug, Clone, PartialEq)]
+struct ClaudeHistoryValues {
+    input_tokens: i64,
+    output_tokens: i64,
+    cache_write_tokens: i64,
+    cache_read_tokens: i64,
+    total_tokens: i64,
+    input_cost: f64,
+    output_cost: f64,
+    cache_write_cost: f64,
+    cache_read_cost: f64,
+    total_cost: f64,
+    cost_status: String,
+    cost_source: String,
+    known_cost: Option<f64>,
+}
+
+impl ClaudeHistoryValues {
+    fn differs_from(&self, other: &Self) -> bool {
+        let money = |a: f64, b: f64| (a - b).abs() > 1e-9;
+        self.input_tokens != other.input_tokens
+            || self.output_tokens != other.output_tokens
+            || self.cache_write_tokens != other.cache_write_tokens
+            || self.cache_read_tokens != other.cache_read_tokens
+            || self.total_tokens != other.total_tokens
+            || money(self.input_cost, other.input_cost)
+            || money(self.output_cost, other.output_cost)
+            || money(self.cache_write_cost, other.cache_write_cost)
+            || money(self.cache_read_cost, other.cache_read_cost)
+            || money(self.total_cost, other.total_cost)
+            || self.cost_status != other.cost_status
+            || self.cost_source != other.cost_source
+            || match (self.known_cost, other.known_cost) {
+                (Some(a), Some(b)) => money(a, b),
+                (a, b) => a.is_some() != b.is_some(),
+            }
+    }
+}
+
+/// Result of checking stored Claude history against the transcripts.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ClaudeHistoryRepairSummary {
+    /// Stored Claude sessions examined.
+    pub rows_checked: usize,
+    /// Rows whose tokens or costs differ from a fresh transcript read.
+    pub rows_to_update: usize,
+    /// Rows whose transcript no longer exists; they are left unchanged.
+    pub rows_without_transcript: usize,
+    pub tokens_before: u64,
+    pub tokens_after: u64,
+    /// Known cost of the rows to update, before and after.
+    pub cost_before: f64,
+    pub cost_after: f64,
+    /// Backup written before the update, when the repair was applied.
+    pub backup_path: Option<String>,
+    pub applied: bool,
+}
+
+type ClaudeHistoryPlan = (
+    ClaudeHistoryRepairSummary,
+    Vec<(String, ClaudeHistoryValues)>,
+);
+
+/// Compares stored Claude rows with sessions re-read from transcripts.
+/// Costs that came from Claude's statusline are authoritative, so those rows
+/// keep their money columns and only receive corrected token counts.
+fn plan_claude_history_repair(
+    conn: &Connection,
+    infos: &[super::commands::SessionInfo],
+) -> rusqlite::Result<ClaudeHistoryPlan> {
+    let fresh: HashMap<String, &super::commands::SessionInfo> = infos
+        .iter()
+        .filter(|info| info.provider == "claude")
+        .map(|info| (storage_session_id(&info.provider, &info.session_id), info))
+        .collect();
+    let mut statement = conn.prepare(
+        "SELECT id, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens,
+                total_tokens, input_cost, output_cost, cache_write_cost, cache_read_cost,
+                total_cost, cost_status, cost_source, known_cost
+         FROM sessions WHERE provider = 'claude' ORDER BY id",
+    )?;
+    let stored = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                ClaudeHistoryValues {
+                    input_tokens: row.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                    output_tokens: row.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                    cache_write_tokens: row.get::<_, Option<i64>>(3)?.unwrap_or(0),
+                    cache_read_tokens: row.get::<_, Option<i64>>(4)?.unwrap_or(0),
+                    total_tokens: row.get::<_, Option<i64>>(5)?.unwrap_or(0),
+                    input_cost: row.get::<_, Option<f64>>(6)?.unwrap_or(0.0),
+                    output_cost: row.get::<_, Option<f64>>(7)?.unwrap_or(0.0),
+                    cache_write_cost: row.get::<_, Option<f64>>(8)?.unwrap_or(0.0),
+                    cache_read_cost: row.get::<_, Option<f64>>(9)?.unwrap_or(0.0),
+                    total_cost: row.get::<_, Option<f64>>(10)?.unwrap_or(0.0),
+                    cost_status: row.get::<_, Option<String>>(11)?.unwrap_or_default(),
+                    cost_source: row.get::<_, Option<String>>(12)?.unwrap_or_default(),
+                    known_cost: row.get::<_, Option<f64>>(13)?,
+                },
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    let mut summary = ClaudeHistoryRepairSummary {
+        rows_checked: stored.len(),
+        rows_to_update: 0,
+        rows_without_transcript: 0,
+        tokens_before: 0,
+        tokens_after: 0,
+        cost_before: 0.0,
+        cost_after: 0.0,
+        backup_path: None,
+        applied: false,
+    };
+    let mut corrections = Vec::new();
+    for (id, before) in stored {
+        let Some(info) = fresh.get(&id) else {
+            summary.rows_without_transcript += 1;
+            continue;
+        };
+        let (cost_status, cost_source, known_cost) = session_cost_provenance(info);
+        let mut after = ClaudeHistoryValues {
+            input_tokens: bounded_i64(info.input_tokens),
+            output_tokens: bounded_i64(info.output_tokens),
+            cache_write_tokens: bounded_i64(info.cache_write_tokens),
+            cache_read_tokens: bounded_i64(info.cache_read_tokens),
+            total_tokens: bounded_i64(info.tokens),
+            input_cost: nonnegative_finite(info.input_cost),
+            output_cost: nonnegative_finite(info.output_cost),
+            cache_write_cost: nonnegative_finite(info.cache_write_cost),
+            cache_read_cost: nonnegative_finite(info.cache_read_cost),
+            total_cost: nonnegative_finite(info.cost),
+            cost_status: cost_status.to_string(),
+            cost_source: cost_source.to_string(),
+            known_cost,
+        };
+        if before.cost_source == "claude_statusline_api_equivalent" {
+            after.input_cost = before.input_cost;
+            after.output_cost = before.output_cost;
+            after.cache_write_cost = before.cache_write_cost;
+            after.cache_read_cost = before.cache_read_cost;
+            after.total_cost = before.total_cost;
+            after.cost_status = before.cost_status.clone();
+            after.cost_source = before.cost_source.clone();
+            after.known_cost = before.known_cost;
+        }
+        if !after.differs_from(&before) {
+            continue;
+        }
+        summary.rows_to_update += 1;
+        summary.tokens_before += before.total_tokens.max(0) as u64;
+        summary.tokens_after += after.total_tokens.max(0) as u64;
+        summary.cost_before += before.known_cost.unwrap_or(0.0);
+        summary.cost_after += after.known_cost.unwrap_or(0.0);
+        corrections.push((id, after));
+    }
+    Ok((summary, corrections))
+}
+
+fn history_repair_backup_path(database: &Path) -> PathBuf {
+    let mut file_name = database
+        .file_name()
+        .unwrap_or_else(|| OsStr::new("pulse-analytics.db"))
+        .to_os_string();
+    file_name.push(format!(
+        ".pre-history-repair-{}.bak",
+        Utc::now().format("%Y%m%dT%H%M%SZ")
+    ));
+    database.with_file_name(file_name)
+}
+
+fn apply_claude_history_repair_in(
+    conn: &Connection,
+    database: &Path,
+    infos: &[super::commands::SessionInfo],
+) -> Result<ClaudeHistoryRepairSummary> {
+    let (mut summary, corrections) = plan_claude_history_repair(conn, infos)?;
+    if corrections.is_empty() {
+        return Ok(summary);
+    }
+    let backup = history_repair_backup_path(database);
+    let backup_file = backup
+        .to_str()
+        .with_context(|| format!("backup path is not valid Unicode: {}", backup.display()))?;
+    conn.execute("VACUUM INTO ?1", params![backup_file])
+        .with_context(|| format!("failed to create history backup {}", backup.display()))?;
+    validate_database(&backup, schema_version(conn)?)?;
+
+    let transaction = conn.unchecked_transaction()?;
+    for (id, values) in &corrections {
+        transaction.execute(
+            "UPDATE sessions SET
+                input_tokens=?2, output_tokens=?3, cache_write_tokens=?4, cache_read_tokens=?5,
+                total_tokens=?6, input_cost=?7, output_cost=?8, cache_write_cost=?9,
+                cache_read_cost=?10, total_cost=?11, cost_status=?12, cost_source=?13,
+                known_cost=?14
+             WHERE id=?1",
+            params![
+                id,
+                values.input_tokens,
+                values.output_tokens,
+                values.cache_write_tokens,
+                values.cache_read_tokens,
+                values.total_tokens,
+                values.input_cost,
+                values.output_cost,
+                values.cache_write_cost,
+                values.cache_read_cost,
+                values.total_cost,
+                values.cost_status,
+                values.cost_source,
+                values.known_cost,
+            ],
+        )?;
+    }
+    transaction.commit()?;
+    summary.backup_path = Some(backup.display().to_string());
+    summary.applied = true;
+    Ok(summary)
+}
+
+/// Previews the repair without changing anything.
+pub fn preview_claude_history_repair(
+    infos: &[super::commands::SessionInfo],
+) -> Result<ClaudeHistoryRepairSummary> {
+    with_connection(|conn| Ok(plan_claude_history_repair(conn, infos)?.0))
+}
+
+/// Backs up the database, then corrects stored Claude rows in one
+/// transaction. Rows without a transcript are left unchanged.
+pub fn apply_claude_history_repair(
+    infos: &[super::commands::SessionInfo],
+) -> Result<ClaudeHistoryRepairSummary> {
+    let database = db_path();
+    with_connection(|conn| apply_claude_history_repair_in(conn, &database, infos))
 }
 
 pub fn upsert_session(s: &super::commands::SessionInfo) -> bool {
@@ -3304,9 +3544,101 @@ mod tests {
             speed: "standard".into(),
             fast: false,
             service_tier: None,
-            intro_pricing: None,
             has_inflated_tokenizer: false,
         }
+    }
+
+    fn repair_session(id: &str, tokens: u64, cost: f64) -> super::super::commands::SessionInfo {
+        let mut info = sample_session_info("1M", "claude-opus-5-5", tokens, tokens);
+        info.session_id = id.into();
+        info.cost = cost;
+        info.input_cost = cost;
+        info.cache_read_tokens = tokens;
+        info.cost_source = "api_equivalent".into();
+        info
+    }
+
+    fn stored_tokens_and_cost(conn: &Connection, id: &str) -> (i64, Option<f64>) {
+        conn.query_row(
+            "SELECT total_tokens, known_cost FROM sessions WHERE id = ?1",
+            params![format!("claude:{id}")],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("stored row")
+    }
+
+    /// Four stored rows: inflated, statusline-priced, transcript gone and
+    /// already correct. Only the first two change, statusline money stays.
+    #[test]
+    fn claude_history_repair_corrects_inflated_rows_and_backs_up_first() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let database = dir.path().join("pulse-analytics.db");
+        let conn = Connection::open(&database).expect("database");
+        init_schema(&conn).expect("schema");
+        let now = Utc::now().to_rfc3339();
+
+        let inflated = repair_session("inflated", 3_000, 9.0);
+        let mut statusline = repair_session("statusline", 3_000, 12.0);
+        statusline.cost_source = "claude_statusline_api_equivalent".into();
+        let gone = repair_session("gone", 5_000, 5.0);
+        let correct = repair_session("correct", 1_000, 1.0);
+        for info in [&inflated, &statusline, &gone, &correct] {
+            upsert_session_into(&conn, info, &now).expect("seed row");
+        }
+
+        let fresh = vec![
+            repair_session("inflated", 1_000, 3.0),
+            {
+                let mut info = repair_session("statusline", 1_000, 4.0);
+                info.cost_source = "claude_statusline_api_equivalent".into();
+                info
+            },
+            repair_session("correct", 1_000, 1.0),
+        ];
+
+        let (preview, _) = plan_claude_history_repair(&conn, &fresh).expect("preview");
+        assert_eq!(preview.rows_checked, 4);
+        assert_eq!(preview.rows_to_update, 2);
+        assert_eq!(preview.rows_without_transcript, 1);
+        assert_eq!(preview.tokens_before, 6_000);
+        assert_eq!(preview.tokens_after, 2_000);
+        assert!((preview.cost_before - 21.0).abs() < 1e-9);
+        assert!(
+            (preview.cost_after - 15.0).abs() < 1e-9,
+            "statusline money is kept"
+        );
+        assert!(!preview.applied);
+        assert_eq!(
+            stored_tokens_and_cost(&conn, "inflated"),
+            (3_000, Some(9.0))
+        );
+
+        let applied = apply_claude_history_repair_in(&conn, &database, &fresh).expect("apply");
+        assert!(applied.applied);
+        let backup = PathBuf::from(applied.backup_path.expect("backup path"));
+        assert!(backup.is_file());
+        let backup_conn = Connection::open(&backup).expect("backup");
+        assert_eq!(
+            stored_tokens_and_cost(&backup_conn, "inflated"),
+            (3_000, Some(9.0)),
+            "the backup holds the values from before the repair"
+        );
+
+        assert_eq!(
+            stored_tokens_and_cost(&conn, "inflated"),
+            (1_000, Some(3.0))
+        );
+        assert_eq!(
+            stored_tokens_and_cost(&conn, "statusline"),
+            (1_000, Some(12.0))
+        );
+        assert_eq!(stored_tokens_and_cost(&conn, "gone"), (5_000, Some(5.0)));
+        assert_eq!(stored_tokens_and_cost(&conn, "correct"), (1_000, Some(1.0)));
+
+        let again = apply_claude_history_repair_in(&conn, &database, &fresh).expect("rerun");
+        assert_eq!(again.rows_to_update, 0);
+        assert!(!again.applied, "nothing to do writes no second backup");
+        assert_eq!(again.backup_path, None);
     }
 
     #[test]

@@ -1,10 +1,10 @@
 blank_issues_enabled: false
 contact_links:
   - name: 💬 Discussions
-    url: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/discussions
+    url: https://github.com/xt0n1-t3ch/Pulse-Analytics/discussions
     about: Questions, ideas, show-and-tell.
   - name: 🔒 Security vulnerability
-    url: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/security/advisories/new
+    url: https://github.com/xt0n1-t3ch/Pulse-Analytics/security/advisories/new
     about: Responsible disclosure (private).
   - name: 💛 Sponsor
     url: https://github.com/sponsors/xt0n1-t3ch

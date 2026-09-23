@@ -11,6 +11,7 @@ Pulse stores its own data in `~/.pulse-analytics/`. Set `PULSE_HOME` to an absol
 | `pulse-opencode.json` | OpenCode integration and presence settings |
 | `pulse-last-app-snapshot.json` | Cached application snapshot |
 | `claude/` | Presence settings, usage cache, daemon metrics and diagnostic log |
+| `claude/session-checkpoints/v1/` | Parse checkpoints for Claude transcripts. Each file records the Pulse version that wrote it; files from another version or for a deleted transcript are removed at startup |
 | `codex/` | Presence settings and plan cache |
 | `legacy-migration-v1.json`, `migration.lock` | Migration receipt and coordination |
 
@@ -31,6 +32,16 @@ Original files remain for rollback. A failed migration stops startup instead of 
 Stop Pulse before restoring data. Retain the new directory first; use a consistent SQLite backup if its database is active. To run an older version, restore its matching binary and legacy settings/database backup. Legacy files do not contain sessions imported later into the new directory.
 
 Do not delete the receipt to merge databases. Pulse does not automatically merge divergent databases. Keep both copies until recovery is verified.
+
+### Correct saved Claude history
+
+Earlier versions counted parts of some Claude responses more than once and priced Sonnet 5 and Fable 5.1 cache reads at outdated rates. Pulse corrects a session while it is active, but saved sessions that already ended keep their old totals until you correct them:
+
+1. Open **Settings** and select **Check history** under **Claude history correction**. Pulse re-reads your transcripts and shows how many sessions would change, with token and cost totals before and after. Nothing is written.
+2. Select **Correct sessions…**, then confirm. Pulse writes `pulse-analytics.db.pre-history-repair-<UTC time>.bak` with `VACUUM INTO`, checks it, and updates the sessions in one transaction.
+3. Sessions whose transcript is no longer on this computer stay unchanged. Sessions priced by Claude's statusline keep their cost and receive corrected token counts only.
+
+To undo the correction, stop Pulse and restore the backup file as `pulse-analytics.db`.
 
 ## Privacy
 

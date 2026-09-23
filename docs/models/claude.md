@@ -68,8 +68,8 @@ The [Claude cost owner](../../src/cost.rs) and [session parser](../../src/sessio
 
 | Area | Current Pulse behavior | Verified limitation |
 | --- | --- | --- |
-| Sonnet 5 | Switches to $3/$15 after the old UTC cutoff | Provider retained $2/$10; fallback estimates can overstate cost |
-| Fable/Mythos 5.1 cache | Family matching uses $1 per million reads | Version 5.1 publishes $0.25; reads need version-specific rates |
+| Sonnet 5 | Permanent $2/$10, $2.50 write and $0.20 read | Corrected in 1.9.5; earlier builds switched to $3/$15 after September 1, 2026 |
+| Fable/Mythos 5.1 cache | Version 5.1 and later read at $0.25; version 5 keeps $1 | Corrected in 1.9.5; earlier builds used $1 for every version |
 | Opus 5.5 | Version-specific $4/$20 rates, $5 write and $0.20 read; Fast at 2x | Implemented September 22, 2026; `claude-opus-5-5` no longer inherits Opus 5 rates |
 | Context | Model/suffix/peak heuristic selects 1M or 200K | Does not prove the active plan, gateway or compaction setting |
 | Cache writes | JSONL estimates use the 5-minute write rate | A missing TTL cannot establish the 1-hour rate |
@@ -80,11 +80,11 @@ A valid Claude statusline `total_cost_usd` remains the authoritative headline wh
 
 ### Maintainer notes retained from the older guides
 
-- `model_pricing_at(model_id, now)` owns the old Sonnet promotion cutoff; do not duplicate date logic in Svelte. The scheduled cutoff is now a known provider mismatch, not a current pricing rule.
+- `model_pricing(model_id)` has no date logic. The cancelled Sonnet 5 increase and its "Intro Pricing" badge were removed in 1.9.5.
 - `is_ga_1m_context()` and `supports_1m_context()` handle recognized Fable/Mythos and Sonnet 5 families. A `[1m]` suffix is normalized; it does not grant account access.
 - `ReasoningEffort::from_api` accepts the documented aliases for Extra High and Max. Detection and display are independent of API model availability.
 - Per-turn `usage.speed` drives the Fast multiplier only for supported Opus versions. `service_tier` is separate. Mixed Standard/Fast turns accumulate independently.
-- Tests cover promotion boundaries, family parsing, context classification, speed and cost breakdown. Passing those tests proves implemented behavior, not current provider pricing. See the [test map](../../tests/index.md).
+- Tests cover version-specific rates, family parsing, context classification, speed and cost breakdown. Passing those tests proves implemented behavior, not current provider pricing. See the [test map](../../tests/index.md).
 
 ## Verify an installation
 

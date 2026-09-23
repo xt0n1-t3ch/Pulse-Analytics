@@ -62,6 +62,9 @@ const ACTIVE_CUTOFF: Duration = Duration::from_secs(600);
 const IDLE_CUTOFF: Duration = Duration::from_secs(300);
 const APP_SNAPSHOT_CACHE_SCHEMA: u32 = 1;
 const APP_SNAPSHOT_CACHE_MAX_BYTES: u64 = 16 * 1024 * 1024;
+/// A saved snapshot older than this is not shown at startup; the first live
+/// poll arrives within seconds anyway.
+const APP_SNAPSHOT_CACHE_MAX_AGE_HOURS: i64 = 24;
 const DISCORD_USER_CACHE_TTL: Duration = Duration::from_secs(60);
 const REPORTS_BUNDLE_CACHE_TTL: Duration = Duration::from_secs(60);
 
@@ -1744,6 +1747,10 @@ pub struct AppSnapshot {
 struct PersistedAppSnapshot {
     schema_version: u32,
     provider: String,
+    /// Pulse build that wrote the snapshot. Missing before 1.9.5, so older
+    /// snapshots, with costs and plans computed by that build, are not shown.
+    #[serde(default)]
+    app_version: String,
     saved_at: String,
     snapshot: serde_json::Value,
 }
@@ -1858,6 +1865,7 @@ fn persist_app_snapshot_value_at(
     let envelope = PersistedAppSnapshot {
         schema_version: APP_SNAPSHOT_CACHE_SCHEMA,
         provider: provider.as_str().to_string(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
         saved_at: chrono::Utc::now().to_rfc3339(),
         snapshot,
     };
@@ -1883,8 +1891,15 @@ fn load_persisted_app_snapshot_at(
     let raw = std::fs::read(path).map_err(|error| error.to_string())?;
     let mut persisted: PersistedAppSnapshot =
         serde_json::from_slice(&raw).map_err(|error| error.to_string())?;
+    let fresh = chrono::DateTime::parse_from_rfc3339(&persisted.saved_at).is_ok_and(|saved| {
+        let age = chrono::Utc::now().signed_duration_since(saved);
+        age >= -chrono::Duration::minutes(5)
+            && age <= chrono::Duration::hours(APP_SNAPSHOT_CACHE_MAX_AGE_HOURS)
+    });
     if persisted.schema_version != APP_SNAPSHOT_CACHE_SCHEMA
         || persisted.provider != provider.as_str()
+        || persisted.app_version != env!("CARGO_PKG_VERSION")
+        || !fresh
     {
         return Ok(None);
     }
@@ -2124,10 +2139,6 @@ pub struct SessionInfo {
     pub fast: bool,
     /// Service tier of the most recent turn ("priority"/"standard"), display only.
     pub service_tier: Option<String>,
-    /// This session's model's currently-active introductory-pricing window, if
-    /// any. `None` both for models with no promo and for a promo'd model once
-    /// its window has closed — the frontend never computes its own expiry.
-    pub intro_pricing: Option<cost::IntroPricingBadge>,
     /// True when this session's model uses a newer tokenizer that bills more
     /// tokens than its predecessor for the same input text at an unchanged
     /// per-token rate (currently: Opus 4.7+, Claude Sonnet 5).
@@ -2213,7 +2224,6 @@ pub(crate) fn build_claude_session_infos(snapshots: &[ClaudeSessionSnapshot]) ->
                 0.0
             };
             let model_id_raw = s.model.clone().unwrap_or_default();
-            let intro_pricing = cost::active_intro_pricing(&model_id_raw, chrono::Utc::now());
             let has_inflated_tokenizer = cost::has_inflated_tokenizer(&model_id_raw);
             let has_1m = cost::is_ga_1m_context(&model_id_raw)
                 || model_id_raw.contains("[1m]")
@@ -2317,7 +2327,6 @@ pub(crate) fn build_claude_session_infos(snapshots: &[ClaudeSessionSnapshot]) ->
                 speed: s.speed.as_str().to_string(),
                 fast,
                 service_tier: s.service_tier.clone(),
-                intro_pricing,
                 has_inflated_tokenizer,
             }
         })
@@ -2466,7 +2475,6 @@ pub(crate) fn build_codex_session_infos(
                         "standard".to_string()
                     }
                 }),
-                intro_pricing: None,
                 has_inflated_tokenizer: false,
             }
         })
@@ -4838,6 +4846,49 @@ pub async fn generate_markdown_report(
     .await
 }
 
+/// Re-reads every Claude transcript under the configured projects roots, as
+/// one-off input for the history repair. Writes no parse checkpoints.
+fn claude_history_session_infos() -> Result<Vec<SessionInfo>, String> {
+    const WHOLE_HISTORY: Duration = Duration::from_secs(60 * 60 * 24 * 365 * 50);
+    let roots = cc_discord_presence::config::projects_paths();
+    let snapshots = session::collect_active_sessions_multi(
+        &roots,
+        WHOLE_HISTORY,
+        WHOLE_HISTORY,
+        &mut GitBranchCache::new(Duration::from_secs(300)),
+        &mut SessionParseCache::without_checkpoint_writes(),
+        &cc_discord_presence::config::read_ide_workspace_folders(),
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(build_claude_session_infos(&snapshots))
+}
+
+/// Shows how many stored Claude sessions differ from their transcripts and by
+/// how much, without changing anything.
+pub fn preview_claude_history_repair_blocking()
+-> Result<crate::db::ClaudeHistoryRepairSummary, String> {
+    let infos = claude_history_session_infos()?;
+    crate::db::preview_claude_history_repair(&infos).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn preview_claude_history_repair() -> Result<crate::db::ClaudeHistoryRepairSummary, String>
+{
+    offload(preview_claude_history_repair_blocking).await
+}
+
+/// Backs up the analytics database, then rewrites stored Claude sessions from
+/// their transcripts. Sessions whose transcript is gone are left unchanged.
+#[tauri::command]
+pub async fn apply_claude_history_repair() -> Result<crate::db::ClaudeHistoryRepairSummary, String>
+{
+    offload(|| {
+        let infos = claude_history_session_infos()?;
+        crate::db::apply_claude_history_repair(&infos).map_err(|error| format!("{error:#}"))
+    })
+    .await
+}
+
 async fn offload<T, F>(work: F) -> T
 where
     T: Send + 'static,
@@ -6011,6 +6062,46 @@ mod tests {
         );
     }
 
+    /// A snapshot from another build or from long ago would show values that
+    /// build computed, so startup waits for the first live poll instead.
+    #[test]
+    fn persisted_snapshot_from_another_build_or_too_old_is_not_shown() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("snapshot.json");
+        super::persist_app_snapshot_value_at(&path, Provider::Claude, persisted_snapshot_fixture())
+            .expect("persist snapshot");
+        let rewrite = |edit: &dyn Fn(&mut serde_json::Value)| {
+            let mut value: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            edit(&mut value);
+            std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        };
+        let loads = || {
+            super::load_persisted_app_snapshot_at(&path, Provider::Claude)
+                .expect("not an I/O failure")
+                .is_some()
+        };
+        assert!(loads(), "same build, fresh");
+
+        rewrite(&|value| value["app_version"] = serde_json::json!("0.0.0-older-build"));
+        assert!(!loads(), "another build");
+
+        rewrite(&|value| {
+            value.as_object_mut().unwrap().remove("app_version");
+        });
+        assert!(!loads(), "unversioned snapshot");
+
+        rewrite(&|value| {
+            value["app_version"] = serde_json::json!(env!("CARGO_PKG_VERSION"));
+            value["saved_at"] =
+                serde_json::json!((chrono::Utc::now() - chrono::Duration::hours(25)).to_rfc3339());
+        });
+        assert!(!loads(), "older than the maximum age");
+
+        rewrite(&|value| value["saved_at"] = serde_json::json!("not-a-date"));
+        assert!(!loads(), "unparseable save time");
+    }
+
     #[test]
     fn corrupt_or_wrong_contract_persisted_snapshot_is_never_promoted() {
         let temp = tempfile::tempdir().expect("tempdir");
@@ -6116,15 +6207,6 @@ mod tests {
             is_subagent: false,
             parent_session_id: None,
         }
-    }
-
-    #[test]
-    fn claude_session_info_carries_the_real_time_sonnet_5_intro_pricing_badge() {
-        let snapshots = [sample_claude_snapshot("claude-sonnet-5")];
-        let infos = build_claude_session_infos(&snapshots);
-        let expected = cost::active_intro_pricing("claude-sonnet-5", chrono::Utc::now());
-
-        assert_eq!(infos[0].intro_pricing, expected);
     }
 
     /// `CLAUDE_HOME` / `CODEX_HOME` are process-global, so every test that
@@ -6646,14 +6728,6 @@ mod tests {
     }
 
     #[test]
-    fn claude_session_info_has_no_intro_pricing_badge_for_a_model_with_no_promo() {
-        let snapshots = [sample_claude_snapshot("claude-sonnet-4-6")];
-        let infos = build_claude_session_infos(&snapshots);
-
-        assert!(infos[0].intro_pricing.is_none());
-    }
-
-    #[test]
     fn claude_session_info_flags_inflated_tokenizer_for_sonnet_5_and_opus_4_7_plus() {
         for model_id in ["claude-sonnet-5", "claude-opus-4-8"] {
             let snapshots = [sample_claude_snapshot(model_id)];
@@ -6671,14 +6745,13 @@ mod tests {
     }
 
     #[test]
-    fn codex_session_info_never_carries_an_intro_pricing_badge_or_inflated_tokenizer_flag() {
+    fn codex_session_info_never_carries_an_inflated_tokenizer_flag() {
         let standard = build_codex_session_infos(
             &[sample_codex_snapshot()],
             &TestCodexPresenceConfig::default(),
             TestPresenceSurface::Cli,
         );
 
-        assert!(standard[0].intro_pricing.is_none());
         assert!(!standard[0].has_inflated_tokenizer);
     }
 

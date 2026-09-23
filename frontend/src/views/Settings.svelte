@@ -13,8 +13,9 @@
   } from "../lib/stores";
   import { provider, providerProfile, setProvider, PROVIDERS, type Provider } from "../lib/provider";
   import { planLabelForKey, planOptionsFor } from "../lib/plans";
-  import { setPlanOverride, exportAllData, clearHistory, getDbSize, getPlanInfo, getAnalyticsSummary, getAppSettings, setCloseToTray } from "../lib/api";
-  import type { AnalyticsSummary } from "../lib/api";
+  import { setPlanOverride, exportAllData, clearHistory, getDbSize, getPlanInfo, getAnalyticsSummary, getAppSettings, setCloseToTray, previewClaudeHistoryRepair, applyClaudeHistoryRepair } from "../lib/api";
+  import type { AnalyticsSummary, ClaudeHistoryRepairSummary } from "../lib/api";
+  import { fmtCost, fmtTokens } from "../lib/utils";
   import PulseMark from "../components/PulseMark.svelte";
   import OpenCodeMark from "../components/OpenCodeMark.svelte";
   import SegmentedControl from "../components/SegmentedControl.svelte";
@@ -256,6 +257,44 @@
     }
   }
 
+  let repairPreview = $state<ClaudeHistoryRepairSummary | null>(null);
+  let repairResult = $state<ClaudeHistoryRepairSummary | null>(null);
+  let repairPending = $state<"checking" | "applying" | null>(null);
+  let repairError = $state<string | null>(null);
+  let confirmRepair = $state(false);
+
+  async function handleRepairCheck(): Promise<void> {
+    if (repairPending) return;
+    repairPending = "checking";
+    repairError = null;
+    repairResult = null;
+    confirmRepair = false;
+    try {
+      repairPreview = await previewClaudeHistoryRepair();
+    } catch (error) {
+      repairPreview = null;
+      repairError = `The check could not finish: ${String(error)}`;
+    } finally {
+      repairPending = null;
+    }
+  }
+
+  async function handleRepairApply(): Promise<void> {
+    if (repairPending) return;
+    repairPending = "applying";
+    repairError = null;
+    try {
+      repairResult = await applyClaudeHistoryRepair();
+      repairPreview = null;
+      confirmRepair = false;
+      await loadLocalAnalytics();
+    } catch (error) {
+      repairError = `Nothing was changed: ${String(error)}`;
+    } finally {
+      repairPending = null;
+    }
+  }
+
   function friendlyPlatform(raw: string): string {
     const normalized = raw.toLowerCase();
     if (normalized.includes("mac") || normalized.includes("darwin")) return "macOS";
@@ -477,6 +516,70 @@
         <div class="clear-result">{clearResult}</div>
       {/if}
     </section>
+
+    <section class="s-card" aria-labelledby="repair-title">
+      <header class="s-card-head">
+        <div class="head-accent" aria-hidden="true"></div>
+        <div class="head-text">
+          <h3 class="s-card-title" id="repair-title">Claude history correction</h3>
+          <p class="s-card-desc">Earlier versions of Pulse counted parts of some Claude responses more than once, and priced Sonnet 5 and Fable 5.1 cache reads at outdated rates. Check your saved sessions against their transcripts first; nothing changes until you confirm.</p>
+        </div>
+      </header>
+      <div class="dm-body">
+        {#if repairError}
+          <div class="dm-error" role="alert"><span>{repairError}</span></div>
+        {/if}
+        {#if repairPreview}
+          <div class="dm-stats">
+            <div class="dm-stat">
+              <span class="dm-key">Sessions to correct</span>
+              <span class="dm-val">{repairPreview.rows_to_update.toLocaleString()}</span>
+              <span class="dm-sub">of {repairPreview.rows_checked.toLocaleString()} saved</span>
+            </div>
+            <div class="dm-stat">
+              <span class="dm-key">Tokens</span>
+              <span class="dm-val mono">{fmtTokens(repairPreview.tokens_before)} → {fmtTokens(repairPreview.tokens_after)}</span>
+              <span class="dm-sub">in those sessions</span>
+            </div>
+            <div class="dm-stat">
+              <span class="dm-key">Cost</span>
+              <span class="dm-val mono">{fmtCost(repairPreview.cost_before)} → {fmtCost(repairPreview.cost_after)}</span>
+              <span class="dm-sub">API-equivalent estimate</span>
+            </div>
+          </div>
+          {#if repairPreview.rows_without_transcript > 0}
+            <p class="repair-note">{repairPreview.rows_without_transcript.toLocaleString()} saved sessions no longer have a transcript on this computer and will stay as they are.</p>
+          {/if}
+        {/if}
+        {#if repairResult}
+          <p class="repair-note" role="status">
+            {#if repairResult.applied}
+              Corrected {repairResult.rows_to_update.toLocaleString()} sessions. A backup of the previous database is at <span class="mono">{repairResult.backup_path}</span>.
+            {:else}
+              Your saved sessions already match their transcripts. Nothing was changed.
+            {/if}
+          </p>
+        {/if}
+        <div class="dm-actions">
+          <button class="btn" onclick={handleRepairCheck} disabled={repairPending !== null}>
+            <IconRefresh size={12} stroke={2.2} aria-hidden="true" />
+            {repairPending === "checking" ? "Checking…" : repairPreview ? "Check again" : "Check history"}
+          </button>
+          {#if repairPreview && repairPreview.rows_to_update > 0}
+            {#if confirmRepair}
+              <button class="btn btn-danger" onclick={handleRepairApply} disabled={repairPending !== null}>
+                {repairPending === "applying" ? "Correcting…" : `Back up and correct ${repairPreview.rows_to_update.toLocaleString()} sessions`}
+              </button>
+              <button class="btn btn-ghost" onclick={() => confirmRepair = false} disabled={repairPending !== null}>Cancel</button>
+            {:else}
+              <button class="btn" onclick={() => confirmRepair = true} disabled={repairPending !== null}>Correct sessions…</button>
+            {/if}
+          {:else if repairPreview}
+            <span class="repair-note">Nothing to correct.</span>
+          {/if}
+        </div>
+      </div>
+    </section>
   </div>
 
   <div class="meta-strip">
@@ -512,6 +615,7 @@
     flex-wrap: wrap;
   }
   .settings-title { display: flex; align-items: center; gap: 10px; }
+  .repair-note { margin: 0; color: var(--text-secondary); font-size: var(--fs-sm, 12px); line-height: 1.5; overflow-wrap: anywhere; }
   .version-chip { padding: 3px 8px; color: var(--text-muted); border: 1px solid var(--border); border-radius: var(--radius-full); font: 600 10px var(--font-mono); }
   .view-title {
     font-size: var(--fs-2xl);
