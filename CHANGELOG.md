@@ -12,6 +12,7 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 - Point the Discord button, updater fallback links, install scripts, crate metadata and documentation at the repository's current name, `xt0n1-t3ch/Pulse-Analytics`. The updater still accepts release links under the former name.
 - Store Claude session checkpoints under `PULSE_HOME/claude/session-checkpoints/` instead of inside Claude's own `~/.claude` folder. File names use a stable hash, so a Rust toolchain update no longer orphans them. At startup, Pulse removes checkpoints from another version, checkpoints for deleted transcripts and the old folder in `~/.claude`.
 - Ignore the Claude usage cache when it belongs to another account. The cache now stores a hash of the account and organization IDs, never a token, so switching accounts no longer shows the previous account's limits for up to five minutes. The cache is written atomically because the daemon and the app can both update it.
+- Show the saved startup snapshot only when the same Pulse version wrote it within the last 24 hours. After an upgrade, the first screen no longer shows costs and plans computed by the previous version.
 
 ### Documentation
 

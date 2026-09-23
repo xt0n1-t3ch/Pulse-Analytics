@@ -62,6 +62,9 @@ const ACTIVE_CUTOFF: Duration = Duration::from_secs(600);
 const IDLE_CUTOFF: Duration = Duration::from_secs(300);
 const APP_SNAPSHOT_CACHE_SCHEMA: u32 = 1;
 const APP_SNAPSHOT_CACHE_MAX_BYTES: u64 = 16 * 1024 * 1024;
+/// A saved snapshot older than this is not shown at startup; the first live
+/// poll arrives within seconds anyway.
+const APP_SNAPSHOT_CACHE_MAX_AGE_HOURS: i64 = 24;
 const DISCORD_USER_CACHE_TTL: Duration = Duration::from_secs(60);
 const REPORTS_BUNDLE_CACHE_TTL: Duration = Duration::from_secs(60);
 
@@ -1744,6 +1747,10 @@ pub struct AppSnapshot {
 struct PersistedAppSnapshot {
     schema_version: u32,
     provider: String,
+    /// Pulse build that wrote the snapshot. Missing before 1.9.5, so older
+    /// snapshots, with costs and plans computed by that build, are not shown.
+    #[serde(default)]
+    app_version: String,
     saved_at: String,
     snapshot: serde_json::Value,
 }
@@ -1858,6 +1865,7 @@ fn persist_app_snapshot_value_at(
     let envelope = PersistedAppSnapshot {
         schema_version: APP_SNAPSHOT_CACHE_SCHEMA,
         provider: provider.as_str().to_string(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
         saved_at: chrono::Utc::now().to_rfc3339(),
         snapshot,
     };
@@ -1883,8 +1891,15 @@ fn load_persisted_app_snapshot_at(
     let raw = std::fs::read(path).map_err(|error| error.to_string())?;
     let mut persisted: PersistedAppSnapshot =
         serde_json::from_slice(&raw).map_err(|error| error.to_string())?;
+    let fresh = chrono::DateTime::parse_from_rfc3339(&persisted.saved_at).is_ok_and(|saved| {
+        let age = chrono::Utc::now().signed_duration_since(saved);
+        age >= -chrono::Duration::minutes(5)
+            && age <= chrono::Duration::hours(APP_SNAPSHOT_CACHE_MAX_AGE_HOURS)
+    });
     if persisted.schema_version != APP_SNAPSHOT_CACHE_SCHEMA
         || persisted.provider != provider.as_str()
+        || persisted.app_version != env!("CARGO_PKG_VERSION")
+        || !fresh
     {
         return Ok(None);
     }
@@ -6002,6 +6017,46 @@ mod tests {
                 .expect("provider mismatch is not an I/O failure")
                 .is_none()
         );
+    }
+
+    /// A snapshot from another build or from long ago would show values that
+    /// build computed, so startup waits for the first live poll instead.
+    #[test]
+    fn persisted_snapshot_from_another_build_or_too_old_is_not_shown() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("snapshot.json");
+        super::persist_app_snapshot_value_at(&path, Provider::Claude, persisted_snapshot_fixture())
+            .expect("persist snapshot");
+        let rewrite = |edit: &dyn Fn(&mut serde_json::Value)| {
+            let mut value: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            edit(&mut value);
+            std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        };
+        let loads = || {
+            super::load_persisted_app_snapshot_at(&path, Provider::Claude)
+                .expect("not an I/O failure")
+                .is_some()
+        };
+        assert!(loads(), "same build, fresh");
+
+        rewrite(&|value| value["app_version"] = serde_json::json!("0.0.0-older-build"));
+        assert!(!loads(), "another build");
+
+        rewrite(&|value| {
+            value.as_object_mut().unwrap().remove("app_version");
+        });
+        assert!(!loads(), "unversioned snapshot");
+
+        rewrite(&|value| {
+            value["app_version"] = serde_json::json!(env!("CARGO_PKG_VERSION"));
+            value["saved_at"] =
+                serde_json::json!((chrono::Utc::now() - chrono::Duration::hours(25)).to_rfc3339());
+        });
+        assert!(!loads(), "older than the maximum age");
+
+        rewrite(&|value| value["saved_at"] = serde_json::json!("not-a-date"));
+        assert!(!loads(), "unparseable save time");
     }
 
     #[test]
