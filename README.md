@@ -55,7 +55,16 @@ These repository captures show earlier Claude and Codex presence layouts. They a
 
 <h2 id="whats-new"><img src="assets/icons/sparkles.svg" alt="" width="28" height="28" align="center">&nbsp; What's new</h2>
 
-Pulse v1.9.4 is available for Windows, macOS and Linux, on both x64 and ARM64.
+Pulse v1.9.5 is available for Windows, macOS and Linux, on both x64 and ARM64.
+
+<h3 id="new-in-v195">New in v1.9.5</h3>
+
+- **Your current Claude plan.** After you upgrade or downgrade, Pulse shows the new plan, for example Max 20x instead of Max 5x. It now reads the plan Claude Code keeps with your account profile, which Claude Code updates, rather than the one saved when you last logged in.
+- **Correct prices.** Sonnet 5 stays at $2/$10, because Anthropic cancelled the planned increase. Fable 5.1 and Mythos 5.1 cache reads cost $0.25 per million instead of $1.
+- **Fix your saved history.** In **Settings > Claude history correction**, Pulse checks saved sessions against their transcripts and shows what would change. After you confirm, it backs up the database and corrects the sessions that earlier versions overcounted.
+- **Cleaner data.** Pulse keeps its session checkpoints in its own folder and removes outdated ones. Usage figures from one Claude account are never shown for another, and the first screen after an update no longer shows the previous version's numbers.
+
+See the [1.9.5 changelog](CHANGELOG.md#195---2026-09-22).
 
 <h3 id="new-in-v194">New in v1.9.4</h3>
 
@@ -93,15 +102,15 @@ The [changelog](CHANGELOG.md) has the full release history.
 
 Choose an installer for your operating system and architecture from [GitHub Releases](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest).
 
-| Platform | v1.9.4 downloads | Installer formats |
+| Platform | v1.9.5 downloads | Installer formats |
 | --- | --- | --- |
-| Windows | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-windows-x64-Pulse_1.9.4_x64-setup.exe) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-windows-arm64-Pulse_1.9.4_arm64-setup.exe) | `.exe` (NSIS), `.msi` |
-| macOS | [Intel](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-macos-x64-Pulse_1.9.4_x64.dmg) · [Apple Silicon](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-macos-arm64-Pulse_1.9.4_aarch64.dmg) | `.dmg`, app archive |
-| Linux | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-linux-x64-Pulse_1.9.4_amd64.AppImage) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-linux-arm64-Pulse_1.9.4_aarch64.AppImage) | `.deb`, `.rpm`, `.AppImage` |
+| Windows | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.5/pulse-windows-x64-Pulse_1.9.5_x64-setup.exe) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.5/pulse-windows-arm64-Pulse_1.9.5_arm64-setup.exe) | `.exe` (NSIS), `.msi` |
+| macOS | [Intel](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.5/pulse-macos-x64-Pulse_1.9.5_x64.dmg) · [Apple Silicon](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.5/pulse-macos-arm64-Pulse_1.9.5_aarch64.dmg) | `.dmg`, app archive |
+| Linux | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.5/pulse-linux-x64-Pulse_1.9.5_amd64.AppImage) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.5/pulse-linux-arm64-Pulse_1.9.5_aarch64.AppImage) | `.deb`, `.rpm`, `.AppImage` |
 
 macOS GitHub packages are not Apple-signed or notarized. macOS may block first launch. Updater signatures are separate from Apple signing.
 
-The immutable [v1.9.4 release](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.9.4) contains all six targets. The links above select NSIS, DMG or AppImage; MSI, DEB and RPM alternatives are on the release page. Native build/test checks passed; installed-GUI acceptance is recorded per operating system. See [platform verification](docs/maintainers/platforms.md).
+The immutable [v1.9.5 release](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.9.5) contains all six targets. The links above select NSIS, DMG or AppImage; MSI, DEB and RPM alternatives are on the release page. Native build/test checks passed; installed-GUI acceptance is recorded per operating system. See [platform verification](docs/maintainers/platforms.md).
 
 Every complete release must include `SHA256SUMS.txt`, Windows software bills of materials and `latest.json` with signed updater payloads for all six targets. Do not install an asset for a different architecture to work around a missing download.
 
@@ -278,7 +287,7 @@ Use `npm run build` for installers. Use `npm run dev` for the authenticated, loo
 
 Pulse v1.8.2 uses Claude config schema 6, Codex config schema 13 and analytics schema 6. The analytics migration adds OpenCode metadata without discarding previous sessions.
 
-Pulse v1.9.4 keeps Claude config schema 6 and Codex config schema 13, and migrates analytics to schema 7 by adding Accounts and Command Code data. Existing sessions are preserved. Pulse v1.8.2 cannot open analytics schema 7: back up the database before you install 1.9.4, and keep the schema-7 database separately if you return to 1.8.2.
+Pulse v1.9.5 keeps Claude config schema 6 and Codex config schema 13, and migrates analytics to schema 7 by adding Accounts and Command Code data. Existing sessions are preserved. Pulse v1.8.2 cannot open analytics schema 7: back up the database before you install 1.9.5, and keep the schema-7 database separately if you return to 1.8.2.
 
 Back up the executable, configuration and database through SQLite Backup before replacing an installation. Pulse 1.7.9 cannot open analytics schema 6: rollback requires the schema-5 backup, while the newer database should be preserved separately.
 

@@ -4,6 +4,14 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.9.5] - 2026-09-22
+
+Claude plan, pricing and data-integrity release. The database remains schema 7, Claude config schema 6 and Codex presence config schema 13 are unchanged, and the immutable shared core stays at 2.0.1. Rollback to 1.9.4 needs only its package; if you applied the Claude history correction, restore its `pre-history-repair` backup to return to the earlier totals. Session checkpoints move to `PULSE_HOME`, so the first poll after the upgrade re-reads active Claude transcripts once. GitHub macOS packages have no Apple Developer ID signature or notarization.
+
+### Added
+
+- Correct saved Claude history on request. **Settings > Claude history correction** re-reads transcripts, shows how many sessions would change with token and cost totals before and after, and applies the correction only after confirmation. It writes a verified `VACUUM INTO` backup first and updates the sessions in one transaction. Sessions without a transcript stay unchanged, and statusline-priced sessions keep their cost.
+
 ### Fixed
 
 - Show the current Claude plan after an upgrade or downgrade. Claude Code keeps the login-time `rateLimitTier` in `.credentials.json` but refreshes `oauthAccount` in `.claude.json`, so Pulse kept showing Max 5x after an upgrade to Max 20x. Pulse now prefers the account profile's recognized tier (`userRateLimitTier`, then `organizationRateLimitTier`) and falls back to the credentials file.
@@ -12,7 +20,6 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 - Point the Discord button, updater fallback links, install scripts, crate metadata and documentation at the repository's current name, `xt0n1-t3ch/Pulse-Analytics`. The updater still accepts release links under the former name.
 - Store Claude session checkpoints under `PULSE_HOME/claude/session-checkpoints/` instead of inside Claude's own `~/.claude` folder. File names use a stable hash, so a Rust toolchain update no longer orphans them. At startup, Pulse removes checkpoints from another version, checkpoints for deleted transcripts and the old folder in `~/.claude`.
 - Ignore the Claude usage cache when it belongs to another account. The cache now stores a hash of the account and organization IDs, never a token, so switching accounts no longer shows the previous account's limits for up to five minutes. The cache is written atomically because the daemon and the app can both update it.
-- Correct saved Claude history on request. **Settings > Claude history correction** re-reads transcripts, shows how many sessions would change with token and cost totals before and after, and applies the correction only after confirmation. It writes a verified `VACUUM INTO` backup first and updates the sessions in one transaction. Sessions without a transcript stay unchanged, and statusline-priced sessions keep their cost.
 - Show the saved startup snapshot only when the same Pulse version wrote it within the last 24 hours. After an upgrade, the first screen no longer shows costs and plans computed by the previous version.
 
 ### Documentation

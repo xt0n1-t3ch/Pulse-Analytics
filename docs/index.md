@@ -4,7 +4,7 @@
 
 Local analytics and Discord Rich Presence for **Claude Code, Codex, OpenCode and Command Code**. Find a task, understand its data, then follow the relevant implementation or release contract.
 
-**Published: Pulse v1.9.4** · **Previous release: v1.9.3** · **Docs refreshed September 22, 2026**
+**Published: Pulse v1.9.5** · **Previous release: v1.9.4** · **Docs refreshed September 22, 2026**
 
 [Start here](#start-here) · [Models and analytics](#models-and-analytics) · [Build and maintain](#build-and-maintain) · [Version](#version)
 
@@ -45,14 +45,14 @@ Local analytics and Discord Rich Presence for **Claude Code, Codex, OpenCode and
 | Quality and security | [Test map](../tests/index.md) · [Dependency audit](maintainers/dependencies.md) |
 | Releases | [Release procedure](maintainers/releases.md) · [Six-platform acceptance](maintainers/platforms.md) |
 
-The immutable v1.9.4 release includes all six platform/architecture targets, checksums and signed updater payloads. Native package checks passed; installed-GUI acceptance is recorded separately per operating system. See [current platform status](maintainers/platforms.md#current-release-status).
+The immutable v1.9.5 release includes all six platform/architecture targets, checksums and signed updater payloads. Native package checks passed; installed-GUI acceptance is recorded separately per operating system. See [current platform status](maintainers/platforms.md#current-release-status).
 
-Version **v1.9.4** corrects Claude token and cost counting, and **v1.9.3** added Claude Opus 5.5 pricing and recognition, on top of the 1.9 line: Accounts, the Command Code provider, native allowances and promoted Codex per-event cost. It is published through the six-platform Release workflow with signed updater artifacts. GitHub macOS packages carry no Apple Developer ID signature or notarization.
+Version **v1.9.5** shows the current Claude plan after an upgrade, corrects Sonnet 5 and Fable 5.1 prices and adds an opt-in Claude history correction. **v1.9.4** corrected Claude token counting and **v1.9.3** added Claude Opus 5.5, on top of the 1.9 line: Accounts, the Command Code provider, native allowances and promoted Codex per-event cost. It is published through the six-platform Release workflow with signed updater artifacts. GitHub macOS packages carry no Apple Developer ID signature or notarization.
 
 ## Version
 
-- Latest published app: **v1.9.4**
-- Version owners in this checkout: **v1.9.4**
+- Latest published app: **v1.9.5**
+- Version owners in this checkout: **v1.9.5**
 - Shared core: **2.0.1**, immutable v1.11.2 pin
 - Schema: **Claude config v6 / Codex config v13 / Pulse analytics DB v6 in 1.8.2; v7 in 1.9.1**
 - Version owners: [release contract](../scripts/release-contract.json) and [upstream manifest](../src/codex/UPSTREAM.json).

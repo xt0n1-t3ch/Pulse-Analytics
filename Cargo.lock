@@ -528,7 +528,7 @@ dependencies = [
 
 [[package]]
 name = "cc-discord-presence"
-version = "1.9.4"
+version = "1.9.5"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3374,7 +3374,7 @@ dependencies = [
 
 [[package]]
 name = "pulse"
-version = "1.9.4"
+version = "1.9.5"
 dependencies = [
  "anyhow",
  "cc-discord-presence",
