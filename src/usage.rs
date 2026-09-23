@@ -184,10 +184,74 @@ struct PlanFields {
 fn read_plan_fields_from_path(path: &Path) -> Option<PlanFields> {
     let data = std::fs::read_to_string(path).ok()?;
     let creds = serde_json::from_str::<CredentialsFile>(&data).ok()?;
-    Some(PlanFields {
+    let credentials = PlanFields {
         subscription_type: creds.claude_ai_oauth.subscription_type,
         rate_limit_tier: creds.claude_ai_oauth.rate_limit_tier,
+    };
+    Some(merge_account_plan_fields(
+        credentials,
+        read_account_plan_fields(path),
+    ))
+}
+
+/// Claude Code's account config sits next to the credentials directory
+/// (`~/.claude.json` beside `~/.claude/`), or inside a custom Claude home.
+fn account_config_candidates(credentials_path: &Path) -> Vec<PathBuf> {
+    let Some(claude_dir) = credentials_path.parent() else {
+        return Vec::new();
+    };
+    vec![
+        claude_dir.join(".claude.json"),
+        claude_dir.with_extension("json"),
+    ]
+}
+
+/// Reads the plan fields Claude Code keeps in `oauthAccount`. Claude Code
+/// refreshes this block from the account profile, while the credentials file
+/// keeps the `rateLimitTier` recorded at login, so an upgrade from Max 5x to
+/// Max 20x shows up here first.
+fn read_account_plan_fields(credentials_path: &Path) -> Option<PlanFields> {
+    let text = account_config_candidates(credentials_path)
+        .into_iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())?;
+    let config = serde_json::from_str::<serde_json::Value>(&text).ok()?;
+    let account = config.get("oauthAccount")?;
+    let field = |name: &str| {
+        account
+            .get(name)
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    Some(PlanFields {
+        subscription_type: field("organizationType"),
+        rate_limit_tier: field("userRateLimitTier").or_else(|| field("organizationRateLimitTier")),
     })
+}
+
+/// Prefers the account profile's plan when it names a recognized Claude plan,
+/// and otherwise keeps the credentials values.
+fn merge_account_plan_fields(credentials: PlanFields, account: Option<PlanFields>) -> PlanFields {
+    let Some(account) = account else {
+        return credentials;
+    };
+    let recognized = |value: &Option<String>| {
+        value
+            .as_deref()
+            .is_some_and(|v| classify_claude_plan_signal(&v.trim().to_ascii_lowercase()).is_some())
+    };
+    if !recognized(&account.rate_limit_tier) {
+        return credentials;
+    }
+    PlanFields {
+        subscription_type: if recognized(&account.subscription_type) {
+            account.subscription_type
+        } else {
+            credentials.subscription_type
+        },
+        rate_limit_tier: account.rate_limit_tier,
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -597,18 +661,28 @@ impl UsageManager {
     /// plus the `anthropic-beta: oauth-2025-04-20` header. The subscription is
     /// read back from the very credentials that signed the request.
     fn observed_oauth_origin(&self) -> UsageOrigin {
-        UsageOrigin {
-            auth: UsageAuth::OAuth,
-            endpoint: usage_endpoint_host().to_string(),
-            subscription: self
+        let credentials = PlanFields {
+            subscription_type: self
                 .credentials
                 .as_ref()
-                .and_then(|creds| creds.claude_ai_oauth.subscription_type.clone())
-                .filter(|plan| !plan.trim().is_empty()),
+                .and_then(|creds| creds.claude_ai_oauth.subscription_type.clone()),
             rate_limit_tier: self
                 .credentials
                 .as_ref()
-                .and_then(|creds| creds.claude_ai_oauth.rate_limit_tier.clone())
+                .and_then(|creds| creds.claude_ai_oauth.rate_limit_tier.clone()),
+        };
+        let fields = merge_account_plan_fields(
+            credentials,
+            read_account_plan_fields(&self.credentials_path()),
+        );
+        UsageOrigin {
+            auth: UsageAuth::OAuth,
+            endpoint: usage_endpoint_host().to_string(),
+            subscription: fields
+                .subscription_type
+                .filter(|plan| !plan.trim().is_empty()),
+            rate_limit_tier: fields
+                .rate_limit_tier
                 .filter(|tier| !tier.trim().is_empty()),
         }
     }
@@ -1164,7 +1238,11 @@ mod tests {
     #[test]
     fn successful_usage_fetch_records_the_handshake_it_actually_used() {
         let _home = IsolatedPulseHome::new();
-        let mut manager = UsageManager::new();
+        // A temporary credentials path keeps the account-profile lookup away
+        // from the real `~/.claude.json`.
+        let claude_dir = tempfile::tempdir().expect("tempdir");
+        let mut manager =
+            UsageManager::with_credentials_path(claude_dir.path().join(".credentials.json"));
         manager.credentials = Some(credentials_fixture("max"));
 
         let usage = manager.handle_usage_response(Ok(usage_response_fixture()));
@@ -1191,7 +1269,11 @@ mod tests {
     #[test]
     fn usage_origin_label_degrades_without_a_subscription_field() {
         let _home = IsolatedPulseHome::new();
-        let mut manager = UsageManager::new();
+        // A temporary credentials path keeps the account-profile lookup away
+        // from the real `~/.claude.json`.
+        let claude_dir = tempfile::tempdir().expect("tempdir");
+        let mut manager =
+            UsageManager::with_credentials_path(claude_dir.path().join(".credentials.json"));
         manager.credentials = Some(
             serde_json::from_str(
                 r#"{"claudeAiOauth":{"accessToken":"token","expiresAt":9999999999999}}"#,
@@ -1209,7 +1291,11 @@ mod tests {
     #[test]
     fn usage_origin_does_not_claim_bare_claude_max() {
         let _home = IsolatedPulseHome::new();
-        let mut manager = UsageManager::new();
+        // A temporary credentials path keeps the account-profile lookup away
+        // from the real `~/.claude.json`.
+        let claude_dir = tempfile::tempdir().expect("tempdir");
+        let mut manager =
+            UsageManager::with_credentials_path(claude_dir.path().join(".credentials.json"));
         manager.credentials = Some(
             serde_json::from_str(
                 r#"{"claudeAiOauth":{"accessToken":"token","expiresAt":9999999999999,
@@ -1229,7 +1315,11 @@ mod tests {
     #[test]
     fn a_failed_fetch_does_not_invent_an_origin() {
         let _home = IsolatedPulseHome::new();
-        let mut manager = UsageManager::new();
+        // A temporary credentials path keeps the account-profile lookup away
+        // from the real `~/.claude.json`.
+        let claude_dir = tempfile::tempdir().expect("tempdir");
+        let mut manager =
+            UsageManager::with_credentials_path(claude_dir.path().join(".credentials.json"));
         manager.credentials = Some(credentials_fixture("max"));
 
         manager.handle_usage_response(Err(ureq::Error::Status(
@@ -1382,6 +1472,103 @@ mod tests {
         )
         .expect("rewrite credentials");
 
+        assert_eq!(manager.detected_plan_key().as_deref(), Some("max_20x"));
+    }
+
+    fn write_max_credentials(dir: &Path, tier: &str) -> PathBuf {
+        let path = dir.join(".credentials.json");
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"claudeAiOauth": {{"accessToken": "token", "expiresAt": 4102444800000,
+                    "subscriptionType": "max", "rateLimitTier": "{tier}"}}}}"#
+            ),
+        )
+        .expect("write credentials");
+        path
+    }
+
+    /// Claude Code keeps the login-time `rateLimitTier` in the credentials
+    /// file, while `oauthAccount` in `.claude.json` follows the account
+    /// profile. After an upgrade from Max 5x to Max 20x only the latter moves.
+    #[test]
+    fn account_profile_tier_overrides_stale_login_tier() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = write_max_credentials(dir.path(), "default_claude_max_5x");
+        std::fs::write(
+            dir.path().join(".claude.json"),
+            r#"{"oauthAccount": {"organizationType": "claude_max",
+                "organizationRateLimitTier": "default_claude_max_20x",
+                "userRateLimitTier": null}}"#,
+        )
+        .expect("write account config");
+
+        let mut manager = UsageManager::with_credentials_path(path);
+        assert_eq!(manager.detected_plan_key().as_deref(), Some("max_20x"));
+    }
+
+    #[test]
+    fn user_tier_takes_precedence_over_organization_tier() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = write_max_credentials(dir.path(), "default_claude_max_5x");
+        std::fs::write(
+            dir.path().join(".claude.json"),
+            r#"{"oauthAccount": {"organizationType": "claude_max",
+                "organizationRateLimitTier": "default_claude_max_5x",
+                "userRateLimitTier": "default_claude_max_20x"}}"#,
+        )
+        .expect("write account config");
+
+        let mut manager = UsageManager::with_credentials_path(path);
+        assert_eq!(manager.detected_plan_key().as_deref(), Some("max_20x"));
+    }
+
+    #[test]
+    fn credentials_tier_is_kept_without_a_recognized_account_tier() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = write_max_credentials(dir.path(), "default_claude_max_20x");
+
+        let mut manager = UsageManager::with_credentials_path(path.clone());
+        assert_eq!(
+            manager.detected_plan_key().as_deref(),
+            Some("max_20x"),
+            "no account config"
+        );
+
+        std::fs::write(
+            dir.path().join(".claude.json"),
+            r#"{"oauthAccount": {"organizationType": "claude_max",
+                "organizationRateLimitTier": "some_future_tier", "userRateLimitTier": ""}}"#,
+        )
+        .expect("write account config");
+        assert_eq!(
+            manager.detected_plan_key().as_deref(),
+            Some("max_20x"),
+            "unrecognized account tier"
+        );
+
+        std::fs::write(dir.path().join(".claude.json"), "not json").expect("corrupt config");
+        assert_eq!(
+            manager.detected_plan_key().as_deref(),
+            Some("max_20x"),
+            "unreadable account config"
+        );
+    }
+
+    #[test]
+    fn account_config_is_found_beside_the_claude_directory() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let claude_dir = root.path().join(".claude");
+        std::fs::create_dir_all(&claude_dir).expect("claude dir");
+        let path = write_max_credentials(&claude_dir, "default_claude_max_5x");
+        std::fs::write(
+            root.path().join(".claude.json"),
+            r#"{"oauthAccount": {"organizationType": "claude_max",
+                "organizationRateLimitTier": "default_claude_max_20x"}}"#,
+        )
+        .expect("write sibling account config");
+
+        let mut manager = UsageManager::with_credentials_path(path);
         assert_eq!(manager.detected_plan_key().as_deref(), Some("max_20x"));
     }
 

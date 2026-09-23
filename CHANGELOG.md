@@ -4,6 +4,10 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Fixed
+
+- Show the current Claude plan after an upgrade or downgrade. Claude Code keeps the login-time `rateLimitTier` in `.credentials.json` but refreshes `oauthAccount` in `.claude.json`, so Pulse kept showing Max 5x after an upgrade to Max 20x. Pulse now prefers the account profile's recognized tier (`userRateLimitTier`, then `organizationRateLimitTier`) and falls back to the credentials file.
+
 ### Documentation
 
 - Record six-platform 1.9.3 and 1.9.4 publication and the installed Windows x64 upgrade evidence, including the Opus 5.5 cost recomputation.
