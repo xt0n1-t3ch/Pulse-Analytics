@@ -11,7 +11,7 @@
 <p>Local-first AI coding analytics and Discord Rich Presence for<br>Claude Code, OpenAI Codex and OpenCode.</p>
 
 <p>
-  <a href="https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/latest"><img src="https://img.shields.io/github/v/release/xt0n1-t3ch/Pulse-Claude-Code-Analytics?style=flat-square&amp;label=release&amp;color=171717&amp;labelColor=303030" alt="Latest GitHub release"></a>
+  <a href="https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest"><img src="https://img.shields.io/github/v/release/xt0n1-t3ch/Pulse-Analytics?style=flat-square&amp;label=release&amp;color=171717&amp;labelColor=303030" alt="Latest GitHub release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-171717?style=flat-square&amp;labelColor=303030" alt="License: Apache-2.0"></a>
   <a href="src-tauri/Cargo.toml"><img src="https://img.shields.io/badge/built_with-Tauri_2-171717?style=flat-square&amp;labelColor=303030" alt="Built with Tauri 2"></a>
 </p>
@@ -91,17 +91,17 @@ The [changelog](CHANGELOG.md) has the full release history.
 
 <h2 id="install"><img src="assets/icons/download.svg" alt="" width="28" height="28" align="center">&nbsp; Install</h2>
 
-Choose an installer for your operating system and architecture from [GitHub Releases](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/latest).
+Choose an installer for your operating system and architecture from [GitHub Releases](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest).
 
 | Platform | v1.9.4 downloads | Installer formats |
 | --- | --- | --- |
-| Windows | [x64](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/download/v1.9.4/pulse-windows-x64-Pulse_1.9.4_x64-setup.exe) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/download/v1.9.4/pulse-windows-arm64-Pulse_1.9.4_arm64-setup.exe) | `.exe` (NSIS), `.msi` |
-| macOS | [Intel](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/download/v1.9.4/pulse-macos-x64-Pulse_1.9.4_x64.dmg) · [Apple Silicon](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/download/v1.9.4/pulse-macos-arm64-Pulse_1.9.4_aarch64.dmg) | `.dmg`, app archive |
-| Linux | [x64](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/download/v1.9.4/pulse-linux-x64-Pulse_1.9.4_amd64.AppImage) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/download/v1.9.4/pulse-linux-arm64-Pulse_1.9.4_aarch64.AppImage) | `.deb`, `.rpm`, `.AppImage` |
+| Windows | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-windows-x64-Pulse_1.9.4_x64-setup.exe) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-windows-arm64-Pulse_1.9.4_arm64-setup.exe) | `.exe` (NSIS), `.msi` |
+| macOS | [Intel](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-macos-x64-Pulse_1.9.4_x64.dmg) · [Apple Silicon](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-macos-arm64-Pulse_1.9.4_aarch64.dmg) | `.dmg`, app archive |
+| Linux | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-linux-x64-Pulse_1.9.4_amd64.AppImage) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.4/pulse-linux-arm64-Pulse_1.9.4_aarch64.AppImage) | `.deb`, `.rpm`, `.AppImage` |
 
 macOS GitHub packages are not Apple-signed or notarized. macOS may block first launch. Updater signatures are separate from Apple signing.
 
-The immutable [v1.9.4 release](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.9.4) contains all six targets. The links above select NSIS, DMG or AppImage; MSI, DEB and RPM alternatives are on the release page. Native build/test checks passed; installed-GUI acceptance is recorded per operating system. See [platform verification](docs/maintainers/platforms.md).
+The immutable [v1.9.4 release](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.9.4) contains all six targets. The links above select NSIS, DMG or AppImage; MSI, DEB and RPM alternatives are on the release page. Native build/test checks passed; installed-GUI acceptance is recorded per operating system. See [platform verification](docs/maintainers/platforms.md).
 
 Every complete release must include `SHA256SUMS.txt`, Windows software bills of materials and `latest.json` with signed updater payloads for all six targets. Do not install an asset for a different architecture to work around a missing download.
 
@@ -263,8 +263,8 @@ Not always. Pulse separates provider-reported cost from API-equivalent estimates
 Install Rust, Node.js 22.12+ (22.x), 24.x, or 26+, the Tauri CLI and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/). Then run:
 
 ```powershell
-git clone https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics.git
-cd Pulse-Claude-Code-Analytics
+git clone https://github.com/xt0n1-t3ch/Pulse-Analytics.git
+cd Pulse-Analytics
 npm --prefix frontend ci
 npm run verify
 npm run build:portable
@@ -288,7 +288,7 @@ See the [dependency audit scope](docs/maintainers/dependencies.md) for inherited
 
 <h2 id="contribute-and-report-problems"><img src="assets/icons/git-pull-request.svg" alt="" width="28" height="28" align="center">&nbsp; Contribute and report problems</h2>
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md), the [test map](tests/index.md), [release procedure](docs/maintainers/releases.md) and [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues privately through [GitHub Security Advisories](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/security/advisories/new).
+Read [CONTRIBUTING.md](CONTRIBUTING.md), the [test map](tests/index.md), [release procedure](docs/maintainers/releases.md) and [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues privately through [GitHub Security Advisories](https://github.com/xt0n1-t3ch/Pulse-Analytics/security/advisories/new).
 
 <h2 id="license"><img src="assets/icons/scale.svg" alt="" width="28" height="28" align="center">&nbsp; License</h2>
 

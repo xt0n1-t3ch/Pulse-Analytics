@@ -3,7 +3,7 @@
 # Usage: curl -fsSL https://raw.githubusercontent.com/xt0n1-t3ch/Pulse/main/scripts/install.sh | bash
 set -euo pipefail
 
-REPO="xt0n1-t3ch/Pulse-Claude-Code-Analytics"
+REPO="xt0n1-t3ch/Pulse-Analytics"
 API="https://api.github.com/repos/${REPO}/releases/latest"
 
 say() { printf '\033[1;36m→\033[0m %s\n' "$*"; }

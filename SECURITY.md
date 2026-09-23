@@ -11,7 +11,7 @@
 
 Please **do not open a public issue** for security reports.
 
-Use GitHub's [private vulnerability reporting](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/security/advisories/new) to submit a report.
+Use GitHub's [private vulnerability reporting](https://github.com/xt0n1-t3ch/Pulse-Analytics/security/advisories/new) to submit a report.
 
 Include:
 - Affected version(s)

@@ -8,7 +8,7 @@
   const CHECK_EVENT = "pulse:check-updates";
   const FAKE_PARAM = "fakeUpdate";
   const RELEASE_TAG_BASE =
-    "https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/";
+    "https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/";
 
   let info = $state<AppUpdateInfo | null>(null);
   let visible = $state(false);

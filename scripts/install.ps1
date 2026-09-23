@@ -2,7 +2,7 @@
 # Usage: irm https://raw.githubusercontent.com/xt0n1-t3ch/Pulse/main/scripts/install.ps1 | iex
 $ErrorActionPreference = 'Stop'
 
-$Repo = 'xt0n1-t3ch/Pulse-Claude-Code-Analytics'
+$Repo = 'xt0n1-t3ch/Pulse-Analytics'
 $Api  = "https://api.github.com/repos/$Repo/releases/latest"
 
 Write-Host "→ Fetching latest release..." -ForegroundColor Cyan

@@ -4,7 +4,7 @@ Pulse checks GitHub Releases from the Tauri backend and shows a small in-app pop
 
 ## Runtime flow
 
-1. `check_app_update()` calls the GitHub latest-release API for `xt0n1-t3ch/Pulse-Claude-Code-Analytics`.
+1. `check_app_update()` calls the GitHub latest-release API for `xt0n1-t3ch/Pulse-Analytics`.
 2. The backend compares the release tag against `env!("CARGO_PKG_VERSION")`.
 3. Drafts and prereleases are ignored.
 4. `UpdateBanner.svelte` renders `New Update Available` with current version, latest version, release title, release notes, and actions.

@@ -116,7 +116,7 @@ const helpers = vi.hoisted(() => {
     update_available: false,
     release_name: null,
     release_notes: null,
-    release_url: "https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases",
+    release_url: "https://github.com/xt0n1-t3ch/Pulse-Analytics/releases",
     published_at: null,
     checked_at: "2026-06-10T00:00:00Z",
     assets: [],

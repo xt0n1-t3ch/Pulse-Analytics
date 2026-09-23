@@ -403,7 +403,7 @@ fn release_assets_publish_a_signed_updater_manifest_for_every_platform() {
         assert!(manifest.contains(target), "{target} missing:\n{manifest}");
         assert!(
             manifest.contains(&format!(
-                "https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/download/v1.6.1/{payload}"
+                "https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.6.1/{payload}"
             )),
             "{payload} download URL missing:\n{manifest}"
         );
@@ -1301,7 +1301,7 @@ fn release_assets_command(artifacts: &Path, output: &Path) -> Command {
         .arg("-Tag")
         .arg("v1.6.1")
         .arg("-Repository")
-        .arg("xt0n1-t3ch/Pulse-Claude-Code-Analytics");
+        .arg("xt0n1-t3ch/Pulse-Analytics");
     command
 }
 

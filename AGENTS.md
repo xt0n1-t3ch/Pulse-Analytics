@@ -6,7 +6,7 @@ Pulse is the desktop analytics GUI for Claude Code, Codex, OpenCode and Command 
 
 This checkout targets Pulse 1.9.4 through the six-platform Release workflow. Read `package.json`, Cargo manifests, `scripts/release-contract.json` and `src/codex/UPSTREAM.json` for current version facts. Verify publication and installed-runtime status separately. Do not copy historical branch/version claims into current instructions, and do not describe a local development build or installation as a release.
 
-- Origin: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics
+- Origin: https://github.com/xt0n1-t3ch/Pulse-Analytics
 - Default branch: `main`; inspect the current branch before editing.
 - Start from `docs/index.md` and `tests/index.md`. The changelog owns release history; do not restore retired model notes or machine-specific handoffs to the documentation index.
 - Never discard existing work. Do not commit, push, tag, dispatch, deploy or publish without Tony's explicit authorization for that effect.

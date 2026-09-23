@@ -60,4 +60,4 @@ Version **v1.9.4** corrects Claude token and cost counting, and **v1.9.3** added
 
 ## History and project links
 
-[Changelog](../CHANGELOG.md) · [License](../LICENSE) · [Report an issue](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/issues)
+[Changelog](../CHANGELOG.md) · [License](../LICENSE) · [Report an issue](https://github.com/xt0n1-t3ch/Pulse-Analytics/issues)

@@ -13,7 +13,7 @@ function makeUpdate(overrides: Partial<AppUpdateInfo> = {}): AppUpdateInfo {
     update_available: true,
     release_name: "Pulse 1.2.0",
     release_notes: "Faster reports and a new updater.",
-    release_url: "https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.2.0",
+    release_url: "https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.2.0",
     published_at: "2026-06-01T00:00:00Z",
     checked_at: "2026-06-10T00:00:00Z",
     assets: [],
@@ -249,7 +249,7 @@ describe("UpdateBanner.svelte", () => {
 
     await waitFor(() => expect(openAppReleasePage).toHaveBeenCalledTimes(1));
     expect(openAppReleasePage).toHaveBeenCalledWith(
-      "https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.2.0",
+      "https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.2.0",
     );
   });
 
@@ -284,7 +284,7 @@ describe("UpdateBanner.svelte", () => {
     await fireEvent.click(await findByText("Update"));
     await waitFor(() => expect(openAppReleasePage).toHaveBeenCalledTimes(1));
     expect(openAppReleasePage).toHaveBeenCalledWith(
-      "https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v9.9.9",
+      "https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v9.9.9",
     );
   });
 

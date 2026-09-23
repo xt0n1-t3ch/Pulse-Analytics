@@ -8,7 +8,7 @@ Be respectful, assume good intent, keep discussions on-topic. Personal attacks, 
 
 ## Reporting bugs
 
-Open an issue at [github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/issues](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/issues) and include:
+Open an issue at [github.com/xt0n1-t3ch/Pulse-Analytics/issues](https://github.com/xt0n1-t3ch/Pulse-Analytics/issues) and include:
 
 - Pulse version (visible in Settings).
 - Operating system and version.

@@ -13,7 +13,7 @@ body = """
 {% endif %}
 {% for group, commits in commits | group_by(attribute="group") %}
 {% for commit in commits %}
-- {{ commit.message | split(pat="\\n") | first | trim }}{% if commit.id %} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/commit/{{ commit.id }})){% endif %}\
+- {{ commit.message | split(pat="\\n") | first | trim }}{% if commit.id %} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/xt0n1-t3ch/Pulse-Analytics/commit/{{ commit.id }})){% endif %}\
 {% endfor %}
 {% endfor %}
 """
@@ -25,7 +25,7 @@ conventional_commits = true
 filter_unconventional = true
 split_commits = false
 commit_preprocessors = [
-  { pattern = '\((?:close[sd]?|fix(?:e[sd])?|resolve[sd]?) #(\d+)\)', replace = "([#${1}](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/issues/${1}))" },
+  { pattern = '\((?:close[sd]?|fix(?:e[sd])?|resolve[sd]?) #(\d+)\)', replace = "([#${1}](https://github.com/xt0n1-t3ch/Pulse-Analytics/issues/${1}))" },
   { pattern = '\nCo-authored-by:.*', replace = "" },
   { pattern = '\nSigned-off-by:.*',  replace = "" },
 ]
