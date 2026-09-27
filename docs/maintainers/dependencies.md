@@ -1,6 +1,6 @@
 # Dependency audit scope
 
-The 2026-09-05 workspace scan reports zero vulnerability-class entries and 19 warning-class advisories. This is not a warning-free audit: `cargo audit --deny warnings` fails for Pulse, and no advisory ignore list was added.
+The 2026-09-27 workspace scan (cargo-audit 0.22.2, 624 crates) reports zero vulnerability-class entries and 9 warning-class advisories. `scripts/audit-rust.ps1` runs `cargo audit --deny warnings` with the reviewed exceptions in `scripts/rustsec-accepted-warnings.json`, which expire on `review_after` (2026-10-27) and then fail the release preflight until renewed. The ten GTK3 notices (RUSTSEC-2024-0411 to 0420) no longer appear in the graph and were removed from the exceptions.
 
 The warnings are inherited from the existing Tauri dependency graph. The dependency versions were not changed by the OpenCode/Astra feature work.
 
