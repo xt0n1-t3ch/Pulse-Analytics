@@ -12,6 +12,7 @@
     selectedAnalyticsProviderScope,
   } from "../lib/stores";
   import { providerMatchesAnalyticsScope } from "../lib/access";
+  import { isLocalOnlyProvider } from "../lib/provider";
   import { fmtTokens, fmtCost, fmtExactCost, fmtDuration, fmtPct, fmtTps } from "../lib/utils";
   import { getDashboardBundle } from "../lib/api";
   import type { AnalyticsSummary, HistoricalSession, CostForecast, HourlyActivity } from "../lib/api";
@@ -154,7 +155,7 @@
   );
 
   let liveInstances = $derived(scopedSessions.filter((session) => !session.is_idle));
-  let visibleInstances = $derived(liveInstances.length > 0 ? liveInstances : scopedSessions.filter((session) => session.provider !== "opencode" && session.provider !== "commandcode"));
+  let visibleInstances = $derived(liveInstances.length > 0 ? liveInstances : scopedSessions.filter((session) => !isLocalOnlyProvider(session.provider)));
   $effect(() => {
     const instances = visibleInstances;
     if (!instances.some((session) => session.session_id === selectedFocusId)) {
@@ -172,7 +173,7 @@
   );
   let focusHistory = $derived(histSessions[0] ?? null);
   let focusHistoryFallback = $derived(
-    focusSession || $selectedAnalyticsProviderScope === "opencode" || $selectedAnalyticsProviderScope === "commandcode" ? null : focusHistory,
+    focusSession || isLocalOnlyProvider($selectedAnalyticsProviderScope) ? null : focusHistory,
   );
   let focusName = $derived(
     focusSession?.session_name

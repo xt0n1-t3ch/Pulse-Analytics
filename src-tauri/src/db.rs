@@ -46,7 +46,7 @@ fn session_window_tokens(s: &super::commands::SessionInfo) -> i64 {
     if s.context_window_tokens > 0 {
         return s.context_window_tokens.min(i64::MAX as u64) as i64;
     }
-    if matches!(s.provider.as_str(), "opencode" | "commandcode") {
+    if matches!(s.provider.as_str(), "opencode" | "commandcode" | "orion") {
         return 0;
     }
     if cost::is_ga_1m_context(&s.model_id) {

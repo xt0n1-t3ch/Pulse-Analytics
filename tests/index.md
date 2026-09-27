@@ -111,7 +111,7 @@ the [fixtures/ChartStub.svelte](fixtures/ChartStub.svelte) stub so canvas-bound 
 | [Sessions.test.ts](components/Sessions.test.ts) | `Sessions` (view) | flat KPI strip labels, live session rows + "2 active", history table loaded from the api layer |
 | [Costs.test.ts](components/Costs.test.ts) | `Costs` (view) | Subscription Value Ledger for unavailable money, exact/partial coverage boundaries, token mix/trend, budget cockpit for known spend, Cost-by-Type reconciliation, window-aggregate KPIs, project refetch, and live-snapshot refresh |
 | [Heatmap.test.ts](components/Heatmap.test.ts) | `Heatmap` | 24 local-hour cells, total/coverage/peak summaries, proper AM/PM labels, and accessible volume context |
-| [VersionContract.test.ts](components/VersionContract.test.ts) | release owners | v1.9.5 synchronization across Cargo, Tauri, frontend, both lock surfaces of `frontend/package-lock.json`, the release contract and the changelog, plus the immutable canonical core release and commit |
+| [VersionContract.test.ts](components/VersionContract.test.ts) | release owners | v1.9.6 synchronization across Cargo, Tauri, frontend, both lock surfaces of `frontend/package-lock.json`, the release contract and the changelog, plus the immutable canonical core release and commit |
 | [UpdateBanner.test.ts](components/UpdateBanner.test.ts) | `UpdateBanner` | automatic update popup, Later/Skip/Open release actions, skipped-version behavior, fake dev update, one explicit Update action followed by signed install and automatic relaunch, retryable failures |
 | [Reports.test.ts](components/Reports.test.ts) | `Reports` (view) | coherent analysis header/copy, sections populated from a single bundle call, reload feedback, and cost timeline totals/peaks |
 | [Discord.test.ts](components/Discord.test.ts) | `Discord` (view) | coherent Broadcast header, live-preview backend payload, provider capability gates, autosave saving/saved lifecycle, rollback on failed persistence, field reorder/toggles, and theme-aware preview |
@@ -275,3 +275,11 @@ A version bump must update `Cargo.toml`, `src-tauri/Cargo.toml`, both `Cargo.loc
 [production.spec.ts](../frontend/tests/e2e/tauri/production.spec.ts) proves the installed application, not a release. It requires a completed local installation, stopped ports 1420 and 1421, and the real user profile paths. A development installer that is built with a scratch Tauri configuration and `createUpdaterArtifacts=false` produces no updater artifact and no signature, so it cannot stand in for a published installer. Record the previous installed executable and its SHA-256 before replacement, so rollback stays possible.
 
 `src/commandcode/presence.rs` covers enabled idle payloads, completed/stale session exclusion, disabled clearing and absent idle session timers. Its ignored `local_discord_acknowledges_idle_from_the_production_publisher` test exercises the production publisher against real Discord and requires `PULSE_COMMANDCODE_IDLE_PROOF`; stop other Pulse publishers first. `tests/components/Discord.test.ts` checks provider-specific idle labels, published idle status and disconnected behavior.
+
+## Orion App coverage
+
+- `src/orion/store.rs`: root and subagent roll-up against a fixture database, cache arithmetic, running-tool activity, context rules, cursor acknowledgement, a missing database and a read-only database file. Its ignored `local_orion_database_probe` test reads the real Orion store read-only and prints poll timings.
+- `src/orion/mod.rs`: uncached-input arithmetic, Claude-rate estimates and unavailable cost for unpriced models.
+- `src/orion/presence.rs`: active fields and timer, Idle without a timer, privacy and disabled clearing. Its ignored `local_discord_acknowledges_orion_presence` test publishes one diagnostic activity through local Discord IPC and clears it; stop other Pulse publishers first.
+- `src-tauri/src/orion.rs`: Quotas and Credits stay off, and missing cost stays unavailable.
+- `tests/components/AccessSourceBar.test.ts`: Orion App appears in the provider selector.

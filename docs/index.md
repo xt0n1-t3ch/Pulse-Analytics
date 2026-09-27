@@ -2,9 +2,9 @@
 
 # ![](../assets/icons/map.svg) Pulse documentation
 
-Local analytics and Discord Rich Presence for **Claude Code, Codex, OpenCode and Command Code**. Find a task, understand its data, then follow the relevant implementation or release contract.
+Local analytics and Discord Rich Presence for **Claude Code, Codex, OpenCode, Command Code and Orion App**. Find a task, understand its data, then follow the relevant implementation or release contract.
 
-**Published: Pulse v1.9.5** · **Previous release: v1.9.4** · **Docs refreshed September 22, 2026**
+**Published: Pulse v1.9.6** · **Previous release: v1.9.5** · **Docs refreshed September 27, 2026**
 
 [Start here](#start-here) · [Models and analytics](#models-and-analytics) · [Build and maintain](#build-and-maintain) · [Version](#version)
 
@@ -13,9 +13,10 @@ Local analytics and Discord Rich Presence for **Claude Code, Codex, OpenCode and
 | I want to… | Read |
 | --- | --- |
 | Install Pulse or check my operating system | [Install](../README.md#install) · [Platform support](maintainers/platforms.md) |
-| Connect Claude, Codex or OpenCode | [Use Pulse](../README.md#use-pulse) · [Plans and access](guides/plans.md) |
+| Connect Claude, Codex, OpenCode, Command Code or Orion App | [Use Pulse](../README.md#use-pulse) · [Plans and access](guides/plans.md) |
 | Manage multiple provider accounts | [Accounts](guides/accounts.md) |
 | Connect Command Code CLI and Desktop | [Command Code](guides/command-code.md) |
+| Connect Orion App | [Orion App](guides/orion.md) |
 | Configure OpenCode sessions and Go limits | [OpenCode and Astra](guides/opencode.md) |
 | Choose what Discord shows | [Discord controls](../README.md#discord-controls) · [Assets and application IDs](guides/discord.md) |
 | Understand notifications or updates | [Notifications](guides/notifications.md) · [Update checks](guides/updates.md) |
@@ -45,14 +46,14 @@ Local analytics and Discord Rich Presence for **Claude Code, Codex, OpenCode and
 | Quality and security | [Test map](../tests/index.md) · [Dependency audit](maintainers/dependencies.md) |
 | Releases | [Release procedure](maintainers/releases.md) · [Six-platform acceptance](maintainers/platforms.md) |
 
-The immutable v1.9.5 release includes all six platform/architecture targets, checksums and signed updater payloads. Native package checks passed; installed-GUI acceptance is recorded separately per operating system. See [current platform status](maintainers/platforms.md#current-release-status).
+The immutable v1.9.6 release includes all six platform/architecture targets, checksums and signed updater payloads. Native package checks passed; installed-GUI acceptance is recorded separately per operating system. See [current platform status](maintainers/platforms.md#current-release-status).
 
-Version **v1.9.5** shows the current Claude plan after an upgrade, corrects Sonnet 5 and Fable 5.1 prices and adds an opt-in Claude history correction. **v1.9.4** corrected Claude token counting and **v1.9.3** added Claude Opus 5.5, on top of the 1.9 line: Accounts, the Command Code provider, native allowances and promoted Codex per-event cost. It is published through the six-platform Release workflow with signed updater artifacts. GitHub macOS packages carry no Apple Developer ID signature or notarization.
+Version **v1.9.6** adds the Orion App provider with its own Discord identity. **v1.9.5** showed the current Claude plan after an upgrade, corrected Sonnet 5 and Fable 5.1 prices and added an opt-in Claude history correction. **v1.9.4** corrected Claude token counting and **v1.9.3** added Claude Opus 5.5, on top of the 1.9 line: Accounts, the Command Code provider, native allowances and promoted Codex per-event cost. It is published through the six-platform Release workflow with signed updater artifacts. GitHub macOS packages carry no Apple Developer ID signature or notarization.
 
 ## Version
 
-- Latest published app: **v1.9.5**
-- Version owners in this checkout: **v1.9.5**
+- Latest published app: **v1.9.6**
+- Version owners in this checkout: **v1.9.6**
 - Shared core: **2.0.1**, immutable v1.11.2 pin
 - Schema: **Claude config v6 / Codex config v13 / Pulse analytics DB v6 in 1.8.2; v7 in 1.9.1**
 - Version owners: [release contract](../scripts/release-contract.json) and [upstream manifest](../src/codex/UPSTREAM.json).

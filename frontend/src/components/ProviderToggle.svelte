@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { provider, setProvider, PROVIDERS, type Provider } from "../lib/provider";
+  import { provider, setProvider, PROVIDERS, PROVIDER_IDS, type Provider } from "../lib/provider";
 
   let { compact = false }: { compact?: boolean } = $props();
 
-  const options: Provider[] = ["claude", "codex", "opencode", "commandcode"];
+  const options: Provider[] = [...PROVIDER_IDS];
 
   function pick(id: Provider): void {
     if (id !== $provider) void setProvider(id);
@@ -48,7 +48,7 @@
   .provider-toggle {
     position: relative;
     display: inline-grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     padding: 3px;
     background: var(--surface-panel-soft);
     border: 1px solid var(--border-strong);
@@ -63,7 +63,7 @@
     position: absolute;
     top: 3px;
     left: 3px;
-    width: calc(25% - 1.5px);
+    width: calc(20% - 1.2px);
     height: calc(100% - 6px);
     background: var(--surface-raised);
     border-radius: var(--radius-sm);

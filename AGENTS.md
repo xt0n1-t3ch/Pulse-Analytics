@@ -4,7 +4,7 @@
 
 Pulse is the desktop analytics GUI for Claude Code, Codex, OpenCode and Command Code. It uses Rust, Tauri 2, Svelte 5, TypeScript, Vite and SQLite. The `cc-discord-presence` binary is the Claude headless daemon; its CLI has `status`, `doctor` and `claude` commands. Do not describe that daemon as a Codex CLI.
 
-This checkout targets Pulse 1.9.5 through the six-platform Release workflow. Read `package.json`, Cargo manifests, `scripts/release-contract.json` and `src/codex/UPSTREAM.json` for current version facts. Verify publication and installed-runtime status separately. Do not copy historical branch/version claims into current instructions, and do not describe a local development build or installation as a release.
+This checkout targets Pulse 1.9.6 through the six-platform Release workflow. Read `package.json`, Cargo manifests, `scripts/release-contract.json` and `src/codex/UPSTREAM.json` for current version facts. Verify publication and installed-runtime status separately. Do not copy historical branch/version claims into current instructions, and do not describe a local development build or installation as a release.
 
 - Origin: https://github.com/xt0n1-t3ch/Pulse-Analytics
 - Default branch: `main`; inspect the current branch before editing.
@@ -22,6 +22,7 @@ This checkout targets Pulse 1.9.5 through the six-platform Release workflow. Rea
 | OpenCode | `src/opencode/`, `src-tauri/src/opencode.rs` | Read-only local SQLite ingestion and snapshots |
 | Accounts | `src-tauri/src/accounts/`, `frontend/src/views/Accounts.svelte` | Per-connection identity, protected profiles, native allowances and tombstones; never change agent logins |
 | Command Code | `src/commandcode/`, `src-tauri/src/commandcode.rs` | Shared CLI/Desktop JSONL ingestion, reported costs and one Discord identity |
+| Orion App | `src/orion/`, `src-tauri/src/orion.rs` | Read-only Orion SQLite session store, subagent roll-up, API-equivalent estimates and one Discord identity |
 | GUI backend | `src-tauri/src/main.rs`, `src-tauri/src/commands.rs` | Native lifecycle, polling, IPC and provider presentation |
 | Persistence and reports | `src/storage.rs`, `src-tauri/src/db.rs`, `src-tauri/src/report.rs`, `src-tauri/src/analyzers/` | Pulse-owned paths, safe migration, analytics, notifications and reports |
 | Frontend | `frontend/src/App.svelte`, `frontend/src/lib/`, `frontend/src/components/`, `frontend/src/views/` | Render backend facts; do not invent quotas, prices or context |
@@ -59,6 +60,8 @@ The September 5, 2026 refresh identified GPT-5.6 pricing/context drift, an API-s
 | Codex sessions/inventory | `~/.codex/sessions/`, `~/.codex/models_cache.json` | `CODEX_HOME` |
 | Codex presence config | `~/.pulse-analytics/codex/discord-presence-config.json` | Schema 13 |
 | OpenCode integration config | `~/.pulse-analytics/pulse-opencode.json` | `PULSE_HOME`; database paths belong to OpenCode |
+| Orion App sessions | `~/.orion/cli/db/db.sqlite` (legacy `~/.zcode`) | `src/orion/mod.rs`; `PULSE_ORION_HOME`; read-only |
+| Orion App integration config | `~/.pulse-analytics/pulse-orion.json` | `PULSE_HOME`; `data_roots` belong to Orion |
 
 `src/storage.rs` owns Pulse paths under `PULSE_HOME`, defaulting to `~/.pulse-analytics`. Initialize storage before loading preferences or starting pollers. Migration copies and validates legacy files, retains originals and never overwrites destination data. Provider source roots and credentials remain separate. See `docs/guides/storage.md` for recovery and legacy instance-lock compatibility.
 

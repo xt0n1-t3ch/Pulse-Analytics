@@ -13,6 +13,7 @@ pub enum Provider {
     OpenCode,
     #[serde(rename = "commandcode")]
     CommandCode,
+    Orion,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +30,7 @@ impl Provider {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::OpenCode => "opencode",
+            Self::Orion => "orion",
         }
     }
 
@@ -38,6 +40,7 @@ impl Provider {
             Self::Claude => "Claude Code",
             Self::Codex => "Codex",
             Self::OpenCode => "OpenCode",
+            Self::Orion => "Orion App",
         }
     }
 
@@ -47,15 +50,14 @@ impl Provider {
             Self::Claude => "Claude",
             Self::Codex => "Codex",
             Self::OpenCode => "OpenCode",
+            Self::Orion => "Orion",
         }
     }
 
     pub fn instruction_file_name(self) -> &'static str {
         match self {
-            Self::CommandCode => "AGENTS.md",
             Self::Claude => "CLAUDE.md",
-            Self::Codex => "AGENTS.md",
-            Self::OpenCode => "AGENTS.md",
+            Self::CommandCode | Self::Codex | Self::OpenCode | Self::Orion => "AGENTS.md",
         }
     }
 
@@ -65,6 +67,7 @@ impl Provider {
             Self::Claude => ".claude",
             Self::Codex => ".codex",
             Self::OpenCode => "opencode",
+            Self::Orion => ".orion",
         }
     }
 
@@ -74,6 +77,7 @@ impl Provider {
             Self::Claude => "~/.claude/projects/**/*.jsonl",
             Self::Codex => "~/.codex/sessions/**/*.jsonl",
             Self::OpenCode => "~/.local/share/opencode/opencode*.db",
+            Self::Orion => "~/.orion/cli/db/db.sqlite",
         }
     }
 
@@ -83,6 +87,7 @@ impl Provider {
             Self::Claude => "~/.claude/discord-presence-data.json + usage API",
             Self::Codex => "~/.codex/.codex-global-state.json + session telemetry",
             Self::OpenCode => "OpenCode local SQLite metadata",
+            Self::Orion => "Orion App local SQLite session store",
         }
     }
 
@@ -92,6 +97,7 @@ impl Provider {
             Self::Claude => "Fix with Claude Code",
             Self::Codex => "Fix with Codex",
             Self::OpenCode => "Fix with OpenCode",
+            Self::Orion => "Fix with Orion App",
         }
     }
 
@@ -106,7 +112,7 @@ impl Provider {
                 model_routing: true,
                 extra_usage: true,
             },
-            Self::OpenCode | Self::CommandCode => ProviderCapabilities {
+            Self::OpenCode | Self::CommandCode | Self::Orion => ProviderCapabilities {
                 cache_health: false,
                 model_routing: false,
                 extra_usage: false,
@@ -125,6 +131,7 @@ impl Provider {
             Self::Claude => crate::config::claude_home(),
             Self::Codex => crate::codex::config::codex_home(),
             Self::OpenCode => crate::opencode::data_dir(),
+            Self::Orion => crate::orion::home(),
         }
     }
 
@@ -134,6 +141,7 @@ impl Provider {
             "codex" => Some(Self::Codex),
             "opencode" => Some(Self::OpenCode),
             "commandcode" | "command_code" | "command-code" => Some(Self::CommandCode),
+            "orion" | "orion-app" | "orion_app" | "zcode" => Some(Self::Orion),
             _ => None,
         }
     }
@@ -196,5 +204,16 @@ mod capability_tests {
         assert!(codex.cache_health);
         assert!(!codex.model_routing);
         assert!(!codex.extra_usage);
+    }
+
+    #[test]
+    fn orion_round_trips_through_its_stable_identifier() {
+        assert_eq!(Provider::parse("orion"), Some(Provider::Orion));
+        assert_eq!(Provider::parse("zcode"), Some(Provider::Orion));
+        assert_eq!(
+            serde_json::to_string(&Provider::Orion).unwrap(),
+            "\"orion\""
+        );
+        assert_eq!(Provider::Orion.as_str(), "orion");
     }
 }

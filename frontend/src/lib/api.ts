@@ -309,6 +309,7 @@ export interface DiscordSettings {
 
 export interface AppSnapshot {
     opencode_diagnostics?: string[];
+    orion_diagnostics?: string[];
     revision: number;
     sync_state?: "syncing" | "live";
     snapshot_captured_at?: string;

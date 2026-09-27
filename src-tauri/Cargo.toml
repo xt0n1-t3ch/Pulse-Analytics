@@ -1,8 +1,8 @@
 [package]
 name = "pulse"
-version = "1.9.5"
+version = "1.9.6"
 edition = "2024"
-description = "Pulse - Claude Code, Codex and OpenCode analytics"
+description = "Pulse - local-first analytics for Claude Code, Codex, OpenCode, Command Code and Orion App"
 default-run = "pulse"
 license = "Apache-2.0"
 repository = "https://github.com/xt0n1-t3ch/Pulse-Analytics"
