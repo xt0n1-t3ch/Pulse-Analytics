@@ -16,7 +16,7 @@
     previewToDisplayPrefs,
     refreshDiscordPresencePreview,
   } from "../lib/stores";
-  import { provider, providerProfile, PROVIDERS, setProvider, type Provider } from "../lib/provider";
+  import { provider, providerProfile, PROVIDERS, PROVIDER_IDS, isLocalOnlyProvider, parseProvider, setProvider, type Provider } from "../lib/provider";
   import {
     setCodexDesktopDesign,
     setDiscordDisplayPrefs,
@@ -115,7 +115,7 @@
   /** Fields the active provider cannot actually persist, so they are shown as
    *  unavailable instead of as a switch that silently snaps back. */
   let unsupportedFields = $derived(
-    new Set<FieldId>($provider === "commandcode" ? ["systems"] : $provider === "opencode" ? ["credits", "systems"] : $discordSettings?.supports_credits === false ? ["credits"] : []),
+    new Set<FieldId>($provider === "commandcode" ? ["systems"] : $provider === "orion" ? ["quotas", "credits"] : $provider === "opencode" ? ["credits", "systems"] : $discordSettings?.supports_credits === false ? ["credits"] : []),
   );
 
   type Preset = "minimal" | "standard" | "full";
@@ -169,7 +169,7 @@
   );
   let previewProfile = $derived.by(() => {
     const candidate = scopedPresencePreview?.provider ?? previewSession?.provider ?? previewProvider;
-    return candidate === "claude" || candidate === "codex" || candidate === "opencode" || candidate === "commandcode"
+    return parseProvider(candidate)
       ? PROVIDERS[candidate as Provider]
       : $providerProfile;
   });
@@ -179,7 +179,7 @@
     rpArtFor(
       scopedPresencePreview?.provider
         ?? previewSession?.provider
-        ?? (previewProvider === "claude" || previewProvider === "codex" || previewProvider === "opencode" || previewProvider === "commandcode" ? previewProvider : $provider),
+        ?? (parseProvider(previewProvider) ?? $provider),
       scopedPresencePreview?.large_image_key,
       scopedPresencePreview?.large_text,
     ),
@@ -396,10 +396,10 @@
    */
   let broadcastState = $derived(
     !discordEnabled ? "paused"
-      : scopedPresencePreview?.has_session === false && ($provider === "opencode" || ($provider === "commandcode" && ipcConnected)) ? "idle"
+      : scopedPresencePreview?.has_session === false && ($provider === "opencode" || (($provider === "commandcode" || $provider === "orion") && ipcConnected)) ? "idle"
       : ipcConnected ? "live" : "waiting",
   );
-  let idlePublished = $derived($provider === "commandcode" && broadcastState === "idle" && ipcConnected);
+  let idlePublished = $derived(($provider === "commandcode" || $provider === "orion") && broadcastState === "idle" && ipcConnected);
   let broadcastLabel = $derived(
     !discordEnabled ? "Paused"
       : broadcastState === "idle" ? `${presenceAppName} is idle`
@@ -486,7 +486,7 @@
   <section class="broadcast-source" aria-label="Discord broadcast application">
     <div><h3>Broadcast from</h3><p>This choice controls Discord, not your analytics filters.</p></div>
     <div class="broadcast-options" role="group" aria-label="Broadcast application">
-      {#each ["claude", "codex", "opencode", "commandcode"] as id}
+      {#each PROVIDER_IDS as id}
         <button type="button" class:active={$provider === id} aria-pressed={$provider === id} disabled={settingsPending}
           onclick={() => changeBroadcastProvider(id as Provider)}>
           <img src={rpArtFor(id, id === "codex" ? "codex-app" : undefined).large} alt="" />{PROVIDERS[id as Provider].label}
@@ -654,9 +654,9 @@
             <div class="dp-handle">@{$discordUser.username}</div>
           {/if}
           <div class="dp-separator"></div>
-          <div class="dp-section-title">{($provider === "opencode" || $provider === "commandcode") && scopedPresencePreview?.has_session === false ? "No active session" : "Current Activity"}</div>
+          <div class="dp-section-title">{isLocalOnlyProvider($provider) && scopedPresencePreview?.has_session === false ? "No active session" : "Current Activity"}</div>
           <div class="dp-activity-card">
-            <div class="dp-activity-header">{($provider === "opencode" || $provider === "commandcode") && scopedPresencePreview?.has_session === false ? "Idle" : "Playing"}</div>
+            <div class="dp-activity-header">{isLocalOnlyProvider($provider) && scopedPresencePreview?.has_session === false ? "Idle" : "Playing"}</div>
             <div class="dp-activity-body">
               <div class="dp-activity-art" title={previewArt.largeText}>
                 <img class="dp-art-large" src={previewArt.large} alt={previewArt.largeText} draggable="false" />

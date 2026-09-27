@@ -13,6 +13,7 @@ pub mod live;
 pub mod notifications;
 pub mod opencode;
 pub mod opencode_go;
+pub mod orion;
 pub mod report;
 pub mod report_template;
 pub mod update_check;

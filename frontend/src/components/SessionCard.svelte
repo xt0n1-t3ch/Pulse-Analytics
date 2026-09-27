@@ -99,12 +99,14 @@
 
       {#if session.cost_available === true}
       <div class="detail-section">
-        <h4 class="detail-title">{session.cost_basis === "partial" ? "Known subtotal" : session.provider === "codex" ? "API-equivalent value" : "Reported value"}</h4>
+        <h4 class="detail-title">{session.cost_basis === "partial" ? "Known subtotal" : session.provider === "codex" || session.provider === "orion" ? "API-equivalent value" : "Reported value"}</h4>
         {#if session.cost_basis === "partial"}
           <p class="cost-unavailable">Partial estimate. Some usage components are not priced.</p>
         {/if}
         {#if session.opencode && session.cost_available === true}
           <span class="cost-unavailable">OpenCode-reported total: {fmtCost(session.cost)}. Token-category charges are not reported.</span>
+        {:else if session.provider === "orion"}
+          <span class="cost-unavailable">API-equivalent estimate: {fmtCost(session.cost)}. Orion App does not record a billed amount.</span>
         {:else if session.provider === "commandcode"}
           <span class="cost-unavailable">Command Code estimate: {fmtCost(session.cost)}. Token-category charges are not reported.</span>
         {:else if session.cost_available === true}

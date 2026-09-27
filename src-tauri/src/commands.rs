@@ -31,6 +31,7 @@ use cc_discord_presence::cost;
 use cc_discord_presence::discord::DiscordPresence as ClaudeDiscordPresence;
 use cc_discord_presence::discord::presence_lines as claude_presence_lines;
 use cc_discord_presence::opencode::{self, Config as OpenCodeConfig};
+use cc_discord_presence::orion::{self, Config as OrionConfig};
 use cc_discord_presence::provider::Provider;
 use cc_discord_presence::session::{
     self, ClaudeSessionSnapshot, GitBranchCache, RateLimits as ClaudeRateLimits, SessionParseCache,
@@ -204,6 +205,8 @@ struct CachedData {
     opencode_sessions: Vec<opencode::Session>,
     commandcode_sessions: Vec<commandcode::Session>,
     commandcode_diagnostics: Vec<String>,
+    orion_sessions: Vec<orion::Session>,
+    orion_diagnostics: Vec<String>,
     live_claude: Vec<ClaudeSessionSnapshot>,
     live_codex: Vec<CodexSessionSnapshot>,
     opencode_diagnostics: Vec<String>,
@@ -602,6 +605,7 @@ fn active_access_route(data: &CachedData) -> AccessRouteSnapshot {
 
     match data.active_provider {
         Provider::CommandCode => crate::commandcode::access_route(),
+        Provider::Orion => crate::orion::access_route(),
         Provider::OpenCode => AccessRouteSnapshot::unavailable(
             crate::access::AccessSource {
                 id: "opencode-local".into(),
@@ -901,6 +905,12 @@ pub(crate) fn seed_discord_state_for(provider: Provider) {
                 data.discord_prefs = crate::commandcode::prefs(&config);
             }
         }
+        Provider::Orion => {
+            if let Ok(config) = OrionConfig::load() {
+                data.discord_enabled = config.enabled;
+                data.discord_prefs = crate::orion::prefs(&config);
+            }
+        }
         Provider::OpenCode => {
             if let Ok(config) = OpenCodeConfig::load() {
                 data.discord_enabled = config.enabled;
@@ -990,6 +1000,11 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
             cc_discord_presence::storage::home().join("pulse-commandcode.lock"),
         );
         let mut commandcode_git = CodexGitBranchCache::new(Duration::from_secs(30));
+        let mut orion_collector = orion::Collector::default();
+        let mut orion_publisher = orion::presence::Publisher::default();
+        let mut orion_lease =
+            PublisherLease::new(cc_discord_presence::storage::home().join("pulse-orion.lock"));
+        let mut orion_git = CodexGitBranchCache::new(Duration::from_secs(30));
         let mut opencode_runtime = opencode::process::RuntimeDetector::default();
         let mut opencode_publisher = opencode::presence::Publisher::default();
         let mut opencode_lease =
@@ -1101,6 +1116,52 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                 commandcode_publisher.shutdown();
                 commandcode_lease.release();
             }
+            let orion_config_result = OrionConfig::load();
+            let mut orion_live = Vec::new();
+            let mut orion_diagnostics = Vec::new();
+            if let Ok(config) = &orion_config_result {
+                let mut batch = orion_collector.poll(config);
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                let mut persisted = true;
+                for session in &mut batch.changed {
+                    if session.is_recent(now_ms) {
+                        session.branch = orion_git.get(&session.directory);
+                    }
+                    persisted &= crate::db::upsert_external_session(
+                        &crate::orion::session_info(session),
+                        session.updated,
+                    );
+                }
+                if persisted {
+                    orion_collector.acknowledge(&batch);
+                } else {
+                    batch
+                        .diagnostics
+                        .push("Orion App analytics write failed; retrying this batch".into());
+                }
+                for session in &mut batch.live {
+                    session.branch = orion_git.get(&session.directory);
+                }
+                let active_ids: Vec<_> = batch
+                    .live
+                    .iter()
+                    .filter(|session| session.is_active(now_ms))
+                    .map(|session| session.id.clone())
+                    .collect();
+                crate::db::mark_inactive("orion", &active_ids);
+                orion_live = batch.live;
+                orion_diagnostics = batch.diagnostics;
+            } else {
+                orion_diagnostics.push("Orion App configuration is unavailable".into());
+            }
+            if let Ok(mut d) = data.lock() {
+                d.orion_sessions = orion_live.clone();
+                d.orion_diagnostics = orion_diagnostics;
+            }
+            if provider != Provider::Orion {
+                orion_publisher.shutdown();
+                orion_lease.release();
+            }
             let open_config_result = OpenCodeConfig::load();
             let mut open_diagnostics = Vec::new();
             let mut open_live = Vec::new();
@@ -1193,6 +1254,31 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
             }
 
             let (discord_status, discord_publisher) = match provider {
+                Provider::Orion => {
+                    claude_publisher.release();
+                    codex_publisher.release();
+                    opencode_lease.release();
+                    claude_discord.shutdown();
+                    codex_discord.shutdown();
+                    opencode_publisher.shutdown();
+                    let owned = orion_lease.try_acquire().unwrap_or(false);
+                    match orion_config_result {
+                        Ok(mut config) if owned => {
+                            config.enabled &= discord_enabled;
+                            orion_publisher.update(orion::preferred_session(&orion_live), &config);
+                        }
+                        _ => orion_publisher.shutdown(),
+                    }
+                    if let Ok(mut d) = data.lock() {
+                        d.sessions = ActiveSessions::None;
+                        d.access = merge_access_routes(&independently_probed_routes, []);
+                    }
+                    if owned {
+                        (orion_publisher.status().to_string(), "Pulse".into())
+                    } else {
+                        ("Controlled by external publisher".into(), "external".into())
+                    }
+                }
                 Provider::CommandCode => {
                     claude_publisher.release();
                     codex_publisher.release();
@@ -1684,6 +1770,15 @@ fn codex_session_surface(
 
 fn current_live_session_infos() -> Vec<SessionInfo> {
     match current_provider() {
+        Provider::Orion => shared()
+            .lock()
+            .map(|data| {
+                data.orion_sessions
+                    .iter()
+                    .map(crate::orion::session_info)
+                    .collect()
+            })
+            .unwrap_or_default(),
         Provider::CommandCode => shared()
             .lock()
             .map(|data| {
@@ -1727,6 +1822,7 @@ pub struct AppSnapshot {
     pub revision: u32,
     pub opencode_diagnostics: Vec<String>,
     pub commandcode_diagnostics: Vec<String>,
+    pub orion_diagnostics: Vec<String>,
     pub sync_state: &'static str,
     pub snapshot_captured_at: String,
     pub health: HealthResponse,
@@ -1773,6 +1869,7 @@ fn build_app_snapshot(sync_state: &'static str) -> Result<AppSnapshot, String> {
         revision: 1,
         opencode_diagnostics: cached.opencode_diagnostics.clone(),
         commandcode_diagnostics: cached.commandcode_diagnostics.clone(),
+        orion_diagnostics: cached.orion_diagnostics.clone(),
         sync_state,
         snapshot_captured_at: chrono::Utc::now().to_rfc3339(),
         health: get_health(),
@@ -1792,6 +1889,13 @@ fn build_discord_snapshot_payload(
 ) -> Result<(DiscordPresencePreview, DiscordSettings), String> {
     let provider = cached.active_provider;
     match provider {
+        Provider::Orion => {
+            let config = OrionConfig::load().map_err(|error| error.to_string())?;
+            Ok((
+                crate::orion::preview(&cached.orion_sessions, &config),
+                crate::orion::settings(&config, &cached.discord_status, &cached.discord_publisher),
+            ))
+        }
         Provider::CommandCode => {
             let config = CommandCodeConfig::load().map_err(|error| error.to_string())?;
             Ok((
@@ -2655,6 +2759,11 @@ pub fn set_discord_enabled(enabled: bool) -> Result<DiscordSettings, String> {
     // entirely, so the master switch lived only in `shared()` and every restart
     // silently turned Rich Presence back on.
     match current_provider() {
+        Provider::Orion => {
+            let mut config = OrionConfig::load().map_err(|error| error.to_string())?;
+            config.enabled = enabled;
+            config.save().map_err(|error| error.to_string())?;
+        }
         Provider::CommandCode => {
             let mut config = CommandCodeConfig::load().map_err(|error| error.to_string())?;
             config.enabled = enabled;
@@ -2735,6 +2844,11 @@ pub fn set_discord_display_prefs(
     };
 
     match current_provider() {
+        Provider::Orion => {
+            let mut config = OrionConfig::load().map_err(|error| error.to_string())?;
+            crate::orion::apply_prefs(&mut config, &prefs);
+            config.save().map_err(|error| error.to_string())?;
+        }
         Provider::CommandCode => {
             let mut config = CommandCodeConfig::load().map_err(|error| error.to_string())?;
             crate::commandcode::apply_prefs(&mut config, &prefs);
@@ -2911,6 +3025,7 @@ pub fn get_live_sessions() -> Vec<SessionInfo> {
                 .iter()
                 .map(crate::opencode::session_info),
         );
+        sessions.extend(data.orion_sessions.iter().map(crate::orion::session_info));
     }
     sessions
 }
@@ -3015,7 +3130,7 @@ fn build_discord_settings(
 ) -> DiscordSettings {
     let (enabled, display_prefs, desktop_design, supports_desktop_design, field_order) =
         match provider {
-            Provider::OpenCode | Provider::CommandCode => (
+            Provider::OpenCode | Provider::CommandCode | Provider::Orion => (
                 cached.discord_enabled,
                 cached.discord_prefs.clone(),
                 None,
@@ -3089,6 +3204,17 @@ pub fn set_discord_field_order(order: Vec<String>) -> Result<DiscordSettings, St
     if parsed.len() != PresenceFieldId::ALL.len() || unique.len() != PresenceFieldId::ALL.len() {
         return Err("Field order must contain every field exactly once".to_string());
     }
+    if current_provider() == Provider::Orion {
+        let mut config = OrionConfig::load().map_err(|error| error.to_string())?;
+        config.layout.fields.sort_by_key(|item| {
+            parsed
+                .iter()
+                .position(|field| *field == item.field)
+                .unwrap_or(usize::MAX)
+        });
+        config.save().map_err(|error| error.to_string())?;
+        return get_discord_settings();
+    }
     if current_provider() == Provider::CommandCode {
         let mut config = CommandCodeConfig::load().map_err(|error| error.to_string())?;
         config.layout.fields.sort_by_key(|item| {
@@ -3130,6 +3256,14 @@ pub fn get_discord_settings() -> Result<DiscordSettings, String> {
         .map_err(|_| "Discord settings state is unavailable".to_string())?
         .clone();
     match provider {
+        Provider::Orion => {
+            let config = OrionConfig::load().map_err(|error| error.to_string())?;
+            Ok(crate::orion::settings(
+                &config,
+                &cached.discord_status,
+                &cached.discord_publisher,
+            ))
+        }
         Provider::CommandCode => {
             let config = CommandCodeConfig::load().map_err(|error| error.to_string())?;
             Ok(crate::commandcode::settings(
@@ -3758,6 +3892,12 @@ pub fn get_plan_info() -> PlanInfo {
                 detected: plan.is_some(),
             }
         }
+        Provider::Orion => PlanInfo {
+            provider: "orion".into(),
+            plan_key: String::new(),
+            plan_name: "No account quota reported".into(),
+            detected: false,
+        },
         Provider::OpenCode => PlanInfo {
             provider: "opencode".into(),
             plan_key: String::new(),
@@ -3824,7 +3964,7 @@ pub fn set_plan_override(plan: String, provider: Option<String>) -> Result<(), S
         None => current_provider(),
     };
     match provider {
-        Provider::OpenCode | Provider::CommandCode => {
+        Provider::OpenCode | Provider::CommandCode | Provider::Orion => {
             return Err("This provider has no subscription plan override".into());
         }
         Provider::Claude => {
@@ -4614,7 +4754,7 @@ pub fn get_context_breakdown(
             _ => match current_provider() {
                 Provider::Claude => empty_context_breakdown("Unknown", 200_000),
                 Provider::Codex => empty_context_breakdown("Codex", 400_000),
-                Provider::OpenCode | Provider::CommandCode => {
+                Provider::OpenCode | Provider::CommandCode | Provider::Orion => {
                     empty_context_breakdown("Not reported", 0)
                 }
             },
@@ -5442,7 +5582,12 @@ fn build_reports_bundle_for_scope_from_roots(
         cache_health.trend_weighted_ratio,
     );
     let recommendations = provider
-        .filter(|provider| !matches!(provider, Provider::OpenCode | Provider::CommandCode))
+        .filter(|provider| {
+            !matches!(
+                provider,
+                Provider::OpenCode | Provider::CommandCode | Provider::Orion
+            )
+        })
         .map_or_else(Vec::new, |provider| {
             let ctx = crate::analyzers::recommendations::AnalysisContext {
                 provider,

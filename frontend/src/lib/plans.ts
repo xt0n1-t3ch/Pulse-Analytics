@@ -10,6 +10,7 @@ export interface PlanOption {
 const PLAN_CATALOGS: Record<Provider, readonly PlanOption[]> = {
   commandcode: [],
   opencode: [],
+  orion: [],
   codex: [
     { value: "free", label: "Free" },
     { value: "go", label: "Go" },

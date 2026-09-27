@@ -4,6 +4,18 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.9.6] - 2026-09-27
+
+Orion App provider release. The database remains schema 7, Claude config schema 6 and Codex presence config schema 13 are unchanged, and the immutable shared core stays at 2.0.1. Orion App settings live in the new `pulse-orion.json`; no existing file changes format. Rollback to 1.9.5 needs only its package: Orion sessions already saved stay in the database and 1.9.5 does not show them. GitHub macOS packages have no Apple Developer ID signature or notarization.
+
+### Added
+
+- Add Orion App as a fifth provider. Pulse reads Orion's local session store (`~/.orion/cli/db/db.sqlite`) read-only, rolls subagent sessions into their parent, and shows model, reasoning level, live tool activity, tokens, context fill and subagent count. Cost is an API-equivalent estimate for models with a known public rate and stays unavailable otherwise, because Orion records no billed amount. Orion App publishes to Discord under its own application and artwork, including a plain Idle presence. Reasoning levels display as Low, Medium, High, Extra High and Max; Orion's `default` level is not shown as a level. No database schema change.
+
+### Documentation
+
+- Rewrite `llms.txt` to the llms.txt v2 format with absolute links, key facts and an Optional section. Describe all five providers in the README, package descriptions and installer text, and add a 1280×640 social preview image at `assets/social-preview.png`.
+
 ## [1.9.5] - 2026-09-22
 
 Claude plan, pricing and data-integrity release. The database remains schema 7, Claude config schema 6 and Codex presence config schema 13 are unchanged, and the immutable shared core stays at 2.0.1. Rollback to 1.9.4 needs only its package; if you applied the Claude history correction, restore its `pre-history-repair` backup to return to the earlier totals. Session checkpoints move to `PULSE_HOME`, so the first poll after the upgrade re-reads active Claude transcripts once. GitHub macOS packages have no Apple Developer ID signature or notarization.

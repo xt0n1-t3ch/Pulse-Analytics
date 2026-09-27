@@ -6,7 +6,18 @@ import {
     type ProviderCopyInfo,
 } from "./api";
 
-export type Provider = "claude" | "codex" | "opencode" | "commandcode";
+export type Provider = "claude" | "codex" | "opencode" | "commandcode" | "orion";
+
+export const PROVIDER_IDS: readonly Provider[] = ["claude", "codex", "opencode", "commandcode", "orion"];
+
+export function parseProvider(value: unknown): Provider | null {
+    return PROVIDER_IDS.includes(value as Provider) ? (value as Provider) : null;
+}
+
+/** Providers without account quotas or plan overrides in Pulse. */
+export function isLocalOnlyProvider(value: string): value is "opencode" | "commandcode" | "orion" {
+    return value === "opencode" || value === "commandcode" || value === "orion";
+}
 
 export interface ProviderProfile {
     id: Provider;
@@ -35,6 +46,12 @@ export interface ProviderProfile {
 }
 
 const BASE: Record<Provider, ProviderProfile> = {
+    orion: {
+        id: "orion", label: "Orion", productName: "Orion App", tagline: "Orion App Analytics",
+        accent: "var(--text-primary)", defaultAssetKey: "orion", supportsExtraUsage: false,
+        sessionsPath: "~/.orion/cli/db/db.sqlite", instructionFile: "AGENTS.md",
+        homeDir: "~/.orion", fixLabel: "Fix with Orion App", globalStateSource: "Local SQLite session store",
+    },
     commandcode: {
         id: "commandcode", label: "Command Code", productName: "Command Code", tagline: "Command Code Analytics",
         accent: "var(--text-primary)", defaultAssetKey: "commandcode", supportsExtraUsage: false,
@@ -101,8 +118,8 @@ const NEUTRAL_PROFILE: ProviderProfile = {
 const STORAGE_KEY = "pulse-provider";
 const storage = globalThis.localStorage;
 const stored = storage?.getItem(STORAGE_KEY) ?? null;
-const hasStoredProvider = stored === "codex" || stored === "claude" || stored === "opencode" || stored === "commandcode";
-const initialProvider: Provider = stored === "commandcode" ? "commandcode" : stored === "opencode" ? "opencode" : stored === "codex" ? "codex" : "claude";
+const hasStoredProvider = parseProvider(stored) !== null;
+const initialProvider: Provider = parseProvider(stored) ?? "claude";
 
 export const provider: Writable<Provider> = writable<Provider>(initialProvider);
 export const providerCopy: Writable<ProviderCopyInfo | null> = writable(null);
@@ -198,7 +215,7 @@ void (async () => {
     try {
         const info = await getActiveProvider();
         if (bootstrapGeneration !== providerGeneration) return;
-        const p = info.active_provider === "commandcode" ? "commandcode" : info.active_provider === "opencode" ? "opencode" : info.active_provider === "codex" ? "codex" : "claude";
+        const p = parseProvider(info.active_provider) ?? "claude";
         confirmedProvider = p;
         publishProvider(p);
         const copy = await getProviderCopy();

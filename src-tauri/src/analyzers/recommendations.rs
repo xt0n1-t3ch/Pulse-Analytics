@@ -224,7 +224,7 @@ pub fn generate(ctx: &AnalysisContext) -> Vec<Recommendation> {
     {
         let overlap_copy = match ctx.provider {
             Provider::Claude => "Anthropic peak hours",
-            Provider::Codex | Provider::OpenCode | Provider::CommandCode => {
+            Provider::Codex | Provider::OpenCode | Provider::CommandCode | Provider::Orion => {
                 "your busiest overlap window"
             }
         };

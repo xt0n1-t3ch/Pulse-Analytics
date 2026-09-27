@@ -11,6 +11,7 @@ pub mod discord;
 pub mod discord_identity;
 pub mod metrics;
 pub mod opencode;
+pub mod orion;
 pub mod plan;
 pub mod power;
 pub mod process_guard;

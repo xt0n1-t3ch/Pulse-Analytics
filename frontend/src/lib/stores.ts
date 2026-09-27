@@ -41,6 +41,7 @@ export const selectedAccessSourceId = writable<string>("all");
 export const sourceInspectorExpanded = writable(false);
 export const selectedAnalyticsProviderScope = writable<AnalyticsProviderScope>("all");
 export const opencodeDiagnostics = writable<string[]>([]);
+export const orionDiagnostics = writable<string[]>([]);
 
 export const selectedAccessRoutes = derived(
   [accessSnapshot, selectedAccessSourceId],
@@ -206,6 +207,7 @@ function applySnapshot(snapshot: AppSnapshot): void {
     planInfo.set(snapshot.plan);
     accessSnapshot.set(snapshot.access);
   opencodeDiagnostics.set(snapshot.opencode_diagnostics ?? []);
+  orionDiagnostics.set(snapshot.orion_diagnostics ?? []);
     applyDiscordSettings(snapshot.discord_settings);
 }
 

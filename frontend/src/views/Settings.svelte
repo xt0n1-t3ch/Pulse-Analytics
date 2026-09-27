@@ -9,9 +9,10 @@
     selectedAccessSourceId,
     selectedAnalyticsProviderScope,
     opencodeDiagnostics,
+    orionDiagnostics,
     refreshDiscordPresencePreview,
   } from "../lib/stores";
-  import { provider, providerProfile, setProvider, PROVIDERS, type Provider } from "../lib/provider";
+  import { provider, providerProfile, setProvider, PROVIDERS, isLocalOnlyProvider, type Provider } from "../lib/provider";
   import { planLabelForKey, planOptionsFor } from "../lib/plans";
   import { setPlanOverride, exportAllData, clearHistory, getDbSize, getPlanInfo, getAnalyticsSummary, getAppSettings, setCloseToTray, previewClaudeHistoryRepair, applyClaudeHistoryRepair } from "../lib/api";
   import type { AnalyticsSummary, ClaudeHistoryRepairSummary } from "../lib/api";
@@ -184,7 +185,7 @@
     }
     try {
       const mutation = planMutation.then(() =>
-        (selectedProvider === "opencode" || selectedProvider === "commandcode") ? Promise.resolve() : setPlanOverride(val === "auto" ? "" : val, selectedProvider)
+        isLocalOnlyProvider(selectedProvider) ? Promise.resolve() : setPlanOverride(val === "auto" ? "" : val, selectedProvider)
       );
       planMutation = mutation.catch(() => undefined);
       await mutation;
@@ -354,7 +355,7 @@
         <div class="it-text">
           <div class="it-line">
             <span class="it-product" style="color: {$providerProfile.accent}">{$providerProfile.productName}</span>
-            {#if $provider !== "opencode" && $provider !== "commandcode"}<span class="it-sep">·</span>
+            {#if !isLocalOnlyProvider($provider)}<span class="it-sep">·</span>
             <span class="it-plan">{activePlanInfo ? activePlanLabel : "Detecting plan…"}</span>{/if}
           </div>
           <span class="it-sub">
@@ -365,7 +366,7 @@
         </div>
       </div>
       <div class="settings-state" role="status">
-        <span>{planSavedFlash ? "Plan saved" : isManual && $provider !== "opencode" && $provider !== "commandcode" ? "Using your selected plan" : ($provider === "opencode" || $provider === "commandcode") ? "Account details are available in Accounts" : "Plan detected from your account"}</span>
+        <span>{planSavedFlash ? "Plan saved" : isManual && !isLocalOnlyProvider($provider) ? "Using your selected plan" : $provider === "orion" ? "Orion App does not report an account plan" : isLocalOnlyProvider($provider) ? "Account details are available in Accounts" : "Plan detected from your account"}</span>
         <span>{$health?.discord_status === "Controlled by external daemon" ? "Desktop app controls publication" : $health?.discord_status === "Connected" ? "Discord connected" : $health?.discord_status?.startsWith("Waiting for OpenCode") ? "Waiting for OpenCode session" : "Discord connection pending"}</span>
       </div>
     </div>
@@ -381,7 +382,7 @@
         />
       </div>
 
-      {#if $provider !== "opencode" && $provider !== "commandcode"}
+      {#if !isLocalOnlyProvider($provider)}
       <div class="rail-ctrl rail-ctrl-select">
         <span class="rail-k">Plan override</span>
         <Select
@@ -428,6 +429,15 @@
       <div class="s-rows"><div class="s-row"><span class="s-label">Configuration</span><span class="s-desc">~/.claude/pulse-opencode.json · database_paths accepts additional SQLite files.</span></div>
       {#each $opencodeDiagnostics as diagnostic}<p class="settings-error" role="status">{diagnostic}</p>{/each}
       {#if $opencodeDiagnostics.length === 0}<p class="s-row">No OpenCode reader errors reported.</p>{/if}</div>
+    </section>
+  {/if}
+  {#if $provider === "orion"}
+    <section class="s-card" aria-label="Orion App connection status">
+      <header class="s-card-head"><div class="head-text"><h3 class="s-card-title">Orion App local sessions</h3>
+        <p class="s-card-desc">Pulse reads the Orion App session store read-only. Costs are API-equivalent estimates for models with a known public rate.</p></div></header>
+      <div class="s-rows"><div class="s-row"><span class="s-label">Configuration</span><span class="s-desc">~/.pulse-analytics/pulse-orion.json · data_roots accepts additional Orion data folders.</span></div>
+      {#each $orionDiagnostics as diagnostic}<p class="settings-error" role="status">{diagnostic}</p>{/each}
+      {#if $orionDiagnostics.length === 0}<p class="s-row">No Orion App reader errors reported.</p>{/if}</div>
     </section>
   {/if}
   <div class="settings-grid">

@@ -6,9 +6,10 @@ export type AccessKind =
   | "open_code_local"
   | "open_code_go"
   | "command_code_local"
-  | "command_code_subscription";
+  | "command_code_subscription"
+  | "orion_local";
 
-export type AccessProvider = "codex" | "claude" | "openai" | "anthropic" | "opencode" | "commandcode";
+export type AccessProvider = "codex" | "claude" | "openai" | "anthropic" | "opencode" | "commandcode" | "orion";
 export type AnalyticsProviderScope = AccessProvider | "opencode" | "all";
 export type AccessProof =
   | "authenticated_probe"
@@ -100,6 +101,7 @@ const KIND_LABELS: Record<
   AccessKind,
   { product: string; access: "Subscription" | "API" | "Local" }
 > = {
+  orion_local: { product: "Orion App", access: "Local" },
   command_code_local: { product: "Command Code", access: "Local" },
   command_code_subscription: { product: "Command Code", access: "Subscription" },
   open_code_go: { product: "OpenCode Go", access: "Subscription" },

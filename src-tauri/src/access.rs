@@ -25,6 +25,7 @@ pub enum AccessSourceKind {
     OpenCodeGo,
     CommandCodeLocal,
     CommandCodeSubscription,
+    OrionLocal,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
@@ -763,7 +764,8 @@ fn source_lane(kind: AccessSourceKind) -> Option<UsageLane> {
         AccessSourceKind::OpenCodeLocal
         | AccessSourceKind::OpenCodeGo
         | AccessSourceKind::CommandCodeLocal
-        | AccessSourceKind::CommandCodeSubscription => None,
+        | AccessSourceKind::CommandCodeSubscription
+        | AccessSourceKind::OrionLocal => None,
         AccessSourceKind::CodexSubscription => Some(UsageLane::CodexSubscription),
         AccessSourceKind::OpenAiApi => Some(UsageLane::OpenAiApi),
         AccessSourceKind::ClaudeSubscription => Some(UsageLane::ClaudeSubscription),
