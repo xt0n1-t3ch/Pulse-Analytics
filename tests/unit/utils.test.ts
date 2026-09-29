@@ -12,6 +12,10 @@ import {
   formatResetDateTime,
   monetaryValueKind,
   monetaryValueLabel,
+  isCalculatedCost,
+  sessionCostTitle,
+  sessionCostNote,
+  CALCULATED_COST_NOTE,
 } from "@/lib/utils";
 
 describe("fmtTokens", () => {
@@ -59,6 +63,35 @@ describe("monetary value provenance", () => {
     expect(monetaryValueLabel(["provider_billed", "api_equivalent"]))
       .toBe("Known monetary value");
     expect(monetaryValueLabel([])).toBe("Known monetary value");
+  });
+});
+
+describe("live session cost wording", () => {
+  it("treats calculated sources the same for Claude, Codex and Orion App", () => {
+    for (const provider of ["claude", "codex", "orion"]) {
+      const session = { provider, cost_basis: "estimated", cost_source: "api_equivalent" };
+      expect(isCalculatedCost(session)).toBe(true);
+      expect(sessionCostTitle(session)).toBe("Session cost");
+      expect(sessionCostNote(session)).toBe(CALCULATED_COST_NOTE);
+    }
+    expect(isCalculatedCost({ provider: "claude", cost_source: "claude_statusline_api_equivalent" })).toBe(true);
+    // A Codex row from before cost_source existed is calculated by definition.
+    expect(isCalculatedCost({ provider: "codex" })).toBe(true);
+    expect(isCalculatedCost({ provider: "claude" })).toBe(false);
+  });
+
+  it("does not present reported totals as a calculation", () => {
+    for (const cost_source of ["codex_reported", "commandcode_reported", "opencode_reported", "provider_billed"]) {
+      expect(isCalculatedCost({ provider: "codex", cost_source })).toBe(false);
+      expect(sessionCostNote({ provider: "codex", cost_basis: "exact", cost_source })).toBeNull();
+      expect(sessionCostTitle({ provider: "codex", cost_basis: "exact", cost_source })).toBe("Reported value");
+    }
+  });
+
+  it("names a lower bound as a subtotal", () => {
+    const session = { provider: "orion", cost_basis: "partial", cost_source: "api_equivalent" };
+    expect(sessionCostTitle(session)).toBe("Known subtotal");
+    expect(sessionCostNote(session)).toBe("Partial estimate. Some usage components are not priced.");
   });
 });
 

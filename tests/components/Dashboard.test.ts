@@ -486,6 +486,49 @@ describe("Dashboard.svelte", () => {
     expect(container.textContent).toContain("Session tokens");
   });
 
+  it("labels a calculated Orion App session like a Claude session and shows value per hour", async () => {
+    const orion = {
+      ...liveSession("orion-1", "Orion work", 80_000, 1_000_000, "Thinking"),
+      provider: "orion",
+      app_name: "Orion App",
+      model: "Claude Opus 5.5",
+      model_id: "anthropic/claude-opus-5-5",
+      cost: 29.2,
+      cost_basis: "estimated",
+      cost_source: "api_equivalent",
+      duration_secs: 3600,
+    } as SessionInfo;
+    sessions.set([orion]);
+    const { container } = render(Dashboard);
+    await tick();
+
+    const labels = [...container.querySelectorAll(".stat-label")].map((label) => label.textContent?.trim());
+    expect(labels).toContain("Session cost");
+    expect(labels).toContain("Value per hour");
+    expect(labels).not.toContain("API-equivalent estimate");
+    expect(labels).not.toContain("Reported value");
+    const focus = container.querySelector("[data-session-focus]");
+    expect(focus?.textContent).toContain("$29.20");
+    expect(focus?.textContent).toContain("$29.20/hr");
+    expect(container.querySelector(".cost-coverage-note")?.getAttribute("title")).toBe(
+      "Calculated from token counts at public API rates. Not a provider invoice.",
+    );
+  });
+
+  it("keeps a partial Orion App cost as a known subtotal", async () => {
+    sessions.set([{
+      ...liveSession("orion-2", "Orion partial", 80_000, 1_000_000, "Thinking"),
+      provider: "orion",
+      cost_basis: "partial",
+      cost_source: "api_equivalent",
+    } as SessionInfo]);
+    const { container } = render(Dashboard);
+    await tick();
+    const labels = [...container.querySelectorAll(".stat-label")].map((label) => label.textContent?.trim());
+    expect(labels).toContain("Known subtotal");
+    expect(container.querySelector(".cost-coverage-note")?.textContent).toBe("Partial coverage");
+  });
+
   it("keeps at-a-glance metadata to one line and moves coverage to a tooltip", async () => {
     getCostForecast.mockResolvedValueOnce({
       ...forecast,

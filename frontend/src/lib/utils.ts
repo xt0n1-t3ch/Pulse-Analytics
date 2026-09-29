@@ -51,6 +51,40 @@ export function monetaryValueLabel(sources: readonly string[]): string {
   return "Known monetary value";
 }
 
+/** The cost facts that decide how one live session's monetary value is worded. */
+export interface SessionCostFacts {
+  provider?: string;
+  cost_basis?: string;
+  cost_source?: string;
+}
+
+/** Provenance line for a value Pulse calculates instead of reading from a bill. */
+export const CALCULATED_COST_NOTE = "Calculated from token counts at public API rates. Not a provider invoice.";
+
+/** True when Pulse computed the value from token counts and published per-model
+ * rates. This is the one place that decides it, so every provider whose cost is
+ * calculated (Claude, Codex, Orion App) reads the same way. A Codex session from
+ * before `cost_source` existed is calculated by definition. */
+export function isCalculatedCost(session: SessionCostFacts): boolean {
+  const source = session.cost_source?.trim() ?? "";
+  if (!source) return session.provider === "codex";
+  return monetaryValueKind([source]) === "api-equivalent";
+}
+
+/** Heading for a live session's monetary value. A calculated value is the
+ * session's cost; a total the provider reported keeps "Reported value". */
+export function sessionCostTitle(session: SessionCostFacts): string {
+  if (session.cost_basis === "partial") return "Known subtotal";
+  return isCalculatedCost(session) ? "Session cost" : "Reported value";
+}
+
+/** Provenance sentence under a live session's monetary value, or null when the
+ * source states its own provenance (provider-reported totals). */
+export function sessionCostNote(session: SessionCostFacts): string | null {
+  if (session.cost_basis === "partial") return "Partial estimate. Some usage components are not priced.";
+  return isCalculatedCost(session) ? CALCULATED_COST_NOTE : null;
+}
+
 /** Exact-cost renderer shared by every consumer surface. A transport-level
  * zero is not evidence of a measured zero, so unproved values stay neutral. */
 export function fmtExactCost(n: number, available: boolean): string {

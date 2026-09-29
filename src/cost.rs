@@ -68,20 +68,20 @@ const OPUS_5_5_PRICING: ModelPricing = ModelPricing {
     cache_read_per_million: 0.20,
 };
 
-/// Matches Claude Sonnet 5 ids ("claude-sonnet-5", dated and `[1m]`-suffixed
-/// variants) without colliding with a hypothetical future "Sonnet 50" or any
-/// other id that merely starts with the same digits. The character
-/// immediately after "sonnet-5" must be one of the two real Anthropic id
-/// continuations (`-` before a date suffix, `[` before a context suffix) or
-/// the end of the string; anything else is a different model.
+/// Matches exactly Claude Sonnet 5 ids ("claude-sonnet-5" and dated variants)
+/// without absorbing Claude Sonnet 5.5 ("claude-sonnet-5-5"), a hypothetical
+/// "Sonnet 50" or an id such as "claude-sonnet-5x" that merely starts with the
+/// same digits. Expects an id with any `[1m]` context suffix already stripped.
+/// The version parser ignores eight-digit date suffixes, so a dated Sonnet 5 id
+/// still reads as exactly 5.0.
 fn is_sonnet_5_class(id: &str) -> bool {
-    match id.find("sonnet-5") {
-        None => false,
-        Some(pos) => matches!(
-            id[pos + "sonnet-5".len()..].chars().next(),
-            None | Some('-') | Some('[')
-        ),
-    }
+    family_version(id, "sonnet") == Some((5, 0))
+}
+
+/// Matches Claude Sonnet 5.5 ids ("claude-sonnet-5-5" and dated variants).
+/// Expects an id with any `[1m]` context suffix already stripped.
+fn is_sonnet_5_5_class(id: &str) -> bool {
+    family_version(id, "sonnet") == Some((5, 5))
 }
 
 /// Claude Sonnet 5 official API rates: $2 input, $10 output, $2.50 5-minute
@@ -96,11 +96,27 @@ const SONNET_5_PRICING: ModelPricing = ModelPricing {
     cache_read_per_million: 0.20,
 };
 
+/// Claude Sonnet 5.5 official API rates: $2 input, $10 output, $2.50 5-minute
+/// cache write (1.25x) and $0.20 cache read (the standard 0.10x). These match
+/// Sonnet 5. The 1-hour cache write ($4) is not modelled because Claude Code
+/// JSONL does not distinguish the cache TTL. The 1M context window is billed at
+/// the standard rate with no long-context surcharge.
+/// <https://platform.claude.com/docs/en/about-claude/pricing>, verified 2026-09-29.
+const SONNET_5_5_PRICING: ModelPricing = ModelPricing {
+    input_per_million: 2.0,
+    output_per_million: 10.0,
+    cache_write_per_million: 2.50,
+    cache_read_per_million: 0.20,
+};
+
 /// Resolves a model's per-million-token pricing.
 pub fn model_pricing(model_id: &str) -> ModelPricing {
     let id = strip_context_suffix(model_id).to_lowercase();
     if is_sonnet_5_class(&id) {
         return SONNET_5_PRICING;
+    }
+    if is_sonnet_5_5_class(&id) {
+        return SONNET_5_5_PRICING;
     }
     if is_opus_5_5_class(&id) {
         return OPUS_5_5_PRICING;
@@ -243,14 +259,15 @@ pub fn model_display_name(model_id: &str) -> String {
 }
 
 /// Returns true if the model supports the 1M token context window.
-/// Supported: Opus 4.5+, Sonnet 4.6/4.5/4. Not supported: Haiku, legacy Opus, Sonnet 3.x.
+/// Supported: Opus 4.5+, Sonnet 4.6/4.5/4, Sonnet 5 and Sonnet 5.5. Not supported:
+/// Haiku, legacy Opus, Sonnet 3.x.
 /// Also returns true if the model ID contains a `[1m]` suffix (explicit 1M context indicator).
 pub fn supports_1m_context(model_id: &str) -> bool {
     if model_id.contains("[1m]") {
         return true;
     }
     let id = strip_context_suffix(model_id).to_lowercase();
-    if is_mythos_class(&id) || is_sonnet_5_class(&id) {
+    if is_mythos_class(&id) || is_sonnet_5_class(&id) || is_sonnet_5_5_class(&id) {
         return true;
     }
     if id.contains("haiku") {
@@ -294,7 +311,8 @@ pub fn supports_1m_context(model_id: &str) -> bool {
 /// > window at standard pricing."*
 ///
 /// GA models (flat per-token rate at any context length, no 2×/1.5× premium):
-///   • Opus 4.6+ · Opus 4.7 · **Sonnet 4.6**
+///   • Opus 4.6+ · Opus 4.7 · **Sonnet 4.6** · Sonnet 5 · Sonnet 5.5
+///     (Sonnet 5.5 confirmed on the pricing page 2026-09-29)
 ///
 /// Beta models (2× input, 1.5× output, 2× cache when total API input > 200K):
 ///   • Sonnet 4 / 4.5 · Opus 4 / 4.5
@@ -313,7 +331,7 @@ pub fn is_ga_1m_context(model_id: &str) -> bool {
         return true;
     }
     let id = strip_context_suffix(model_id).to_lowercase();
-    if is_mythos_class(&id) || is_sonnet_5_class(&id) {
+    if is_mythos_class(&id) || is_sonnet_5_class(&id) || is_sonnet_5_5_class(&id) {
         return true;
     }
     if id.contains("opus") {
@@ -400,7 +418,8 @@ pub fn calculate_cost_with_context(
 
 /// Returns the model display name with a 1M context indicator when applicable.
 ///
-/// - GA models (Opus 4.6+, Sonnet 4.6+): always shows "(1M)" since 1M is their native context.
+/// - GA models (Opus 4.6+, Sonnet 4.6+, including Sonnet 5 and Sonnet 5.5): always shows "(1M)"
+///   since 1M is their native context.
 /// - Beta models: shows "(1M Context)" only when `max_turn_api_input > 200K` (single turn indicator).
 /// - Unsupported models: no suffix.
 pub fn model_display_with_context(
@@ -431,10 +450,20 @@ pub fn strip_claude_prefix(display_name: &str) -> &str {
 /// tokenizer change versus Sonnet 4.6 (~1.0-1.35x, per Anthropic's Sonnet 5 launch
 /// post). This is a tokenizer property and feeds no cost math.
 ///
+/// Claude Opus 5.5 and Claude Sonnet 5.5 are excluded by product decision
+/// (2026-09-29): no 5.5-generation model carries this flag, and newer families
+/// must not get it by default. Adding a family here needs an explicit,
+/// per-model product decision backed by a published figure.
+///
 /// UI surfaces this as a tooltip/warning so users understand cost deltas vs the
 /// previous generation.
 pub fn has_inflated_tokenizer(model_id: &str) -> bool {
     let id = strip_context_suffix(model_id).to_lowercase();
+    // Sonnet 5.5 is checked before anything else so it can never fall into a
+    // broader Sonnet rule. Only exactly Sonnet 5.0 keeps the flag.
+    if is_sonnet_5_5_class(&id) {
+        return false;
+    }
     if is_sonnet_5_class(&id) {
         return true;
     }
@@ -446,8 +475,8 @@ pub fn has_inflated_tokenizer(model_id: &str) -> bool {
     // publishes no Opus 5 figure, so Pulse reports only what is documented
     // per-model rather than inferring a multiplier. This flag is display-only
     // and feeds no cost math, so the choice cannot skew billing either way.
-    // Claude Opus 5.5 uses the same tokenizer as Opus 5, so it keeps the same
-    // exclusion.
+    // Claude Opus 5.5 is excluded by product decision (see above), whatever
+    // tokenizer it uses.
     if is_opus_5_class(&id) || is_opus_5_5_class(&id) {
         return false;
     }
@@ -456,7 +485,8 @@ pub fn has_inflated_tokenizer(model_id: &str) -> bool {
 
 /// True when the model supports fast mode (priority speed) billing.
 /// Fast mode launched with Opus 4.8 — Opus 4.8+ only (currently Opus 4.8,
-/// Opus 5 and Opus 5.5).
+/// Opus 5 and Opus 5.5). No Sonnet model, including Sonnet 5 and Sonnet 5.5,
+/// supports fast mode.
 pub fn is_fast_capable(model_id: &str) -> bool {
     let id = strip_context_suffix(model_id).to_lowercase();
     if !id.contains("opus") {
@@ -1349,12 +1379,19 @@ mod tests {
 
     #[test]
     fn sonnet_5_lookalike_ids_do_not_get_sonnet_5_rates() {
-        for id in ["claude-sonnet-50", "claude-sonnet-5x"] {
+        for id in [
+            "claude-sonnet-50",
+            "claude-sonnet-5x",
+            "claude-sonnet-5-50",
+            "claude-sonnet-55",
+        ] {
             let p = model_pricing(id);
             assert!(
                 (p.input_per_million - 3.0).abs() < 0.001,
                 "{id} must use flat sonnet pricing, not the Sonnet 5 rate"
             );
+            assert!(!is_sonnet_5_class(id), "{id} is not Sonnet 5");
+            assert!(!is_sonnet_5_5_class(id), "{id} is not Sonnet 5.5");
         }
     }
 
@@ -1645,7 +1682,7 @@ mod tests {
         assert!((fast.total() - standard.total() * 2.0).abs() < 0.000_001);
     }
 
-    /// Opus 5.5 uses Opus 5's tokenizer, so it carries no inflation flag.
+    /// Opus 5.5 carries no inflation flag (product decision, 2026-09-29).
     #[test]
     fn opus_5_5_has_no_inflated_tokenizer_flag() {
         for model in OPUS_5_5_IDS {
@@ -1671,5 +1708,192 @@ mod tests {
     fn opus_4_7_still_not_fast_capable() {
         assert!(!is_fast_capable("claude-opus-4-7"));
         assert!(!is_fast_capable("claude-opus-4-6"));
+    }
+
+    // ---- Claude Sonnet 5.5 --------------------------------------------
+    //
+    // Sonnet 5.5 (API id and alias `claude-sonnet-5-5`, released 2026-09-28)
+    // costs the same as Sonnet 5 but is a distinct model, so it is classified
+    // explicitly instead of matching Sonnet 5 through a shared id prefix. Every
+    // value below is taken literally from
+    // <https://platform.claude.com/docs/en/about-claude/pricing> and
+    // <https://platform.claude.com/docs/en/about-claude/models/overview>
+    // (verified 2026-09-29).
+
+    const SONNET_5_5_IDS: [&str; 4] = [
+        "claude-sonnet-5-5",
+        "claude-sonnet-5-5-20261001",
+        "claude-sonnet-5-5[1m]",
+        "CLAUDE-SONNET-5-5",
+    ];
+
+    /// $2 input, $10 output, $2.50 5-minute cache write and $0.20 cache read.
+    #[test]
+    fn sonnet_5_5_pricing_matches_official_rates() {
+        for model in SONNET_5_5_IDS {
+            let p = model_pricing(model);
+            assert!((p.input_per_million - 2.0).abs() < 0.001, "{model} input");
+            assert!(
+                (p.output_per_million - 10.0).abs() < 0.001,
+                "{model} output"
+            );
+            assert!(
+                (p.cache_write_per_million - 2.50).abs() < 0.001,
+                "{model} cache write"
+            );
+            assert!(
+                (p.cache_read_per_million - 0.20).abs() < 0.001,
+                "{model} cache read"
+            );
+        }
+        assert_eq!(model_pricing("claude-sonnet-5-5"), SONNET_5_5_PRICING);
+    }
+
+    #[test]
+    fn sonnet_5_5_is_not_classified_as_sonnet_5() {
+        assert!(is_sonnet_5_5_class("claude-sonnet-5-5"));
+        assert!(is_sonnet_5_5_class("claude-sonnet-5-5-20261001"));
+        assert!(!is_sonnet_5_class("claude-sonnet-5-5"));
+        assert!(!is_sonnet_5_class("claude-sonnet-5-5-20261001"));
+        assert!(is_sonnet_5_class("claude-sonnet-5"));
+        assert!(is_sonnet_5_class("claude-sonnet-5-20260625"));
+        assert!(!is_sonnet_5_5_class("claude-sonnet-5"));
+        assert!(!is_sonnet_5_5_class("claude-sonnet-5-20260625"));
+        assert!(!is_sonnet_5_5_class("claude-sonnet-4-5"));
+        assert!(!is_sonnet_5_5_class("claude-sonnet-4-6"));
+        assert!(!is_sonnet_5_5_class("claude-opus-5-5"));
+    }
+
+    /// Sonnet 5.5 and Sonnet 5 share a price today. Pin both so a future rate
+    /// change to one cannot silently move the other.
+    #[test]
+    fn sonnet_5_keeps_its_rates_next_to_sonnet_5_5() {
+        assert_eq!(model_pricing("claude-sonnet-5"), SONNET_5_PRICING);
+        assert_eq!(model_pricing("claude-sonnet-5-20260625"), SONNET_5_PRICING);
+        assert_eq!(model_pricing("claude-sonnet-5-5"), SONNET_5_5_PRICING);
+    }
+
+    /// The other families must not drift when Sonnet 5.5 is added.
+    #[test]
+    fn sonnet_5_5_leaves_neighbouring_families_alone() {
+        let opus_5_5 = model_pricing("claude-opus-5-5");
+        assert!((opus_5_5.input_per_million - 4.0).abs() < 0.001);
+        let sonnet_4_6 = model_pricing("claude-sonnet-4-6");
+        assert!((sonnet_4_6.input_per_million - 3.0).abs() < 0.001);
+        assert!((sonnet_4_6.output_per_million - 15.0).abs() < 0.001);
+    }
+
+    /// One million input tokens plus one million output tokens is $2 + $10.
+    #[test]
+    fn sonnet_5_5_turn_cost_arithmetic() {
+        let base = calculate_cost("claude-sonnet-5-5", 1_000_000, 1_000_000, 0, 0);
+        assert!((base - 12.0).abs() < 0.000_001, "{base} != 12");
+
+        let cost = calculate_cost("claude-sonnet-5-5", 100_000, 20_000, 50_000, 1_000_000);
+        // 0.1M x $2 + 0.02M x $10 + 0.05M x $2.50 + 1M x $0.20
+        let expected = 0.20 + 0.20 + 0.125 + 0.20;
+        assert!((cost - expected).abs() < 0.000_001, "{cost} != {expected}");
+    }
+
+    #[test]
+    fn sonnet_5_5_id_variants_price_identically() {
+        let costs: Vec<f64> = SONNET_5_5_IDS
+            .iter()
+            .map(|model| calculate_cost(model, 12_345, 6_789, 4_321, 9_876))
+            .collect();
+        for cost in &costs[1..] {
+            assert!((costs[0] - cost).abs() < 0.000_001);
+        }
+    }
+
+    /// 1M is Sonnet 5.5's window at standard pricing, with no long-context
+    /// surcharge at any size.
+    #[test]
+    fn sonnet_5_5_has_ga_1m_context_without_surcharge() {
+        for model in SONNET_5_5_IDS {
+            assert!(supports_1m_context(model), "{model} supports 1M");
+            assert!(is_ga_1m_context(model), "{model} is GA 1M");
+        }
+        let (input, output, cache_write, cache_read) =
+            (300_000u64, 20_000u64, 50_000u64, 400_000u64);
+        let with_ctx = calculate_cost_with_context(
+            "claude-sonnet-5-5",
+            input,
+            output,
+            cache_write,
+            cache_read,
+        );
+        let plain = calculate_cost("claude-sonnet-5-5", input, output, cache_write, cache_read);
+        assert!((with_ctx - plain).abs() < 0.000_001);
+
+        let breakdown = calculate_category_costs(
+            "claude-sonnet-5-5",
+            input,
+            output,
+            cache_write,
+            cache_read,
+            false,
+        );
+        assert!((breakdown.total() - plain).abs() < 0.000_001);
+    }
+
+    /// Product decision (2026-09-29): 5.5-generation models never carry the
+    /// inflated-tokenizer marker, while Sonnet 5 keeps it.
+    #[test]
+    fn sonnet_5_5_has_no_inflated_tokenizer_flag() {
+        for model in SONNET_5_5_IDS {
+            assert!(!has_inflated_tokenizer(model), "{model}");
+        }
+        for model in OPUS_5_5_IDS {
+            assert!(!has_inflated_tokenizer(model), "{model}");
+        }
+        // Neighbouring behavior stays as it was.
+        assert!(has_inflated_tokenizer("claude-sonnet-5"));
+        assert!(has_inflated_tokenizer("claude-sonnet-5-20260625"));
+        assert!(has_inflated_tokenizer("claude-opus-4-7"));
+        assert!(has_inflated_tokenizer("claude-opus-4-8"));
+        assert!(!has_inflated_tokenizer("claude-opus-5"));
+    }
+
+    /// Fast mode belongs to Opus 4.8+ only. Sonnet 5.5 never bills at 2x, even
+    /// when the transcript says the turn ran at fast speed.
+    #[test]
+    fn sonnet_5_5_is_not_fast_capable() {
+        for model in SONNET_5_5_IDS {
+            assert!(!is_fast_capable(model), "{model}");
+            assert!((speed_multiplier(model, true) - 1.0).abs() < 0.000_001);
+        }
+        let standard = calculate_cost_with_context_and_speed(
+            "claude-sonnet-5-5",
+            1_000_000,
+            1_000_000,
+            0,
+            0,
+            false,
+        );
+        let fast = calculate_cost_with_context_and_speed(
+            "claude-sonnet-5-5",
+            1_000_000,
+            1_000_000,
+            0,
+            0,
+            true,
+        );
+        assert!((standard - 12.0).abs() < 0.000_001);
+        assert!((fast - standard).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn sonnet_5_5_display_names() {
+        for model in SONNET_5_5_IDS {
+            assert_eq!(model_display_name(model), "Claude Sonnet 5.5", "{model}");
+        }
+        assert_eq!(
+            model_display_with_context("claude-sonnet-5-5", "Claude Sonnet 5.5", 0),
+            "Claude Sonnet 5.5 (1M)"
+        );
+        assert_eq!(strip_claude_prefix("Claude Sonnet 5.5"), "Sonnet 5.5");
+        // Sonnet 5 must keep its own label.
+        assert_eq!(model_display_name("claude-sonnet-5"), "Claude Sonnet 5");
     }
 }

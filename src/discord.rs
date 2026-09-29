@@ -1222,6 +1222,24 @@ mod tests {
     }
 
     #[test]
+    fn sonnet_5_5_renders_a_clean_rich_presence_label() {
+        let config = PresenceConfig::default();
+        for (model_id, expected) in [
+            ("claude-sonnet-5-5", "Sonnet 5.5 (1M)"),
+            ("claude-sonnet-5-5-20261001", "Sonnet 5.5 (1M)"),
+            ("claude-sonnet-5", "Sonnet 5 (1M)"),
+        ] {
+            let session = mythos_class_session(model_id);
+            let (_details, state, _tooltip) = presence_lines(&session, None, None, &config);
+            assert!(state.contains(expected), "{model_id}: {state}");
+            assert!(!state.contains("(claude-"), "{model_id}: {state}");
+        }
+        let session = mythos_class_session("claude-sonnet-5-5");
+        let (_details, state, _tooltip) = presence_lines(&session, None, None, &config);
+        assert!(!state.contains("Sonnet 5 (1M)"), "{state}");
+    }
+
+    #[test]
     fn branch_toggle_and_systems_toggle_control_claude_presence_lines() {
         let mut session = mythos_class_session("claude-opus-4-8");
         session.project_name = "PropertyAlpha-Agent".to_string();

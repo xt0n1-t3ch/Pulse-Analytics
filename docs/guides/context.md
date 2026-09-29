@@ -29,7 +29,7 @@ Codex has distinct configuration keys for context capacity and automatic compact
 
 ## Claude Code
 
-The [Claude model guide](../models/claude.md#claude-code-capacity) separates native API capacity, Claude Code availability and compaction thresholds. The Sonnet 5 default of about 967K is not a reserve rule for every Claude model.
+The [Claude model guide](../models/claude.md#claude-code-capacity) separates native API capacity, Claude Code availability and compaction thresholds. The Sonnet 5.5 and Sonnet 5 default of about 967K is not a reserve rule for every Claude model. Both Sonnet versions always run with a 1M window on the direct Anthropic route, so Pulse selects 1,000,000 for them without a `[1m]` suffix.
 
 The [JSONL parser](../../src/session.rs) maintains two fields:
 

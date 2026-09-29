@@ -59,10 +59,11 @@ Pulse v1.9.6 is available for Windows, macOS and Linux, on both x64 and ARM64.
 
 <h3 id="new-in-v196">New in v1.9.6</h3>
 
-- **Orion App support.** Pulse now tracks [Orion App](docs/guides/orion.md) sessions from Orion's local session store. See the model and reasoning level, the live tool activity, tokens, context fill and subagents, with an API-equivalent cost estimate when the model has a public rate.
-- **Orion App on Discord.** Orion App broadcasts under its own name and artwork, including a plain Idle presence when no session is active. Reasoning levels read Low, Medium, High, Extra High and Max.
+- **Orion App support.** Pulse now tracks [Orion App](docs/guides/orion.md) sessions from Orion's local session store. See the model and reasoning level, the live tool activity, tokens, context fill and subagents, and the session cost with its input, output and cache breakdown.
+- **Orion App on Discord.** Orion App broadcasts under its own name and artwork, showing only the subagents still working, and "Idling..." with an idle timer when no session is active. Reasoning levels read Low, Medium, High, Extra High and Max.
+- **Claude Sonnet 5.5.** Sessions on Anthropic's new Sonnet are recognized, named and priced at the official $2/$10 rates with the full 1M context.
 
-See the [1.9.6 changelog](CHANGELOG.md#196---2026-09-27).
+See the [1.9.6 changelog](CHANGELOG.md#196---2026-09-29).
 
 <h3 id="new-in-v195">New in v1.9.5</h3>
 - **Your current Claude plan.** After you upgrade or downgrade, Pulse shows the new plan, for example Max 20x instead of Max 5x. It now reads the plan Claude Code keeps with your account profile, which Claude Code updates, rather than the one saved when you last logged in.
@@ -218,7 +219,7 @@ Pulse reads Command Code CLI and Desktop sessions through one collector, with th
 <details>
 <summary id="orion-app">Orion App</summary>
 
-Pulse reads the Orion App session store read-only. It shows the model and reasoning level, the live tool activity, tokens, context fill and subagents. Orion records no billed amount, so costs are API-equivalent estimates for models with a known public rate. Read the [Orion App guide](docs/guides/orion.md).
+Pulse reads the Orion App session store read-only. It shows the model and reasoning level, the live tool activity, tokens, context fill and subagents. Orion records no billed amount, so Pulse calculates session cost from exact token counts at published per-model rates, with the same per-category breakdown as Claude Code, and leaves it unavailable for a model with no known rate. Read the [Orion App guide](docs/guides/orion.md).
 
 </details>
 

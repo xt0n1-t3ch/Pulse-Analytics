@@ -4,13 +4,23 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
-## [1.9.6] - 2026-09-27
+## [1.9.6] - 2026-09-29
 
-Orion App provider release. The database remains schema 7, Claude config schema 6 and Codex presence config schema 13 are unchanged, and the immutable shared core stays at 2.0.1. Orion App settings live in the new `pulse-orion.json`; no existing file changes format. Rollback to 1.9.5 needs only its package: Orion sessions already saved stay in the database and 1.9.5 does not show them. GitHub macOS packages have no Apple Developer ID signature or notarization.
+Orion App provider and Claude Sonnet 5.5 release. The database remains schema 7, Claude config schema 6 and Codex presence config schema 13 are unchanged, and the immutable shared core stays at 2.0.1. Orion App settings live in the new `pulse-orion.json`; no existing file changes format. Rollback to 1.9.5 needs only its package: Orion sessions already saved stay in the database and 1.9.5 does not show them. GitHub macOS packages have no Apple Developer ID signature or notarization.
 
 ### Added
 
-- Add Orion App as a fifth provider. Pulse reads Orion's local session store (`~/.orion/cli/db/db.sqlite`) read-only, rolls subagent sessions into their parent, and shows model, reasoning level, live tool activity, tokens, context fill and subagent count. Cost is an API-equivalent estimate for models with a known public rate and stays unavailable otherwise, because Orion records no billed amount. Orion App publishes to Discord under its own application and artwork, including a plain Idle presence. Reasoning levels display as Low, Medium, High, Extra High and Max; Orion's `default` level is not shown as a level. No database schema change.
+- Add Orion App as a fifth provider. Pulse reads Orion's local session store (`~/.orion/cli/db/db.sqlite`) read-only, rolls subagent sessions into their parent, and shows model, reasoning level, live tool activity, tokens, context fill and subagent count. Orion records no billed amount, so Pulse prices every request from its exact token counts at the published per-model rate and shows the same cost detail as Claude Code: a Session cost headline, input, output, cache write and cache read costs, value per hour and measured output speed. The cost is partial when a model in the session has no known rate and unavailable when none has one. Session history, the Costs view, forecasts, reports and the Discord cost field use the same per-category costs. Orion App publishes to Discord under its own application and artwork. When idle it shows "Idling..." with a timer counting idle time since the last Orion activity (the Pulse preview reads "Idling for 12m"). Live cards and Discord count only subagents that are still working, so finished subagents never linger; history keeps the total started. Reasoning levels display as Low, Medium, High, Extra High and Max; Orion's `default` level is not shown as a level. No database schema change.
+- Support Claude Sonnet 5.5 (`claude-sonnet-5-5`, released 2026-09-28). Pulse prices it at the official $2 input, $10 output, $2.50 cache write and $0.20 cache read per million tokens, treats its 1M context as standard-priced, labels it "Claude Sonnet 5.5 (1M)" and "Sonnet 5.5" on Discord, and never applies Fast-mode rates to it. Dated and `[1m]` ids resolve to the same model; `claude-sonnet-5-5` no longer falls into the Sonnet 5 rules.
+
+### Changed
+
+- Claude Opus 5.5 and Claude Sonnet 5.5 no longer show the inflated-tokenizer marker. The marker stays on Sonnet 5 and Opus 4.7/4.8.
+- Label every calculated session cost (Claude, Codex and Orion App) as "Session cost" with the note "Calculated from token counts at public API rates. Not a provider invoice." Provider-reported totals keep "Reported value".
+
+### Fixed
+
+- Read the Orion App project name from Windows paths on Linux and macOS as well. The Linux release preflight failed on this.
 
 ### Documentation
 

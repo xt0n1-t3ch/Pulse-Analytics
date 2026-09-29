@@ -1985,6 +1985,7 @@ mod tests {
         assert!(!model_label_is_fast_capable("Claude Opus 4.7"));
         assert!(!model_label_is_fast_capable("Claude Opus 4.6"));
         assert!(!model_label_is_fast_capable("Claude Sonnet 5"));
+        assert!(!model_label_is_fast_capable("Claude Sonnet 5.5"));
         assert!(!model_label_is_fast_capable("Claude Fable 5"));
     }
 }

@@ -434,7 +434,7 @@
   {#if $provider === "orion"}
     <section class="s-card" aria-label="Orion App connection status">
       <header class="s-card-head"><div class="head-text"><h3 class="s-card-title">Orion App local sessions</h3>
-        <p class="s-card-desc">Pulse reads the Orion App session store read-only. Costs are API-equivalent estimates for models with a known public rate.</p></div></header>
+        <p class="s-card-desc">Pulse reads the Orion App session store read-only. Session cost is calculated from exact token counts at published per-model API rates, the same way as Claude Code, and stays unavailable for a model with no known rate.</p></div></header>
       <div class="s-rows"><div class="s-row"><span class="s-label">Configuration</span><span class="s-desc">~/.pulse-analytics/pulse-orion.json · data_roots accepts additional Orion data folders.</span></div>
       {#each $orionDiagnostics as diagnostic}<p class="settings-error" role="status">{diagnostic}</p>{/each}
       {#if $orionDiagnostics.length === 0}<p class="s-row">No Orion App reader errors reported.</p>{/if}</div>

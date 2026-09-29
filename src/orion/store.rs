@@ -1,5 +1,6 @@
 use super::{Config, Session, Usage};
 use anyhow::{Context, Result};
+use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -11,6 +12,8 @@ use std::time::{Duration, Instant};
 const BATCH_SIZE: usize = 16;
 /// Live window: sessions touched in the last ten minutes are hydrated on every poll.
 const LIVE_WINDOW_MS: i64 = 600_000;
+/// A subagent that has not written anything for this long is no longer running.
+const RUNNING_WINDOW_MS: i64 = 120_000;
 const MAX_JSON_BYTES: usize = 1024 * 1024;
 const CONTEXT_REFRESH: Duration = Duration::from_secs(60);
 
@@ -28,6 +31,8 @@ pub struct Collector {
 pub struct Batch {
     pub changed: Vec<Session>,
     pub live: Vec<Session>,
+    /// Latest change to any Orion session, for the idle timer.
+    pub last_activity: Option<i64>,
     pub diagnostics: Vec<String>,
     cursors: HashMap<PathBuf, (i64, String)>,
 }
@@ -49,8 +54,9 @@ impl Collector {
             let contexts = self.context_windows(&root);
             let cursor = self.cursors.get(&path).cloned().unwrap_or_default();
             match read_database(&path, &root, &cursor, now, &contexts, &mut self.hydrated) {
-                Ok((changed, live, next)) => {
+                Ok((changed, live, next, last_activity)) => {
                     batch.cursors.insert(path.clone(), next);
+                    batch.last_activity = batch.last_activity.max(last_activity);
                     for session in changed {
                         if seen.insert(session.id.clone()) {
                             batch.changed.push(session);
@@ -116,7 +122,7 @@ fn read_context_windows(path: &Path) -> ContextWindows {
     map
 }
 
-type ReadResult = (Vec<Session>, Vec<Session>, (i64, String));
+type ReadResult = (Vec<Session>, Vec<Session>, (i64, String), Option<i64>);
 
 fn read_database(
     path: &Path,
@@ -134,11 +140,12 @@ fn read_database(
     let base = "SELECT id, directory, title, time_created, time_updated FROM session \
                 WHERE parent_id IS NULL AND task_type = 'interactive' AND time_archived IS NULL";
     let read_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<Session> {
-        let directory = PathBuf::from(row.get::<_, String>(1)?);
-        let project = directory
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| super::NAME.to_string());
+        let raw_directory = row.get::<_, String>(1)?;
+        // Orion stores the path of the machine that wrote it, which may be a
+        // Windows path read on Linux or macOS; `PathBuf::file_name` would not
+        // split it.
+        let project = super::project_name(&raw_directory);
+        let directory = PathBuf::from(raw_directory);
         Ok(Session {
             id: row.get(0)?,
             root: root.to_path_buf(),
@@ -173,11 +180,15 @@ fn read_database(
     hydrated.retain(|_, session| session.is_recent(now));
     for session in changed.iter_mut().chain(live.iter_mut()) {
         let key = (path.to_path_buf(), session.id.clone());
-        if let Some(previous) = hydrated
-            .get(&key)
-            .filter(|previous| previous.updated == session.updated)
-        {
+        // Subagents write to their own rows, so the parent row can stay
+        // unchanged while they work: the whole tree decides freshness.
+        session.tree_updated = tree_updated(&connection, &session.id)?.max(session.updated);
+        if let Some(previous) = hydrated.get(&key).filter(|previous| {
+            previous.updated == session.updated && previous.tree_updated == session.tree_updated
+        }) {
             *session = previous.clone();
+            session.running_subagents = running_subagents(&connection, &session.id, now)
+                .with_context(|| format!("Orion session {}", session.id))?;
             continue;
         }
         hydrate(&connection, session, contexts, now)
@@ -186,7 +197,15 @@ fn read_database(
             hydrated.insert(key, session.clone());
         }
     }
-    Ok((changed, live, next))
+    let last_activity: Option<i64> = connection
+        .prepare_cached("SELECT MAX(time_updated) FROM session WHERE time_archived IS NULL")?
+        .query_row([], |row| row.get(0))?;
+    Ok((
+        changed,
+        live,
+        next,
+        last_activity.filter(|value| *value > 0 && *value <= now + 60_000),
+    ))
 }
 
 fn hydrate(
@@ -196,58 +215,47 @@ fn hydrate(
     now: i64,
 ) -> Result<()> {
     // Tokens and cost roll up the root session and its subagent children, the
-    // same way Orion's own task usage totals them.
+    // same way Orion's own task usage totals them. Each assistant message is
+    // one model request, so it is priced on its own: long-context and
+    // fast-mode rates depend on the request, not on the session total.
     let mut stmt = connection.prepare_cached(
         "SELECT json_extract(m.data, '$.modelId'), \
-                COALESCE(SUM(json_extract(m.data, '$.tokens.input')), 0), \
-                COALESCE(SUM(json_extract(m.data, '$.tokens.output')), 0), \
-                COALESCE(SUM(json_extract(m.data, '$.tokens.reasoning')), 0), \
-                COALESCE(SUM(json_extract(m.data, '$.tokens.cache.read')), 0), \
-                COALESCE(SUM(json_extract(m.data, '$.tokens.cache.write')), 0), \
-                COUNT(*) \
+                json_extract(m.data, '$.tokens.input'), \
+                json_extract(m.data, '$.tokens.output'), \
+                json_extract(m.data, '$.tokens.reasoning'), \
+                json_extract(m.data, '$.tokens.cache.read'), \
+                json_extract(m.data, '$.tokens.cache.write') \
          FROM message m \
          WHERE m.session_id IN (SELECT id FROM session WHERE id = ?1 OR parent_id = ?1) \
-           AND json_extract(m.data, '$.role') = 'assistant' \
-         GROUP BY 1",
+           AND json_extract(m.data, '$.role') = 'assistant'",
     )?;
-    let groups = stmt.query_map([&session.id], |row| {
+    let requests = stmt.query_map([&session.id], |row| {
         Ok((
             row.get::<_, Option<String>>(0)?.unwrap_or_default(),
             Usage {
-                input: row.get::<_, i64>(1)?.max(0) as u64,
-                output: row.get::<_, i64>(2)?.max(0) as u64,
-                reasoning: row.get::<_, i64>(3)?.max(0) as u64,
-                cache_read: row.get::<_, i64>(4)?.max(0) as u64,
-                cache_write: row.get::<_, i64>(5)?.max(0) as u64,
+                input: count(row, 1)?,
+                output: count(row, 2)?,
+                reasoning: count(row, 3)?,
+                cache_read: count(row, 4)?,
+                cache_write: count(row, 5)?,
             },
-            row.get::<_, i64>(6)?.max(0) as u64,
         ))
     })?;
-    let mut cost = Some(0.0);
-    let mut complete = true;
-    for group in groups {
-        let (model, usage, count) = group?;
-        session.messages = session.messages.saturating_add(count);
+    let mut ledger = super::CostLedger::default();
+    for request in requests {
+        let (model, usage) = request?;
+        session.messages = session.messages.saturating_add(1);
         session.usage.add(&usage);
-        if usage.total() == 0 {
-            continue;
-        }
-        match super::estimate_cost(&model, &usage) {
-            Some((value, exact)) => {
-                cost = cost.map(|sum| sum + value);
-                complete &= exact;
-            }
-            None => complete = false,
-        }
+        ledger.add(&model, &usage);
     }
-    let priced = cost.filter(|value| value.is_finite() && *value > 0.0);
-    session.known_cost = priced;
-    session.cost_complete = priced.is_some() && complete;
+    session.apply_cost(ledger.finish());
+    session.output_tokens_per_sec = output_speed(connection, &session.id);
 
     session.subagent_count = connection
         .prepare_cached("SELECT COUNT(*) FROM session WHERE parent_id = ?1")?
         .query_row([&session.id], |row| row.get::<_, i64>(0))?
         .max(0) as usize;
+    session.running_subagents = running_subagents(connection, &session.id, now)?;
 
     let selection: Option<String> = connection
         .prepare_cached(
@@ -296,6 +304,11 @@ fn hydrate(
         .into();
     } else {
         session.activity = "Idle".into();
+    }
+    if session.running_subagents > 0
+        && matches!(session.activity.as_str(), "Waiting for input" | "Idle")
+    {
+        session.activity = "Delegating".into();
     }
 
     // Current fill: the latest assistant message with reported tokens.
@@ -351,6 +364,66 @@ fn hydrate(
     }
     session.model_name = super::display_model_name(&session.model);
     Ok(())
+}
+
+/// Latest change anywhere in a root session and its subagents.
+fn tree_updated(connection: &Connection, session_id: &str) -> Result<i64> {
+    Ok(connection
+        .prepare_cached(
+            "SELECT COALESCE(MAX(time_updated), 0) FROM session WHERE id = ?1 OR parent_id = ?1",
+        )?
+        .query_row([session_id], |row| row.get(0))?)
+}
+
+/// Subagents that are still working. A child counts while its latest assistant
+/// message is streaming or ended on tool calls, and only while it changed in the
+/// last two minutes, so a crashed child never stays "running". A child whose
+/// latest message finished with any other reason is done.
+fn running_subagents(connection: &Connection, session_id: &str, now: i64) -> Result<usize> {
+    let count: i64 = connection
+        .prepare_cached(
+            "SELECT COUNT(*) FROM session s WHERE s.parent_id = ?1 AND s.time_updated >= ?2 \
+               AND s.time_archived IS NULL \
+               AND COALESCE((SELECT json_extract(m.data, '$.time.completed') IS NULL \
+                                    OR json_extract(m.data, '$.finish') = 'tool-calls' \
+                             FROM message m WHERE m.session_id = s.id \
+                               AND json_extract(m.data, '$.role') = 'assistant' \
+                             ORDER BY m.time_created DESC, m.id DESC LIMIT 1), 1)",
+        )?
+        .query_row(params![session_id, now - RUNNING_WINDOW_MS], |row| {
+            row.get(0)
+        })?;
+    Ok(count.max(0) as usize)
+}
+
+/// A token count from a JSON number column. Missing, negative or non-numeric
+/// values count as zero.
+fn count(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<u64> {
+    Ok(match row.get_ref(index)? {
+        ValueRef::Integer(value) => value.max(0) as u64,
+        ValueRef::Real(value) if value.is_finite() => value.max(0.0) as u64,
+        _ => 0,
+    })
+}
+
+/// Output tokens per second over the requests that streamed, from Orion's
+/// per-request timings (`model_usage`). Both sums use the same requests, so the
+/// rate is generated tokens divided by time spent generating them, the same
+/// meaning Claude's output speed has. Older stores without the table, and
+/// sessions without a timed request, report no speed.
+fn output_speed(connection: &Connection, session_id: &str) -> Option<f64> {
+    let (tokens, millis): (i64, i64) = connection
+        .prepare_cached(
+            "SELECT COALESCE(SUM(output_tokens), 0), COALESCE(SUM(completed_at - first_token_at), 0) \
+             FROM model_usage \
+             WHERE session_id IN (SELECT id FROM session WHERE id = ?1 OR parent_id = ?1) \
+               AND status = 'completed' AND output_tokens > 0 \
+               AND first_token_at IS NOT NULL AND completed_at > first_token_at",
+        )
+        .ok()?
+        .query_row([session_id], |row| Ok((row.get(0)?, row.get(1)?)))
+        .ok()?;
+    super::output_speed(tokens.max(0) as u64, millis.max(0) as u64)
 }
 
 fn tool_activity(tool: &str) -> &'static str {
@@ -497,12 +570,182 @@ mod tests {
         assert_eq!(live.activity_target.as_deref(), Some("main.rs"));
         assert_eq!(live.context_used, Some(1100));
         assert_eq!(live.context_window, Some(1_000_000));
-        assert!(live.known_cost.is_some_and(|cost| cost > 0.0));
+        // Opus 5.5 over 600 fresh input, 150 output, 100 cache write and 800
+        // cache read tokens: $4 / $20 / $5 / $0.20 per million.
+        let parts = live.cost_parts;
+        assert!((parts.input - 0.0024).abs() < 1e-12, "{parts:?}");
+        assert!((parts.output - 0.003).abs() < 1e-12, "{parts:?}");
+        assert!((parts.cache_write - 0.0005).abs() < 1e-12, "{parts:?}");
+        assert!((parts.cache_read - 0.00016).abs() < 1e-12, "{parts:?}");
+        assert!((live.known_cost.unwrap() - 0.00606).abs() < 1e-12);
+        assert!((parts.total() - live.known_cost.unwrap()).abs() < 1e-12);
+        assert!(live.cost_complete);
+        assert_eq!(live.output_tokens_per_sec, None, "no model_usage table");
         assert!(live.is_active(now));
         assert!(super::super::preferred_session(&batch.live).is_some());
 
+        // The child's latest message finished with "stop": it is done.
+        assert_eq!(live.running_subagents, 0);
+        assert_eq!(batch.last_activity, Some(now));
+
         collector.acknowledge(&batch);
         assert!(collector.poll(&config).changed.is_empty());
+
+        // A new child starts streaming while the root row stays unchanged: the
+        // cached root still reports it live, then stops counting it once done.
+        let connection = Connection::open(&path).unwrap();
+        let later = now + 1;
+        connection
+            .execute(
+                "INSERT INTO session VALUES ('child2', 'p', 'root', 'x', 'Child 2', ?1, ?1, NULL, 'subagent_child')",
+                params![later],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO message VALUES ('m4', 'child2', ?1, ?1, ?2)",
+                params![later, assistant(model, 10, 1, 0, 0, false)],
+            )
+            .unwrap();
+        let running = collector.poll(&config);
+        assert_eq!(
+            running.live[0].running_subagents, 1,
+            "streaming child is live"
+        );
+        assert_eq!(running.live[0].subagent_count, 2);
+        connection
+            .execute(
+                "UPDATE message SET data = ?1 WHERE id = 'm4'",
+                params![assistant(model, 10, 1, 0, 0, true)],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE session SET time_updated = ?1 WHERE id = 'child2'",
+                params![later + 1],
+            )
+            .unwrap();
+        let finished = collector.poll(&config);
+        assert_eq!(
+            finished.live[0].running_subagents, 0,
+            "finished child never lingers"
+        );
+        assert_eq!(
+            finished.live[0].subagent_count, 2,
+            "history keeps the total"
+        );
+    }
+
+    /// A live root session whose assistant messages use the given models.
+    fn priced_session(models: &[&str]) -> (tempfile::TempDir, PathBuf, i64) {
+        let (dir, path) = fixture();
+        let now = chrono::Utc::now().timestamp_millis();
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute(
+                "INSERT INTO session VALUES ('root', 'p', NULL, '/home/dev/pulse', 'T', ?1, ?2, NULL, 'interactive')",
+                params![now - 60_000, now],
+            )
+            .unwrap();
+        for (index, model) in models.iter().enumerate() {
+            connection
+                .execute(
+                    "INSERT INTO message VALUES (?1, 'root', ?2, ?2, ?3)",
+                    params![
+                        format!("m{index}"),
+                        now - 10_000 + index as i64,
+                        assistant(model, 1_000_000, 1_000_000, 0, 0, true)
+                    ],
+                )
+                .unwrap();
+        }
+        (dir, path, now)
+    }
+
+    fn poll_live(dir: &tempfile::TempDir) -> Session {
+        let config = Config {
+            data_roots: vec![dir.path().to_path_buf()],
+            ..Default::default()
+        };
+        let batch = Collector::default().poll(&config);
+        assert!(batch.diagnostics.is_empty(), "{:?}", batch.diagnostics);
+        batch.live.into_iter().next().expect("live session")
+    }
+
+    #[test]
+    fn mixed_priced_and_unpriced_models_report_a_lower_bound() {
+        let (dir, _, _) =
+            priced_session(&["anthropic/claude-opus-5-5", "opencode-go/unknown-model-x"]);
+        let session = poll_live(&dir);
+        // Only Opus 5.5 is priced: 1M input + 1M output = $4 + $20.
+        assert!((session.known_cost.unwrap() - 24.0).abs() < 1e-9);
+        assert!(!session.cost_complete, "an unpriced model makes it partial");
+        assert!((session.cost_parts.total() - 24.0).abs() < 1e-9);
+        assert_eq!(session.project, "pulse");
+    }
+
+    #[test]
+    fn a_session_with_no_priced_model_has_no_cost_instead_of_zero() {
+        let (dir, _, _) = priced_session(&["opencode-go/unknown-model-x"]);
+        let session = poll_live(&dir);
+        assert_eq!(session.known_cost, None);
+        assert!(!session.cost_complete);
+        assert_eq!(session.cost_parts, super::super::CostParts::default());
+        assert_eq!(session.usage.total(), 2_000_000, "tokens are still counted");
+    }
+
+    #[test]
+    fn output_speed_uses_completed_timed_requests_of_the_session_and_its_children() {
+        let (dir, path, now) = priced_session(&["anthropic/claude-opus-5-5"]);
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute(
+                "INSERT INTO session VALUES ('child', 'p', 'root', '/home/dev/pulse', 'C', ?1, ?1, NULL, 'subagent_child')",
+                params![now - 30_000],
+            )
+            .unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE model_usage (id text primary key, session_id text not null, \
+                   status text, first_token_at integer, completed_at integer, output_tokens integer);",
+            )
+            .unwrap();
+        for (id, session, status, first, done, output) in [
+            // 300 tokens in 2 s and 100 tokens in 2 s: 400 tokens over 4 s.
+            ("u1", "root", "completed", Some(1_000), 3_000, 300),
+            ("u2", "child", "completed", Some(10_000), 12_000, 100),
+            // Not streamed, cancelled, or no output: excluded.
+            ("u3", "root", "completed", None, 9_000, 5_000),
+            ("u4", "root", "cancelled", Some(1_000), 9_000, 5_000),
+            ("u5", "root", "completed", Some(1_000), 9_000, 0),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO model_usage VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![id, session, status, first, done, output],
+                )
+                .unwrap();
+        }
+        drop(connection);
+        let session = poll_live(&dir);
+        assert!((session.output_tokens_per_sec.unwrap() - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn project_name_reads_windows_directories_on_any_platform() {
+        let (dir, path, now) = priced_session(&["anthropic/claude-opus-5-5"]);
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute(
+                "UPDATE session SET directory = ?1 WHERE id = 'root'",
+                params!["C:\\Users\\dev\\repos\\pulse\\"],
+            )
+            .unwrap();
+        connection
+            .execute("UPDATE session SET time_updated = ?1", params![now])
+            .unwrap();
+        drop(connection);
+        assert_eq!(poll_live(&dir).project, "pulse");
     }
 
     #[test]
@@ -524,8 +767,10 @@ mod tests {
             batch.diagnostics
         );
         for session in again.live.iter().take(3) {
+            let parts = session.cost_parts;
             println!(
-                "{} project={} model={} activity={} tokens={} ctx={:?}/{:?} cost={:?} complete={} subagents={}",
+                "{} project={} model={} activity={} tokens={} ctx={:?}/{:?} cost={:?} complete={} \
+                 parts=in:{:.4}/out:{:.4}/cw:{:.4}/cr:{:.4} speed={:?} subagents={}",
                 session.id,
                 session.project,
                 session.model_label(),
@@ -535,6 +780,11 @@ mod tests {
                 session.context_window,
                 session.known_cost,
                 session.cost_complete,
+                parts.input,
+                parts.output,
+                parts.cache_write,
+                parts.cache_read,
+                session.output_tokens_per_sec,
                 session.subagent_count
             );
         }

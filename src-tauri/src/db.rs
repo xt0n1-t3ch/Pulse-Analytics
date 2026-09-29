@@ -662,7 +662,11 @@ fn estimate_api_equivalent_cost_with_speed(
     cache_read_tokens: i64,
     speed: &str,
 ) -> Option<EstimatedCost> {
-    if provider.eq_ignore_ascii_case("opencode") {
+    // OpenCode reports its own cost. Orion prices every request when it reads
+    // the session store, so a stored row without a cost means no model in it has
+    // a published rate. Pricing the totals here would send an unknown model id
+    // through the default Claude tier and invent a rate.
+    if provider.eq_ignore_ascii_case("opencode") || provider.eq_ignore_ascii_case("orion") {
         return None;
     }
     let model_id = model_id.trim();
@@ -3058,6 +3062,184 @@ mod tests {
         .expect("fast cost");
 
         assert!((fast.total - standard.total * 2.0).abs() < 0.001);
+    }
+
+    /// An Orion session priced by the core ledger, as the poller would persist it.
+    fn orion_info(id: &str, models: &[&str]) -> super::super::commands::SessionInfo {
+        use cc_discord_presence::orion::{CostLedger, Session, Usage};
+        let usage = Usage {
+            input: 3_000_000,
+            output: 1_000_000,
+            cache_read: 1_000_000,
+            cache_write: 1_000_000,
+            ..Default::default()
+        };
+        let mut ledger = CostLedger::default();
+        let mut session = Session {
+            id: id.into(),
+            project: "pulse".into(),
+            model: models[0].into(),
+            model_name: "Claude Opus 5.5".into(),
+            created: Utc::now().timestamp_millis() - 3_600_000,
+            updated: Utc::now().timestamp_millis(),
+            ..Default::default()
+        };
+        for model in models {
+            ledger.add(model, &usage);
+            session.usage.add(&usage);
+        }
+        session.apply_cost(ledger.finish());
+        crate::orion::session_info(&session)
+    }
+
+    fn orion_rows(conn: &Connection) -> Vec<HistoricalSession> {
+        query_sessions(
+            conn, "orion", None, None, None, None, None, None, None, None, None, None,
+        )
+    }
+
+    #[test]
+    fn orion_history_carries_category_costs_and_reads_back_as_a_calculated_estimate() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        init_schema(&conn).expect("schema");
+        let info = orion_info("priced", &["anthropic/claude-opus-5-5"]);
+        upsert_session_into(&conn, &info, &Utc::now().to_rfc3339()).expect("persist");
+
+        let rows = orion_rows(&conn);
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.provider, "orion");
+        assert_eq!(row.cost_basis, CostBasis::Estimated);
+        assert_eq!(row.cost_source, "api_equivalent");
+        assert_eq!(
+            monetary_provenance(&row.cost_source),
+            MonetaryProvenance::ApiEquivalent
+        );
+        // Opus 5.5: $4 input, $20 output, $5 cache write, $0.20 cache read per 1M.
+        for (actual, expected) in [
+            (row.input_cost, 4.0),
+            (row.output_cost, 20.0),
+            (row.cache_write_cost, 5.0),
+            (row.cache_read_cost, 0.20),
+            (row.known_cost.unwrap(), 29.20),
+        ] {
+            assert!((actual - expected).abs() < 1e-9, "{actual} != {expected}");
+        }
+        assert_eq!(row.total_tokens, 4_000_000);
+
+        // The Costs view aggregate reads the same columns.
+        let totals = super::super::commands::aggregate_cost_totals(30, &rows);
+        assert_eq!(totals.cost_basis, CostBasis::Estimated);
+        assert_eq!(totals.priced_sessions, 1);
+        assert!((totals.input_cost - 4.0).abs() < 1e-9);
+        assert!((totals.cache_read_cost - 0.20).abs() < 1e-9);
+        assert!((totals.api_equivalent_usd.unwrap() - 29.20).abs() < 1e-9);
+        assert_eq!(totals.billed_spend_usd, None, "never presented as billed");
+
+        // The month-to-date forecast prices the same row once.
+        let forecast = cost_forecast_from_connection(&conn, "orion", Utc::now());
+        assert!((forecast.api_equivalent_usd.unwrap() - 29.20).abs() < 1e-9);
+        assert_eq!(forecast.api_equivalent_sessions, 1);
+        assert_eq!(forecast.billed_spend_usd, None);
+    }
+
+    #[test]
+    fn orion_reingestion_replaces_a_legacy_row_without_double_counting() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        init_schema(&conn).expect("schema");
+        // Rows written before per-category costs carried a total and no split.
+        let mut legacy = orion_info("upgrade", &["anthropic/claude-opus-5-5"]);
+        legacy.input_cost = 0.0;
+        legacy.output_cost = 0.0;
+        legacy.cache_write_cost = 0.0;
+        legacy.cache_read_cost = 0.0;
+        legacy.tokens_per_sec = 0.0;
+        upsert_session_into(&conn, &legacy, &Utc::now().to_rfc3339()).expect("legacy row");
+        assert_eq!(orion_rows(&conn)[0].output_cost, 0.0);
+
+        // The collector re-reads history on every start and upserts by id.
+        let current = orion_info("upgrade", &["anthropic/claude-opus-5-5"]);
+        upsert_session_into(&conn, &current, &Utc::now().to_rfc3339()).expect("re-ingest");
+        let rows = orion_rows(&conn);
+        assert_eq!(rows.len(), 1, "same session, same row");
+        assert!((rows[0].output_cost - 20.0).abs() < 1e-9);
+        assert!((rows[0].known_cost.unwrap() - 29.20).abs() < 1e-9);
+        let totals = super::super::commands::aggregate_cost_totals(30, &rows);
+        assert!((totals.total_cost - 29.20).abs() < 1e-9);
+    }
+
+    #[test]
+    fn orion_partial_and_unavailable_costs_are_never_filled_in_on_read() {
+        let conn = Connection::open_in_memory().expect("in-memory sqlite");
+        init_schema(&conn).expect("schema");
+        let now = Utc::now().to_rfc3339();
+        // One priced and one unpriced model: a lower bound with its categories.
+        let partial = orion_info(
+            "partial",
+            &["anthropic/claude-opus-5-5", "opencode-go/unknown-model-x"],
+        );
+        assert_eq!(partial.cost_basis, "partial");
+        upsert_session_into(&conn, &partial, &now).expect("partial row");
+        // No priced model: unavailable, with real token counts.
+        let unavailable = orion_info("unavailable", &["opencode-go/unknown-model-x"]);
+        assert_eq!(unavailable.cost_basis, "unavailable");
+        upsert_session_into(&conn, &unavailable, &now).expect("unavailable row");
+
+        let rows = orion_rows(&conn);
+        let by_id = |id: &str| {
+            rows.iter()
+                .find(|row| row.id == format!("orion:{id}"))
+                .unwrap_or_else(|| panic!("row {id}"))
+        };
+        let partial = by_id("partial");
+        assert_eq!(partial.cost_basis, CostBasis::Partial);
+        assert!((partial.known_cost.unwrap() - 29.20).abs() < 1e-9);
+        assert!((partial.input_cost - 4.0).abs() < 1e-9);
+
+        // The read-time estimator must not send an unknown model id through the
+        // default Claude tier and invent a rate.
+        let unavailable = by_id("unavailable");
+        assert_eq!(unavailable.cost_basis, CostBasis::Unavailable);
+        assert_eq!(unavailable.known_cost, None);
+        assert_eq!(unavailable.total_tokens, 4_000_000);
+        assert_eq!(unavailable.output_cost, 0.0);
+
+        let totals = super::super::commands::aggregate_cost_totals(30, &rows);
+        assert_eq!(totals.cost_basis, CostBasis::Partial);
+        assert_eq!(totals.priced_sessions, 1);
+        assert_eq!(totals.sessions, 2);
+        assert!((totals.total_cost - 29.20).abs() < 1e-9);
+        let forecast = cost_forecast_from_connection(&conn, "orion", Utc::now());
+        assert!((forecast.api_equivalent_usd.unwrap() - 29.20).abs() < 1e-9);
+    }
+
+    #[test]
+    fn orion_rows_are_not_re_estimated_from_totals() {
+        assert!(
+            estimate_api_equivalent_cost_with_speed(
+                "orion",
+                "opencode-go/unknown-model-x",
+                1_000_000,
+                1_000_000,
+                0,
+                0,
+                "unknown",
+            )
+            .is_none()
+        );
+        assert!(
+            estimate_api_equivalent_cost_with_speed(
+                "orion",
+                "anthropic/claude-opus-5-5",
+                1_000_000,
+                1_000_000,
+                0,
+                0,
+                "unknown",
+            )
+            .is_none(),
+            "Orion prices each request itself; totals are not repriced"
+        );
     }
 
     fn temporary_database_path(test_name: &str) -> PathBuf {

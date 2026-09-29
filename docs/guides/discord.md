@@ -115,4 +115,4 @@ With Command Code selected and Rich Presence enabled, Pulse publishes its own na
 
 ## Orion App
 
-Orion desktop and CLI use application `1553775289274994708`, the name **Orion App**, and asset key `orion`. A local diagnostic acknowledgement resolved asset `1553775834148380782` on 2026-09-27. Idle follows the Command Code rule above. Quotas and Credits stay unavailable because Orion reports no account allowance. See [Orion App](orion.md) for data sources and cost limits.
+Orion desktop and CLI use application `1553775289274994708`, the name **Orion App**, and asset key `orion`. A local diagnostic acknowledgement resolved asset `1553775834148380782` on 2026-09-27. Idle publishes **Orion App** / **Idling...** with a timer that counts from the last Orion activity. Quotas and Credits stay unavailable because Orion reports no account allowance. See [Orion App](orion.md) for data sources and cost limits.
