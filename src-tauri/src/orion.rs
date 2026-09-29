@@ -3,8 +3,31 @@ use crate::commands::{DiscordDisplayPrefs, DiscordPresencePreview, DiscordSettin
 use cc_discord_presence::orion::{ASSET_KEY, Config, NAME, Session, preferred_session};
 use codex_presence_core::PresenceFieldId;
 
+/// Orion stores `cost: 0` on every message, so Pulse prices the exact token
+/// counts at published per-model rates, the same calculation Claude Code
+/// sessions use. It is a calculation, not an invoice: `partial` when some model
+/// has no known rate, `unavailable` when none does.
+pub const COST_SOURCE: &str = "api_equivalent";
+
+/// Live view of a session: the subagent badge counts only subagents that are
+/// still working, so finished ones never linger on the card.
+pub fn live_session_info(session: &Session) -> SessionInfo {
+    SessionInfo {
+        subagent_count: session.running_subagents,
+        ..session_info(session)
+    }
+}
+
+/// Stored view of a session: the subagent count is every subagent it started.
 pub fn session_info(session: &Session) -> SessionInfo {
     let window = session.context_window.unwrap_or(0);
+    let cost_available = session.known_cost.is_some();
+    // Per-category costs describe the priced part only, and only when a cost exists.
+    let category = |value: f64| if cost_available { value } else { 0.0 };
+    // The marker belongs to the Claude tokenizer generation; other models never carry it.
+    let model_id = session.model.rsplit('/').next().unwrap_or(&session.model);
+    let has_inflated_tokenizer = model_id.to_ascii_lowercase().starts_with("claude-")
+        && cc_discord_presence::cost::has_inflated_tokenizer(model_id);
     SessionInfo {
         provider: "orion".into(),
         app_name: Some(NAME.into()),
@@ -20,9 +43,9 @@ pub fn session_info(session: &Session) -> SessionInfo {
         },
         context_window_tokens: window,
         context_used_tokens: session.context_used.unwrap_or(0),
-        cost_source: "api_equivalent".into(),
+        cost_source: COST_SOURCE.into(),
         cost: session.known_cost.unwrap_or(0.0),
-        cost_available: session.known_cost.is_some(),
+        cost_available,
         cost_basis: if session.known_cost.is_none() {
             "unavailable"
         } else if session.cost_complete {
@@ -50,28 +73,46 @@ pub fn session_info(session: &Session) -> SessionInfo {
         duration_secs: session.updated.saturating_sub(session.created).max(0) as u64 / 1000,
         has_thinking: session.usage.reasoning > 0,
         subagent_count: session.subagent_count,
+        tokens_per_sec: session.output_tokens_per_sec.unwrap_or(0.0),
+        input_cost: category(session.cost_parts.input),
+        output_cost: category(session.cost_parts.output),
+        cache_write_cost: category(session.cost_parts.cache_write),
+        cache_read_cost: category(session.cost_parts.cache_read),
+        has_inflated_tokenizer,
         speed: "unknown".into(),
         ..Default::default()
     }
 }
 
-pub fn preview(sessions: &[Session], config: &Config) -> DiscordPresencePreview {
+pub fn preview(
+    sessions: &[Session],
+    idle_since: Option<i64>,
+    config: &Config,
+) -> DiscordPresencePreview {
+    let now = chrono::Utc::now().timestamp_millis();
     let session = preferred_session(sessions);
     let lines = cc_discord_presence::orion::presence::lines(session, config);
+    // Discord shows idle time as its own timer; the preview spells it out.
+    let state = if session.is_none() {
+        cc_discord_presence::orion::presence::idle_label(idle_since, now)
+    } else {
+        lines.state
+    };
     DiscordPresencePreview {
         provider: "orion".into(),
         app_name: NAME.into(),
         details: lines.details,
-        state: lines.state,
+        state,
         large_image_key: ASSET_KEY.into(),
         large_text: NAME.into(),
         small_image_key: None,
         small_text: None,
         has_session: session.is_some(),
         duration_secs: session
-            .map(|session| {
-                (chrono::Utc::now().timestamp_millis() - session.created).max(0) as u64 / 1000
-            })
+            .map(|session| session.created)
+            .or(idle_since)
+            .filter(|since| *since > 0 && *since <= now)
+            .map(|since| (now - since) as u64 / 1000)
             .unwrap_or(0),
     }
 }
@@ -152,6 +193,7 @@ pub fn access_route() -> AccessRouteSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cc_discord_presence::orion::CostParts;
 
     #[test]
     fn quota_and_credit_fields_stay_off_for_orion() {
@@ -188,5 +230,97 @@ mod tests {
         assert_eq!(info.provider, "orion");
         assert!(!info.cost_available);
         assert_eq!(info.cost_basis, "unavailable");
+        assert_eq!(info.cost, 0.0);
+        assert_eq!(info.input_cost + info.output_cost, 0.0);
+    }
+
+    fn priced(known_cost: Option<f64>, complete: bool) -> Session {
+        Session {
+            id: "s".into(),
+            model: "anthropic/claude-opus-5-5".into(),
+            usage: cc_discord_presence::orion::Usage {
+                input: 3_000_000,
+                output: 1_000_000,
+                cache_read: 1_000_000,
+                cache_write: 1_000_000,
+                ..Default::default()
+            },
+            known_cost,
+            cost_complete: complete,
+            cost_parts: CostParts {
+                input: 4.0,
+                output: 20.0,
+                cache_write: 5.0,
+                cache_read: 0.2,
+            },
+            output_tokens_per_sec: Some(120.0),
+            created: 1_000_000,
+            updated: 4_600_000,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn session_info_carries_the_same_cost_grid_as_a_claude_session() {
+        let info = session_info(&priced(Some(29.2), true));
+        assert!(info.cost_available);
+        assert_eq!(info.cost_basis, "estimated");
+        assert_eq!(info.cost_source, COST_SOURCE);
+        assert!((info.cost - 29.2).abs() < 1e-9);
+        assert!(
+            (info.input_cost + info.output_cost + info.cache_write_cost + info.cache_read_cost
+                - info.cost)
+                .abs()
+                < 1e-9
+        );
+        assert_eq!(info.cache_write_cost, 5.0);
+        assert_eq!(info.tokens_per_sec, 120.0);
+        assert_eq!(info.duration_secs, 3_600);
+        assert!(!info.has_inflated_tokenizer, "Opus 5.5 carries no marker");
+    }
+
+    #[test]
+    fn a_lower_bound_stays_partial_with_its_priced_categories() {
+        let info = session_info(&priced(Some(29.2), false));
+        assert!(info.cost_available);
+        assert_eq!(info.cost_basis, "partial");
+        assert_eq!(info.output_cost, 20.0);
+    }
+
+    #[test]
+    fn the_tokenizer_marker_only_follows_claude_models() {
+        let mut session = priced(Some(1.0), true);
+        session.model = "anthropic/claude-sonnet-5".into();
+        assert!(session_info(&session).has_inflated_tokenizer);
+        session.model = "gpt-5.6-sol".into();
+        assert!(!session_info(&session).has_inflated_tokenizer);
+    }
+
+    #[test]
+    fn live_cards_count_only_running_subagents_and_history_keeps_the_total() {
+        let session = Session {
+            subagent_count: 5,
+            running_subagents: 1,
+            ..priced(Some(1.0), true)
+        };
+        assert_eq!(live_session_info(&session).subagent_count, 1);
+        assert_eq!(session_info(&session).subagent_count, 5);
+    }
+
+    #[test]
+    fn idle_preview_spells_out_idle_time() {
+        let now = chrono::Utc::now().timestamp_millis();
+        let config = Config::default();
+        let fresh = preview(&[], None, &config);
+        assert_eq!(fresh.details, "Orion App");
+        assert_eq!(fresh.state, "Idling...");
+        assert!(!fresh.has_session);
+        let idle = preview(&[], Some(now - 12 * 60_000 - 5_000), &config);
+        assert_eq!(idle.state, "Idling for 12m");
+        assert!(
+            (720..=730).contains(&idle.duration_secs),
+            "{}",
+            idle.duration_secs
+        );
     }
 }

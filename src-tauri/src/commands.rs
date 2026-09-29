@@ -206,6 +206,7 @@ struct CachedData {
     commandcode_sessions: Vec<commandcode::Session>,
     commandcode_diagnostics: Vec<String>,
     orion_sessions: Vec<orion::Session>,
+    orion_idle_since: Option<i64>,
     orion_diagnostics: Vec<String>,
     live_claude: Vec<ClaudeSessionSnapshot>,
     live_codex: Vec<CodexSessionSnapshot>,
@@ -1005,6 +1006,7 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
         let mut orion_lease =
             PublisherLease::new(cc_discord_presence::storage::home().join("pulse-orion.lock"));
         let mut orion_git = CodexGitBranchCache::new(Duration::from_secs(30));
+        let mut orion_idle_since: Option<i64> = None;
         let mut opencode_runtime = opencode::process::RuntimeDetector::default();
         let mut opencode_publisher = opencode::presence::Publisher::default();
         let mut opencode_lease =
@@ -1149,6 +1151,9 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                     .map(|session| session.id.clone())
                     .collect();
                 crate::db::mark_inactive("orion", &active_ids);
+                orion_idle_since = orion::last_activity(&batch.live)
+                    .max(batch.last_activity)
+                    .or(orion_idle_since);
                 orion_live = batch.live;
                 orion_diagnostics = batch.diagnostics;
             } else {
@@ -1156,6 +1161,7 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
             }
             if let Ok(mut d) = data.lock() {
                 d.orion_sessions = orion_live.clone();
+                d.orion_idle_since = orion_idle_since;
                 d.orion_diagnostics = orion_diagnostics;
             }
             if provider != Provider::Orion {
@@ -1265,7 +1271,11 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                     match orion_config_result {
                         Ok(mut config) if owned => {
                             config.enabled &= discord_enabled;
-                            orion_publisher.update(orion::preferred_session(&orion_live), &config);
+                            orion_publisher.update(
+                                orion::preferred_session(&orion_live),
+                                orion_idle_since,
+                                &config,
+                            );
                         }
                         _ => orion_publisher.shutdown(),
                     }
@@ -1775,7 +1785,7 @@ fn current_live_session_infos() -> Vec<SessionInfo> {
             .map(|data| {
                 data.orion_sessions
                     .iter()
-                    .map(crate::orion::session_info)
+                    .map(crate::orion::live_session_info)
                     .collect()
             })
             .unwrap_or_default(),
@@ -1892,7 +1902,7 @@ fn build_discord_snapshot_payload(
         Provider::Orion => {
             let config = OrionConfig::load().map_err(|error| error.to_string())?;
             Ok((
-                crate::orion::preview(&cached.orion_sessions, &config),
+                crate::orion::preview(&cached.orion_sessions, cached.orion_idle_since, &config),
                 crate::orion::settings(&config, &cached.discord_status, &cached.discord_publisher),
             ))
         }
@@ -3025,7 +3035,11 @@ pub fn get_live_sessions() -> Vec<SessionInfo> {
                 .iter()
                 .map(crate::opencode::session_info),
         );
-        sessions.extend(data.orion_sessions.iter().map(crate::orion::session_info));
+        sessions.extend(
+            data.orion_sessions
+                .iter()
+                .map(crate::orion::live_session_info),
+        );
     }
     sessions
 }

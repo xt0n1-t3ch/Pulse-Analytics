@@ -167,6 +167,10 @@ mod tests {
         assert_eq!(classify("claude-opus-5[1m]"), "opus");
         assert_eq!(classify("claude-opus-5-5"), "opus");
         assert_eq!(classify("claude-sonnet-4-6"), "sonnet");
+        assert_eq!(classify("claude-sonnet-5"), "sonnet");
+        assert_eq!(classify("claude-sonnet-5-5"), "sonnet");
+        assert_eq!(classify("claude-sonnet-5-5-20261001"), "sonnet");
+        assert_eq!(classify("claude-sonnet-5-5[1m]"), "sonnet");
         assert_eq!(classify("claude-haiku-4-5"), "haiku");
         assert_eq!(classify("mystery-model"), "other");
     }

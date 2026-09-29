@@ -4,7 +4,7 @@
   import SessionCard from "../components/SessionCard.svelte";
   import { sessions, selectedAnalyticsProviderScope } from "../lib/stores";
   import { providerMatchesAnalyticsScope } from "../lib/access";
-  import { fmtTokens, fmtCost, fmtExactCost, fmtDuration, fmtTps, classifyActivity, fmtClock, monetaryValueLabel } from "../lib/utils";
+  import { fmtTokens, fmtCost, fmtExactCost, fmtDuration, fmtTps, classifyActivity, fmtClock, monetaryValueLabel, CALCULATED_COST_NOTE, isCalculatedCost } from "../lib/utils";
   import { getSessionHistory, getAnalyticsSummary, searchSessions, getSessionHistoryFiltered } from "../lib/api";
   import type { HistoricalSession, AnalyticsSummary } from "../lib/api";
   import { fly } from "svelte/transition";
@@ -85,6 +85,7 @@
   let totalTokens = $derived(filtered.reduce((s, x) => s + x.tokens, 0));
   let totalCost = $derived(filtered.reduce((s, x) => s + (x.cost_available === true ? x.cost : 0), 0));
   let totalCostAvailable = $derived(filtered.length === 0 || filtered.every((session) => session.cost_available === true));
+  let totalCostLabel = $derived(filtered.length > 0 && filtered.every((session) => isCalculatedCost(session)) ? "Session cost" : "Reported value");
   let avgTps = $derived(filtered.length ? filtered.reduce((s, x) => s + x.tokens_per_sec, 0) / filtered.length : 0);
   let totalInput = $derived(filtered.reduce((s, x) => s + Math.max(0, x.input_tokens - x.cache_write_tokens - x.cache_read_tokens), 0));
   let totalOutput = $derived(filtered.reduce((s, x) => s + x.output_tokens, 0));
@@ -267,7 +268,7 @@
   <div class="stats-row metric-strip">
     <StatCard label="Active sessions" value={String(filtered.length)} />
     <StatCard label="Live tokens" value={filtered.length > 0 ? fmtTokens(totalTokens) : "—"} />
-    {#if filtered.length > 0 && totalCostAvailable}<StatCard label="Reported value" value={fmtCost(totalCost)} />{/if}
+    {#if filtered.length > 0 && totalCostAvailable}<StatCard label={totalCostLabel} value={fmtCost(totalCost)} />{/if}
     {#if filtered.some((session) => session.tokens_per_sec > 0)}<StatCard label="Output rate" value={fmtTps(avgTps)} />{:else}<StatCard label="Output tokens" value={fmtTokens(totalOutput)} />{/if}
   </div>
 
@@ -473,7 +474,7 @@
                     {#if h.cost_basis === "partial"}
                       <p class="detail-unavailable">Known subtotal; this session has incomplete cost coverage.</p>
                     {:else if h.cost_basis === "estimated" || monetaryValueLabel([h.cost_source]) === "API-equivalent value"}
-                      <p class="detail-unavailable">API-equivalent estimate reconstructed from session tokens and model pricing.</p>
+                      <p class="detail-unavailable">{CALCULATED_COST_NOTE}</p>
                     {:else if monetaryValueLabel([h.cost_source]) === "Provider-billed spend"}
                       <p class="detail-unavailable">Provider-reported billing for this session.</p>
                     {/if}

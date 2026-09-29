@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SessionInfo } from "../lib/api";
-  import { fmtTokens, fmtCost, fmtExactCost, fmtDuration, fmtTps, classifyActivity } from "../lib/utils";
+  import { fmtTokens, fmtCost, fmtExactCost, fmtDuration, fmtTps, classifyActivity, sessionCostTitle, sessionCostNote } from "../lib/utils";
   import { slide } from "svelte/transition";
 
   let { session }: { session: SessionInfo } = $props();
@@ -21,6 +21,7 @@
   );
 
   let isMythosClass = $derived(/(?:fable|mythos)/.test(session.model_id.toLowerCase()));
+  let costNote = $derived(sessionCostNote(session));
 </script>
 
 <div
@@ -99,25 +100,24 @@
 
       {#if session.cost_available === true}
       <div class="detail-section">
-        <h4 class="detail-title">{session.cost_basis === "partial" ? "Known subtotal" : session.provider === "codex" || session.provider === "orion" ? "API-equivalent value" : "Reported value"}</h4>
+        <h4 class="detail-title">{sessionCostTitle(session)}</h4>
         {#if session.cost_basis === "partial"}
-          <p class="cost-unavailable">Partial estimate. Some usage components are not priced.</p>
+          <p class="cost-unavailable">{costNote}</p>
         {/if}
         {#if session.opencode && session.cost_available === true}
           <span class="cost-unavailable">OpenCode-reported total: {fmtCost(session.cost)}. Token-category charges are not reported.</span>
-        {:else if session.provider === "orion"}
-          <span class="cost-unavailable">API-equivalent estimate: {fmtCost(session.cost)}. Orion App does not record a billed amount.</span>
         {:else if session.provider === "commandcode"}
           <span class="cost-unavailable">Command Code estimate: {fmtCost(session.cost)}. Token-category charges are not reported.</span>
-        {:else if session.cost_available === true}
+        {:else}
           <div class="cost-grid">
             <span class="cost-label">Input</span><span class="cost-val">{fmtCost(session.input_cost)}</span>
             <span class="cost-label">Output</span><span class="cost-val">{fmtCost(session.output_cost)}</span>
             <span class="cost-label">Cache Write</span><span class="cost-val">{fmtCost(session.cache_write_cost)}</span>
             <span class="cost-label">Cache Read</span><span class="cost-val">{fmtCost(session.cache_read_cost)}</span>
           </div>
-        {:else}
-          <span class="cost-unavailable">Monetary value is unavailable for this session.</span>
+          {#if costNote && session.cost_basis !== "partial"}
+            <p class="cost-unavailable cost-provenance">{costNote}</p>
+          {/if}
         {/if}
       </div>
 
@@ -418,5 +418,6 @@
   .detail-title { font-size:12px; text-transform:none; letter-spacing:0; color:var(--text-primary); }
   .token-legend { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
   .cost-grid, .perf-grid { gap:9px 14px; line-height:1.5; }
+  .cost-provenance { margin:12px 0 0; font-size:12px; line-height:1.45; }
   .perf-val { overflow-wrap:anywhere; }
 </style>
