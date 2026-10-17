@@ -98,9 +98,19 @@ fn authorize(header: Option<&str>, expected_token: &str) -> Result<(), AuthError
     let Some(provided) = value.strip_prefix("Bearer ") else {
         return Err(AuthError::Invalid);
     };
-    (!provided.is_empty() && provided == expected_token)
+    (!provided.is_empty() && constant_time_eq(provided.as_bytes(), expected_token.as_bytes()))
         .then_some(())
         .ok_or(AuthError::Invalid)
+}
+
+/// Compares every byte of `provided` so the rejection time does not reveal
+/// how long a matching token prefix is.
+fn constant_time_eq(provided: &[u8], expected: &[u8]) -> bool {
+    let mut diff = provided.len() ^ expected.len();
+    for (index, byte) in provided.iter().enumerate() {
+        diff |= usize::from(byte ^ expected.get(index).copied().unwrap_or(0));
+    }
+    std::hint::black_box(diff) == 0
 }
 
 #[derive(Debug, Deserialize)]
@@ -1076,6 +1086,16 @@ mod tests {
             Err(AuthError::Invalid)
         );
         assert_eq!(authorize(Some("Bearer secret"), "secret"), Ok(()));
+    }
+
+    #[test]
+    fn token_comparison_rejects_prefixes_extensions_and_single_byte_changes() {
+        assert!(constant_time_eq(b"secret", b"secret"));
+        assert!(!constant_time_eq(b"secre", b"secret"));
+        assert!(!constant_time_eq(b"secrets", b"secret"));
+        assert!(!constant_time_eq(b"secreT", b"secret"));
+        assert!(!constant_time_eq(b"", b"secret"));
+        assert!(!constant_time_eq(b"secret\0", b"secret"));
     }
 
     #[test]

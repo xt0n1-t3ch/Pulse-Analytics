@@ -328,19 +328,7 @@ fn hydrate(
     session.context_window = contexts
         .get(&(session.provider_id.clone(), session.model.clone()))
         .copied()
-        .or_else(|| {
-            // Orion has no rule for this model: use Pulse's bundled facts.
-            let id = session.model.rsplit('/').next().unwrap_or(&session.model);
-            if id.starts_with("claude-") {
-                Some(if crate::cost::is_ga_1m_context(id) {
-                    1_000_000
-                } else {
-                    200_000
-                })
-            } else {
-                crate::codex::cost::default_model_context_window(id)
-            }
-        });
+        .or_else(|| super::bundled_context_window(&session.model));
 
     let running: Option<String> = connection
         .prepare_cached(

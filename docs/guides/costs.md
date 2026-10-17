@@ -43,11 +43,13 @@ Current prices, API limits and the cancelled Sonnet 5 price increase belong in t
 
 Codex input totals include cache reads and cache writes; known categories are subtracted once from ordinary input. Cached input is clamped to total input before uncached input is calculated. Missing cache-write telemetry stays missing. Do not reuse Claude's raw-token interpretation for Codex.
 
-The bundled Astra entry records Fast at 2×. GPT-5.6 entries still lack a Fast multiplier and use older base rates. Aggregate input cannot prove each request's long-context price. The resolver preserves partial coverage when a required pricing condition is unresolved. [Current API facts and catalog gaps](../models/codex.md#bundled-catalog-gaps).
+The bundled Astra, GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna entries record Fast at 2× and long-context rates of 2× input/cache and 1.5× output above 272,000 input tokens per request. GPT-5.6 entries still lack a Fast multiplier and use older base rates. Aggregate input cannot prove each request's long-context price. The resolver preserves partial coverage when a required pricing condition is unresolved, and the history estimate for these four models is withheld when a stored session total is above the threshold. [GPT-6 rates and gaps](../models/codex.md#gpt-61-sol-gpt-6-sol-and-gpt-6-luna) · [Current API facts and catalog gaps](../models/codex.md#bundled-catalog-gaps).
+
+For example, 100,000 fresh input plus 1,000 output tokens in one GPT-6.1 Sol request cost 0.1 × $2 + 0.001 × $10 = $0.21 Standard and $0.42 Fast. With 300,000 fresh input instead, the request is above the threshold: 0.3 × $2 × 2 + 0.001 × $10 × 1.5 = $1.215.
 
 API dollars and Codex subscription credits are separate units. A new API price does not establish a new credit conversion or account allowance.
 
-Session cost is accumulated per telemetry delta with that sample's model and speed. Duplicate cumulative events do not add value. A large cumulative input total does not trigger request-level long-context pricing. An observed Astra request over 272,000 input tokens applies the documented input/cache and output multipliers. Missing request boundaries keep the subtotal partial.
+Session cost is accumulated per telemetry delta with that sample's model and speed. Duplicate cumulative events do not add value. A large cumulative input total does not trigger request-level long-context pricing. An observed Astra, GPT-6.1 Sol, GPT-6 Sol or GPT-6 Luna request over 272,000 input tokens applies the documented input/cache and output multipliers. Missing request boundaries keep the subtotal partial.
 
 ## Command Code
 
@@ -57,7 +59,7 @@ Pulse preserves the provider's `costUsd` values and marks incomplete message cov
 
 Orion records `cost: 0` on every message, which is not a price, so Pulse ignores it and calculates session cost the way it does for Claude Code: exact token counts times published per-model rates. It is a calculation, not an invoice. Orion's `tokens.input` already includes cache read and cache write; Pulse subtracts both once to get uncached input, then prices four categories (input, output, cache write, cache read) and sums them.
 
-Each assistant message is priced as its own request, so long-context and Fast rules apply per request, and subagent messages roll into the parent session. Claude models use [`src/cost.rs`](../../src/cost.rs). Models in the [Codex catalog](../../src/codex/model_catalog.json) use [`src/codex/cost.rs`](../../src/codex/cost.rs), including Orion's `-fast` suffix and its catalog display names such as `5.6-Sol`. A display name that matches more than one catalog entry, such as `5.6-Cyber`, stays unpriced. For example, one million tokens in each category on Opus 5.5 cost $4 + $20 + $5 + $0.20 = $29.20.
+Each assistant message is priced as its own request, so long-context and Fast rules apply per request, and subagent messages roll into the parent session. Claude models use [`src/cost.rs`](../../src/cost.rs). Models in the [Codex catalog](../../src/codex/model_catalog.json) use [`src/codex/cost.rs`](../../src/codex/cost.rs), including Orion's `-fast` suffix and its catalog display names such as `5.6-Sol` and `6.1-Sol` (with or without the `GPT-` prefix). A display name that matches more than one catalog entry, such as `5.6-Cyber`, stays unpriced. For example, one million tokens in each category on Opus 5.5 cost $4 + $20 + $5 + $0.20 = $29.20.
 
 | Basis | When |
 | --- | --- |

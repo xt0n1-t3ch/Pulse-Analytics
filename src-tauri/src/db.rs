@@ -707,7 +707,13 @@ fn estimate_api_equivalent_cost_with_speed(
             SessionSpeed::explicit(speed_mode, SpeedSource::LegacyDefault),
             &PricingConfig::default(),
         );
-        if model_id.starts_with("gpt-6-astra")
+        // Session totals cannot show which requests crossed a long-context
+        // threshold, so a model with long-context rates is only estimated when
+        // every component is priced.
+        let has_long_context_rates = cc_discord_presence::codex::model::resolve_model(model_id)
+            .and_then(|model| model.long_context_pricing())
+            .is_some();
+        if has_long_context_rates
             && (computed.status != cc_discord_presence::codex::cost::PricingStatus::Exact
                 || !matches!(speed, "standard" | "fast"))
         {
@@ -3042,6 +3048,48 @@ mod tests {
             estimate_api_equivalent_cost("codex", "gpt-5.6-sol", 1_000_000, 1_000_000, 0, 0)
                 .expect("gpt-5.6-sol has catalog API pricing");
         assert!((codex.total - 35.0).abs() < 0.01, "got {}", codex.total);
+    }
+
+    #[test]
+    fn api_equivalent_estimate_prices_gpt_6_family_and_withholds_long_context_totals() {
+        // GPT-6.1 Sol: 100K fresh input ($0.20) + 10K output ($0.10).
+        let standard = estimate_api_equivalent_cost("codex", "gpt-6.1-sol", 100_000, 10_000, 0, 0)
+            .expect("gpt-6.1-sol has catalog API pricing");
+        assert!(
+            (standard.total - 0.30).abs() < 1e-9,
+            "got {}",
+            standard.total
+        );
+        let fast = estimate_api_equivalent_cost_with_speed(
+            "codex",
+            "gpt-6.1-sol",
+            100_000,
+            10_000,
+            0,
+            0,
+            "fast",
+        )
+        .expect("fast has a published multiplier");
+        assert!((fast.total - 0.60).abs() < 1e-9, "got {}", fast.total);
+
+        let sol = estimate_api_equivalent_cost("codex", "gpt-6-sol", 100_000, 10_000, 0, 0)
+            .expect("gpt-6-sol has catalog API pricing");
+        assert!((sol.total - 0.30).abs() < 1e-9, "got {}", sol.total);
+        let luna = estimate_api_equivalent_cost("codex", "gpt-6-luna", 100_000, 10_000, 0, 0)
+            .expect("gpt-6-luna has catalog API pricing");
+        assert!((luna.total - 0.015).abs() < 1e-9, "got {}", luna.total);
+
+        // Session totals above 272K input cannot tell which requests crossed
+        // the long-context threshold, so no estimate is stored.
+        for model in ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol-fast"] {
+            assert!(
+                estimate_api_equivalent_cost("codex", model, 300_000, 1_000, 0, 0).is_none(),
+                "{model}"
+            );
+        }
+        assert!(
+            estimate_api_equivalent_cost("codex", "gpt-6.2-sol", 100_000, 10_000, 0, 0).is_none()
+        );
     }
 
     #[test]

@@ -974,6 +974,19 @@ mod tests {
     }
 
     #[test]
+    fn gpt_6_1_sol_turn_context_keeps_ultra_and_observed_window() {
+        let snapshot = parse_one(
+            r#"{"timestamp":"2026-10-16T10:00:00Z","type":"turn_context","payload":{"cwd":"C:\\repo\\app","model":"gpt-6.1-sol","effort":"ultra"}}
+{"timestamp":"2026-10-16T10:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":18000},"model_context_window":475000}}}"#,
+        );
+
+        assert_eq!(snapshot.model.as_deref(), Some("gpt-6.1-sol"));
+        assert_eq!(snapshot.reasoning_effort, Some(ReasoningEffort::Ultra));
+        let context = snapshot.context_window.expect("observed context");
+        assert_eq!(context.window_tokens, 475_000);
+    }
+
+    #[test]
     fn cached_input_tokens_are_clamped_to_input_tokens() {
         let snapshot = parse_one(
             r#"{"timestamp":"2026-07-09T10:00:00Z","type":"turn_context","payload":{"cwd":"C:\\repo\\app","model":"gpt-5.6-terra","effort":"max"}}

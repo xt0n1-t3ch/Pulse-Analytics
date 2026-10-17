@@ -8,7 +8,9 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
-use std::process::{Child, Stdio};
+use std::process::Stdio;
+
+use cc_discord_presence::owned_child::OwnedChild;
 use std::sync::{
     Arc, Mutex, OnceLock,
     atomic::{AtomicBool, Ordering},
@@ -17,7 +19,7 @@ use std::time::{Duration, Instant};
 
 struct Connection {
     cancelled: Arc<AtomicBool>,
-    child: Arc<Mutex<Option<Child>>>,
+    child: Arc<Mutex<Option<OwnedChild>>>,
     status: String,
     auth_url: Option<String>,
     error: Option<String>,
@@ -56,8 +58,7 @@ pub(super) fn cancel(id: &str) -> Result<()> {
         if let Ok(mut child) = state.child.lock()
             && let Some(child) = child.as_mut()
         {
-            let _ = child.kill();
-            let _ = child.wait();
+            child.terminate();
         }
         state.status = "cancelled".into();
         state.auth_url = None;
@@ -235,8 +236,7 @@ pub(super) fn connect(request: ConnectAccountRequest) -> Result<String> {
         if let Ok(mut slot) = child.lock()
             && let Some(mut process) = slot.take()
         {
-            let _ = process.kill();
-            let _ = process.wait();
+            process.terminate();
         }
         let Ok(mut states) = connections().lock() else {
             return;
@@ -302,22 +302,23 @@ fn auth_url(id: &str, url: String, cancelled: &AtomicBool) -> Result<()> {
 fn login_codex(
     record: &AccountRecord,
     cancelled: &AtomicBool,
-    holder: &Mutex<Option<Child>>,
+    holder: &Mutex<Option<OwnedChild>>,
 ) -> Result<()> {
-    let mut process =
-        cc_discord_presence::codex::account_usage::isolated_app_server_command(&record.source_path)
+    let mut command = cc_discord_presence::codex::account_usage::isolated_app_server_command(
+        &record.source_path,
+    )?;
+    let mut process = OwnedChild::spawn(
+        command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .context("Codex could not start its isolated sign-in service")?;
+            .stderr(Stdio::null()),
+    )
+    .context("Codex could not start its isolated sign-in service")?;
     let mut stdin = process
-        .stdin
-        .take()
+        .take_stdin()
         .context("Codex sign-in input is unavailable")?;
     let stdout = process
-        .stdout
-        .take()
+        .take_stdout()
         .context("Codex sign-in output is unavailable")?;
     *holder
         .lock()
@@ -376,7 +377,7 @@ fn login_codex(
 fn login_claude(
     record: &AccountRecord,
     cancelled: &AtomicBool,
-    holder: &Mutex<Option<Child>>,
+    holder: &Mutex<Option<OwnedChild>>,
 ) -> Result<()> {
     let mut command = cc_discord_presence::codex::util::silent_command("claude");
     command
@@ -392,15 +393,15 @@ fn login_claude(
     ] {
         command.env_remove(key);
     }
-    let mut process = command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("Claude CLI is required for isolated subscription sign-in")?;
+    let mut process = OwnedChild::spawn(
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null()),
+    )
+    .context("Claude CLI is required for isolated subscription sign-in")?;
     let stdout = process
-        .stdout
-        .take()
+        .take_stdout()
         .context("Claude sign-in output is unavailable")?;
     *holder
         .lock()

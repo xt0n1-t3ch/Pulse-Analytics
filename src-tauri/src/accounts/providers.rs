@@ -253,11 +253,11 @@ fn read_codex(record: &AccountRecord, snapshot: &mut AccountSnapshot) -> Result<
     use codex_presence_core::{
         UsageSignal, UsageSource, UsageStream, snapshot_from_stream_with_provenance,
     };
-    let mut manager = cc_discord_presence::codex::account_usage::AccountUsageManager::for_home(
-        record.source_path.clone(),
+    let reading = cc_discord_presence::codex::account_usage::read_shared_usage(
+        Some(&record.source_path),
         record.origin == "local",
-    );
-    let reading = manager.get_usage(false)?;
+        false,
+    )?;
     let tier = cc_discord_presence::codex::telemetry::plan::parse_plan_type(
         reading.account_plan_type.as_deref(),
     );
@@ -286,7 +286,7 @@ fn read_codex(record: &AccountRecord, snapshot: &mut AccountSnapshot) -> Result<
             reading.rate_limit_reset_credits.clone(),
             reading.individual_limits.clone(),
             Utc::now(),
-            Duration::seconds(120),
+            cc_discord_presence::codex::account_usage::reading_max_age(),
             Utc::now(),
         );
         snapshot.windows = windows_from_route(&route);

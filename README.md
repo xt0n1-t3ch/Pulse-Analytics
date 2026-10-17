@@ -55,7 +55,15 @@ These repository captures show earlier Claude and Codex presence layouts. They a
 
 <h2 id="whats-new"><img src="assets/icons/sparkles.svg" alt="" width="28" height="28" align="center">&nbsp; What's new</h2>
 
-Pulse v1.9.6 is available for Windows, macOS and Linux, on both x64 and ARM64.
+Pulse v1.9.7 is available for Windows, macOS and Linux, on both x64 and ARM64.
+
+<h3 id="new-in-v197">New in v1.9.7</h3>
+
+- **GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna.** Codex and Orion App sessions on these models are recognized, named and priced from the OpenAI model cards, with their Fast and long-context rates.
+- **Lighter in the background.** Pulse reads the Codex account quota only when a Codex view, session or broadcast needs it, reuses one probe folder instead of creating a new temporary folder on every read, and closes every Codex and Claude process it starts.
+- **Tighter window security.** The Pulse window has a Content Security Policy and no file-system access. Live updates, tray notification state and the native window theme now follow the app again.
+
+See the [1.9.7 changelog](CHANGELOG.md#197---2026-10-17).
 
 <h3 id="new-in-v196">New in v1.9.6</h3>
 
@@ -109,15 +117,15 @@ The [changelog](CHANGELOG.md) has the full release history.
 
 Choose an installer for your operating system and architecture from [GitHub Releases](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest).
 
-| Platform | v1.9.6 downloads | Installer formats |
+| Platform | v1.9.7 downloads | Installer formats |
 | --- | --- | --- |
-| Windows | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.6/pulse-windows-x64-Pulse_1.9.6_x64-setup.exe) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.6/pulse-windows-arm64-Pulse_1.9.6_arm64-setup.exe) | `.exe` (NSIS), `.msi` |
-| macOS | [Intel](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.6/pulse-macos-x64-Pulse_1.9.6_x64.dmg) · [Apple Silicon](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.6/pulse-macos-arm64-Pulse_1.9.6_aarch64.dmg) | `.dmg`, app archive |
-| Linux | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.6/pulse-linux-x64-Pulse_1.9.6_amd64.AppImage) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.6/pulse-linux-arm64-Pulse_1.9.6_aarch64.AppImage) | `.deb`, `.rpm`, `.AppImage` |
+| Windows | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-windows-x64-Pulse_1.9.7_x64-setup.exe) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-windows-arm64-Pulse_1.9.7_arm64-setup.exe) | `.exe` (NSIS), `.msi` |
+| macOS | [Intel](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-macos-x64-Pulse_1.9.7_x64.dmg) · [Apple Silicon](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-macos-arm64-Pulse_1.9.7_aarch64.dmg) | `.dmg`, app archive |
+| Linux | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-linux-x64-Pulse_1.9.7_amd64.AppImage) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-linux-arm64-Pulse_1.9.7_aarch64.AppImage) | `.deb`, `.rpm`, `.AppImage` |
 
 macOS GitHub packages are not Apple-signed or notarized. macOS may block first launch. Updater signatures are separate from Apple signing.
 
-The immutable [v1.9.6 release](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.9.6) contains all six targets. The links above select NSIS, DMG or AppImage; MSI, DEB and RPM alternatives are on the release page. Native build/test checks passed; installed-GUI acceptance is recorded per operating system. See [platform verification](docs/maintainers/platforms.md).
+The immutable [v1.9.7 release](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.9.7) contains all six targets. The links above select NSIS, DMG or AppImage; MSI, DEB and RPM alternatives are on the release page. Native build/test checks passed; installed-GUI acceptance is recorded per operating system. See [platform verification](docs/maintainers/platforms.md).
 
 Every complete release must include `SHA256SUMS.txt`, Windows software bills of materials and `latest.json` with signed updater payloads for all six targets. Do not install an asset for a different architecture to work around a missing download.
 
@@ -308,11 +316,11 @@ Use `npm run build` for installers. Use `npm run dev` for the authenticated, loo
 
 Pulse v1.8.2 uses Claude config schema 6, Codex config schema 13 and analytics schema 6. The analytics migration adds OpenCode metadata without discarding previous sessions.
 
-Pulse v1.9.5 and v1.9.6 keep Claude config schema 6 and Codex config schema 13, and migrates analytics to schema 7 by adding Accounts and Command Code data. Existing sessions are preserved. Pulse v1.8.2 cannot open analytics schema 7: back up the database before you install 1.9.x, and keep the schema-7 database separately if you return to 1.8.2. Pulse v1.9.6 adds Orion App without a schema change; its settings live in `pulse-orion.json`.
+Pulse v1.9.5 to v1.9.7 keep Claude config schema 6 and Codex config schema 13, and migrates analytics to schema 7 by adding Accounts and Command Code data. Existing sessions are preserved. Pulse v1.8.2 cannot open analytics schema 7: back up the database before you install 1.9.x, and keep the schema-7 database separately if you return to 1.8.2. Pulse v1.9.6 adds Orion App without a schema change; its settings live in `pulse-orion.json`.
 
 Back up the executable, configuration and database through SQLite Backup before replacing an installation. Pulse 1.7.9 cannot open analytics schema 6: rollback requires the schema-5 backup, while the newer database should be preserved separately.
 
-Pulse consumes `codex-presence-core` 2.0.1 through an immutable Git pin recorded in [UPSTREAM.json](src/codex/UPSTREAM.json), promoted from the upstream v1.11.2 release. The standalone [Codex Discord Rich Presence](https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence) runtime has its own releases and terminal interface.
+Pulse consumes `codex-presence-core` 2.0.1 through an immutable Git pin recorded in [UPSTREAM.json](src/codex/UPSTREAM.json), promoted from the upstream v1.11.3 release. The standalone [Codex Discord Rich Presence](https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence) runtime has its own releases and terminal interface.
 
 See the [dependency audit scope](docs/maintainers/dependencies.md) for inherited Tauri advisories and platform boundaries.
 

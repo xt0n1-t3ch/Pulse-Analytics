@@ -95,5 +95,72 @@
         "xhigh"
       ]
     }
+  ],
+  "supplements": [
+    {
+      "source": "Local Codex models_cache.json; GPT-6 rows only",
+      "observed_at": "2026-10-16",
+      "file_written_at": "2026-10-04T04:02:40Z",
+      "client_version": "0.0.0",
+      "fetched_at": "2000-01-01T00:00:00Z",
+      "scope": "Inventory with placeholder client_version and fetched_at; not written by a current Codex client. Pulse still prefers it over the bundled catalog.",
+      "models": [
+        {
+          "id": "gpt-6.1-sol",
+          "raw_tokens": 272000,
+          "effective_percent": 95,
+          "usable_tokens": 258400,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        },
+        {
+          "id": "gpt-6-sol",
+          "raw_tokens": 872000,
+          "effective_percent": 100,
+          "usable_tokens": 872000,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        },
+        {
+          "id": "gpt-6-luna",
+          "raw_tokens": 872000,
+          "effective_percent": 100,
+          "usable_tokens": 872000,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        {
+          "id": "gpt-6-astra",
+          "raw_tokens": 872000,
+          "effective_percent": 100,
+          "usable_tokens": 872000,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ]
+        }
+      ]
+    }
   ]
 }

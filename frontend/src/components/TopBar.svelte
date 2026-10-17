@@ -5,6 +5,7 @@
     IconSun,
     IconX,
   } from "@tabler/icons-svelte";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import PulseMark from "./PulseMark.svelte";
   import NotificationCenter from "./NotificationCenter.svelte";
   import {
@@ -14,6 +15,7 @@
   } from "../lib/stores";
   import { verifiedPlanLabel } from "../lib/plans";
   import { accessKindLabel } from "../lib/access";
+  import { hasTauriIpc } from "../lib/api";
 
   let { onToggleTheme }: { onToggleTheme: () => void } = $props();
 
@@ -46,17 +48,21 @@
     return verifiedPlanLabel(provider, subscriptionRoute.source.plan);
   });
 
+  function appWindow() {
+    return hasTauriIpc() ? getCurrentWindow() : null;
+  }
+
   function minimize(): void {
-    window.__TAURI__?.window.getCurrentWindow().minimize();
+    void appWindow()?.minimize();
   }
 
   function toggleMaximize(): void {
-    const win = window.__TAURI__?.window.getCurrentWindow();
+    const win = appWindow();
     win?.isMaximized().then((maximized: boolean) => maximized ? win.unmaximize() : win.maximize());
   }
 
   function close(): void {
-    window.__TAURI__?.window.getCurrentWindow().close();
+    void appWindow()?.close();
   }
 </script>
 

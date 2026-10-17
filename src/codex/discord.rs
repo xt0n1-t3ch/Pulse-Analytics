@@ -1390,6 +1390,26 @@ mod tests {
     }
 
     #[test]
+    fn state_labels_gpt_6_1_sol_with_ultra_and_fast() {
+        let mut session = sample_session();
+        session.model = Some("gpt-6.1-sol".to_string());
+        session.reasoning_effort = Some(crate::codex::session::ReasoningEffort::Ultra);
+        session.speed = crate::codex::model::SessionSpeed::explicit(
+            SpeedMode::Fast,
+            crate::codex::model::SpeedSource::ThreadSettings,
+        );
+        let config = PresenceConfig::default();
+        let (_details, state) = presence_lines(
+            &session,
+            Some(&session.limits),
+            &resolved_plan_pro(),
+            &resolved_service_tier(true),
+            &config,
+        );
+        assert!(state.contains("GPT-6.1 Sol · Ultra · ⚡ Fast | Pro 20x ($200/month)"));
+    }
+
+    #[test]
     fn activity_name_overrides_discord_application_title() {
         let activity = build_activity(ActivitySpec {
             name: "ChatGPT App",

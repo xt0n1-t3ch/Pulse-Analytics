@@ -7,25 +7,12 @@
     "core:window:allow-maximize",
     "core:window:allow-unmaximize",
     "core:window:allow-close",
-    "core:window:allow-hide",
-    "core:window:allow-show",
-    "core:window:allow-unminimize",
     "core:window:allow-is-maximized",
-    "core:window:allow-set-focus",
-    "dialog:allow-save",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:event:allow-emit",
+    "core:app:allow-set-app-theme",
     "dialog:allow-open",
-    "fs:allow-write-text-file",
-    "fs:allow-write-file",
-    "notification:default",
-    {
-      "identifier": "fs:scope",
-      "allow": [
-        { "path": "$HOME/**" },
-        { "path": "$DOWNLOAD/**" },
-        { "path": "$DOCUMENT/**" },
-        { "path": "$DESKTOP/**" }
-      ]
-    },
     "shell:allow-open",
     "updater:default",
     "process:allow-restart"

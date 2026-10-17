@@ -6,7 +6,7 @@ Compare the context Codex exposes with the maximum documented by the OpenAI API.
 
 **Verified:** September 5, 2026 · **Local inventory:** Codex 0.153.3 · **Pulse:** 1.8.1
 
-[Context limits](#context-limits) · [Reasoning](#reasoning-and-speed) · [API pricing](#current-api-pricing) · [Catalog gaps](#bundled-catalog-gaps) · [Verification](#verify-your-installation)
+[Context limits](#context-limits) · [Reasoning](#reasoning-and-speed) · [API pricing](#current-api-pricing) · [GPT-6 Sol and Luna](#gpt-61-sol-gpt-6-sol-and-gpt-6-luna) · [Catalog gaps](#bundled-catalog-gaps) · [Verification](#verify-your-installation)
 
 > **Astra in this Codex inventory: 272,000 raw → 258,400 usable.**
 > Its API documents 1,050,000 total tokens, up to 922,000 input and 128,000 output. The API maximum is not the default Codex budget.
@@ -85,6 +85,41 @@ USD per million tokens, direct OpenAI API, short-context Standard requests. Thes
 For these four models, the current pricing table lists long-context rates at 2× input/cache and 1.5× output. The model cards place the threshold above 272,000 input tokens. Fast is 2× the applicable Standard rates; Batch/Flex are 50%. Astra Fast is unavailable with EU data residency. Sol's promotional pricing lasts at least through November 21, 2026; that wording is not a guaranteed expiry date. [Official API pricing](https://developers.openai.com/api/docs/pricing).
 
 For GPT-5.6 and later, prompt caching starts at 1,024 visible input tokens. Writes cost 1.25× uncached input; reads cost 0.1×. The default and only supported minimum TTL is `30m`, measured after the latest write or reuse. Earlier families have different eligibility and retention rules. [Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching).
+
+## GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna
+
+**Verified:** October 16, 2026 against the official model cards. The bundled catalog now carries these three models, synchronized byte for byte from the canonical [Codex-Discord-Rich-Presence](https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence) catalog.
+
+| Model ID | Bundled Codex fallback | Usable | API total / max input / max output | Codex effort values |
+| --- | ---: | ---: | --- | --- |
+| [`gpt-6.1-sol`](https://developers.openai.com/api/docs/models/gpt-6.1-sol) | 500,000 at 95% | 475,000 | 1,050,000 / 922,000 / 128,000 | `low` … `max`, `ultra` |
+| [`gpt-6-sol`](https://developers.openai.com/api/docs/models/gpt-6-sol) | 872,000 at 100% | 872,000 | 1,050,000 / 922,000 / 128,000 | `low` … `max`, `ultra` |
+| [`gpt-6-luna`](https://developers.openai.com/api/docs/models/gpt-6-luna) | 872,000 at 100% | 872,000 | 1,050,000 / 922,000 / 128,000 | `low` … `max` |
+
+The GPT-6 Sol and Luna fallbacks come from a local Codex inventory written on October 3, 2026. The 500,000-token GPT-6.1 Sol default comes from secondary sources, not an OpenAI page: an orcarouter.ai blog post citing OpenAI's Thibault Sottiaux reports that Codex raised it from 272,000 on October 12, 2026. `ultra` is a Codex harness value, not a published API effort.
+
+USD per million tokens, direct OpenAI API, Standard requests up to 272,000 input tokens:
+
+| Model | Input | Cache write | Cache read | Output |
+| --- | ---: | ---: | ---: | ---: |
+| GPT-6.1 Sol | $2.00 | $2.50 | $0.10 | $10.00 |
+| GPT-6 Sol | $2.00 | $2.50 | $0.20 | $10.00 |
+| GPT-6 Luna | $0.10 | $0.125 | $0.01 | $0.50 |
+
+Fast is 2× the applicable Standard rates. A request above 272,000 input tokens costs 2× for input, cache write and cache read and 1.5× for output. For example, one GPT-6.1 Sol request with 300,000 fresh input and 1,000 output tokens costs 0.3 × $2 × 2 + 0.001 × $10 × 1.5 = $1.215 Standard, or $2.43 Fast.
+
+How Pulse applies these rates:
+
+- Codex live telemetry and Orion App price each request on its own, so the long-context surcharge applies exactly when that request's input is above 272,000.
+- A stored session total above 272,000 input tokens cannot show which requests crossed the threshold. Pulse withholds the API-equivalent history estimate for these models, as it already does for Astra, instead of showing a lower bound as an estimate.
+- Orion App lists these models as `6.1-Sol`, `GPT-6.1-Sol`, `gpt-6.1-sol` and with a `-Fast` suffix. All forms map to `gpt-6.1-sol`; `6-Sol` and `6-Luna` map the same way. GPT-6 Sol was unpriced in Orion before this change.
+- A model ID absent from the catalog, such as `gpt-6.2-sol`, stays unpriced.
+
+Known gaps:
+
+- Ultrafast (6× Standard) is an API-only tier. Pulse does not model it.
+- The local inventory on the verification machine reports `client_version` `0.0.0` and `fetched_at` year 2000, which suggests a tool other than the current Codex client wrote it. It still lists `gpt-6.1-sol` at 272,000 / 95%. Because Pulse prefers observed session context, then the local inventory, then the bundled catalog, that stale entry wins over the bundled 500,000 until the inventory is refreshed or a session reports its own window. See the [sanitized supplement](data/codex-context-snapshot.json).
+- The same inventory lists `gpt-6-astra` at 872,000 / 100%. The bundled Astra fallback is unchanged at 1,050,000 (see the table below).
 
 ## Bundled catalog gaps
 

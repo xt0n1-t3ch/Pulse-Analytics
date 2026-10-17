@@ -126,11 +126,11 @@ fn vendored_windows_polling_commands_use_silent_launcher() {
 
     assert!(
         manifest.contains(r#""schema_version": 3"#)
-            && manifest.contains(r#""canonical_release": "v1.11.2""#)
+            && manifest.contains(r#""canonical_release": "v1.11.3""#)
             && manifest
-                .contains(r#""canonical_commit": "0caece60a71eb657d7b829e3b6c7c4896a0a536c""#)
+                .contains(r#""canonical_commit": "77d5dd637d33f6876a63cc8760fdc0a1a86ba4f8""#)
             && manifest.contains(r#""mode": "git-rev""#)
-            && manifest.contains(r#""rev": "0caece60a71eb657d7b829e3b6c7c4896a0a536c""#)
+            && manifest.contains(r#""rev": "77d5dd637d33f6876a63cc8760fdc0a1a86ba4f8""#)
             && manifest.contains(r#""version": "2.0.1""#)
             && manifest.contains(r#""package": "codex-presence-core""#),
         "Pulse must declare the promoted immutable core contract"

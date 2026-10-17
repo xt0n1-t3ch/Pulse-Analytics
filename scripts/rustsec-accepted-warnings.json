@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-09-27",
-  "review_after": "2026-10-27",
-  "framework": "Tauri 2.11.5",
+  "reviewed_at": "2026-10-17",
+  "review_after": "2026-11-17",
+  "framework": "Tauri 2.11.6",
   "advisories": [
     {
       "id": "RUSTSEC-2024-0429",
@@ -39,6 +39,18 @@
     {
       "id": "RUSTSEC-2026-0097",
       "reason": "Tauri's build-time HTML parser pins rand 0.7; Pulse has no custom logger that accesses ThreadRng, so the advisory preconditions are absent."
+    },
+    {
+      "id": "RUSTSEC-2026-0367",
+      "reason": "zip 4.6.1 is compiled only for Windows through tauri-plugin-updater 2.10.1 (no updater release accepts zip 9); the plugin unpacks an updater payload only after minisign verifies the whole download against the pubkey in tauri.conf.json, and Pulse's signed Windows payloads are NSIS/MSI installers, not zip archives. zip 4.6.1 applies SUID/SGID bits only under cfg(unix), and Windows has no setuid bits."
+    },
+    {
+      "id": "RUSTSEC-2026-0368",
+      "reason": "zip 4.6.1 is compiled only for Windows through tauri-plugin-updater 2.10.1 (no updater release accepts zip 9); the plugin unpacks an updater payload only after minisign verifies the whole download against the pubkey in tauri.conf.json, and Pulse's signed Windows payloads are NSIS/MSI installers, not zip archives. An attacker-controlled symlink entry therefore requires the Pulse updater signing key."
+    },
+    {
+      "id": "RUSTSEC-2026-0369",
+      "reason": "zip 4.6.1 is compiled only for Windows through tauri-plugin-updater 2.10.1 (no updater release accepts zip 9); the plugin unpacks an updater payload only after minisign verifies the whole download against the pubkey in tauri.conf.json, and Pulse's signed Windows payloads are NSIS/MSI installers, not zip archives. zip 4.6.1 applies Unix permissions only under cfg(unix), so the Windows build never applies them through a symlink."
     }
   ]
 }
