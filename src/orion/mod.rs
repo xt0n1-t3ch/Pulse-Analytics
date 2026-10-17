@@ -266,20 +266,25 @@ fn split_fast_variant(lower: &str) -> (&str, bool) {
 }
 
 /// Catalog key for an Orion model id. Orion also lists Codex-routed models by
-/// display name (`5.6-Sol`), so a bare id resolves as `gpt-<id>` only when the
-/// catalog display name matches it exactly. An ambiguous id such as `5.6-Cyber`,
-/// whose catalog entries are Cyber-Red and Cyber-Blue, stays unresolved and
-/// unpriced.
+/// display name (`5.6-Sol`, `6.1-Sol`), so a bare id resolves as `gpt-<id>`
+/// only when the catalog display name, with or without its `GPT-` prefix,
+/// matches it exactly. An ambiguous id such as `5.6-Cyber`, whose catalog
+/// entries are Cyber-Red and Cyber-Blue, stays unresolved and unpriced.
 fn catalog_key(key: &str) -> String {
     if crate::codex::model::resolve_model(key).is_some() {
         return key.to_string();
     }
     let by_name = format!("gpt-{key}");
     match crate::codex::model::resolve_model(&by_name) {
-        Some(model) if model.display_name().to_ascii_lowercase().replace(' ', "-") == key => {
-            by_name
+        Some(model) => {
+            let name = model.display_name().to_ascii_lowercase().replace(' ', "-");
+            if name == key || name == by_name {
+                by_name
+            } else {
+                key.to_string()
+            }
         }
-        _ => key.to_string(),
+        None => key.to_string(),
     }
 }
 
@@ -460,14 +465,36 @@ pub fn effort_label(raw: &str) -> Option<String> {
     })
 }
 
+/// Pulse's bundled context window for an Orion model id, used when Orion has
+/// no context rule for that model.
+pub fn bundled_context_window(model: &str) -> Option<u64> {
+    let id = model.rsplit('/').next().unwrap_or(model);
+    if id.starts_with("claude-") {
+        return Some(if crate::cost::is_ga_1m_context(id) {
+            1_000_000
+        } else {
+            200_000
+        });
+    }
+    let lower = id.to_ascii_lowercase();
+    let (base, _) = split_fast_variant(&lower);
+    crate::codex::cost::default_model_context_window(&catalog_key(base))
+}
+
+/// Display name for an Orion model id. A catalog model keeps Orion's fast
+/// variant as a trailing `· Fast`; an unknown id is shown as Orion stores it.
 pub fn display_model_name(model: &str) -> String {
     let id = model.rsplit('/').next().unwrap_or(model);
-    if id.to_ascii_lowercase().starts_with("claude-") {
+    let lower = id.to_ascii_lowercase();
+    if lower.starts_with("claude-") {
         return crate::cost::model_display_name(id);
     }
-    crate::codex::model::resolve_model(id)
-        .map(|model| model.display_name().to_string())
-        .unwrap_or_else(|| id.to_string())
+    let (base, fast) = split_fast_variant(&lower);
+    match crate::codex::model::resolve_model(&catalog_key(base)) {
+        Some(model) if fast => format!("{} · Fast", model.display_name()),
+        Some(model) => model.display_name().to_string(),
+        None => id.to_string(),
+    }
 }
 
 #[cfg(test)]
@@ -572,6 +599,90 @@ mod tests {
         let astra_fast = estimate_cost("gpt-6-astra--fast", &usage).unwrap();
         assert!(astra_fast.complete);
         close(astra_fast.parts.total(), astra.parts.total() * 2.0);
+    }
+
+    #[test]
+    fn orion_gpt_6_names_resolve_to_catalog_models() {
+        for (raw, key, name) in [
+            ("6.1-Sol", "gpt-6.1-sol", "GPT-6.1 Sol"),
+            ("GPT-6.1-Sol", "gpt-6.1-sol", "GPT-6.1 Sol"),
+            ("gpt-6.1-sol", "gpt-6.1-sol", "GPT-6.1 Sol"),
+            ("openai/gpt-6.1-sol", "gpt-6.1-sol", "GPT-6.1 Sol"),
+            ("6-Sol", "gpt-6-sol", "GPT-6 Sol"),
+            ("GPT-6-Sol", "gpt-6-sol", "GPT-6 Sol"),
+            ("6-Luna", "gpt-6-luna", "GPT-6 Luna"),
+            ("gpt-6-luna", "gpt-6-luna", "GPT-6 Luna"),
+        ] {
+            assert_eq!(
+                catalog_key(&raw.rsplit('/').next().unwrap().to_ascii_lowercase()),
+                key,
+                "{raw}"
+            );
+            assert_eq!(display_model_name(raw), name, "{raw}");
+        }
+        for raw in ["6.1-Sol-Fast", "GPT-6.1-Sol-Fast", "gpt-6.1-sol--fast"] {
+            assert_eq!(display_model_name(raw), "GPT-6.1 Sol · Fast", "{raw}");
+        }
+        assert_eq!(
+            display_model_name("5.6-Sol"),
+            display_model_name("gpt-5.6-sol")
+        );
+        assert_eq!(display_model_name("6.2-Sol"), "6.2-Sol");
+        assert_eq!(display_model_name("5.6-Cyber"), "5.6-Cyber");
+        for (raw, key) in [("6.1-Sol", "gpt-6.1-sol"), ("6-Luna-Fast", "gpt-6-luna")] {
+            let window = bundled_context_window(raw);
+            assert!(window.is_some(), "{raw}");
+            assert_eq!(
+                window,
+                crate::codex::cost::default_model_context_window(key)
+            );
+        }
+        assert_eq!(bundled_context_window("6.2-Sol"), None);
+    }
+
+    #[test]
+    fn orion_gpt_6_requests_price_standard_fast_and_long_context() {
+        // 100K fresh input + 1K output on GPT-6.1 Sol: $0.20 + $0.01.
+        let usage = Usage {
+            input: 100_000,
+            output: 1_000,
+            ..Default::default()
+        };
+        for raw in ["6.1-Sol", "GPT-6.1-Sol", "gpt-6.1-sol"] {
+            let estimate = estimate_cost(raw, &usage).unwrap();
+            assert!(estimate.complete, "{raw}");
+            close(estimate.parts.total(), 0.21);
+        }
+        for raw in ["6.1-Sol-Fast", "GPT-6.1-Sol-Fast", "gpt-6.1-sol-fast"] {
+            let fast = estimate_cost(raw, &usage).unwrap();
+            assert!(fast.complete, "{raw}");
+            close(fast.parts.total(), 0.42);
+        }
+        // Above 272K prompt tokens: 2x input and cache, 1.5x output.
+        let long = estimate_cost(
+            "6.1-Sol",
+            &Usage {
+                input: 300_000,
+                output: 1_000,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(long.complete);
+        close(long.parts.input, 1.2);
+        close(long.parts.output, 0.015);
+
+        let sol = estimate_cost("6-Sol", &one_million_each()).unwrap();
+        close(sol.parts.input, 2.0 * 2.0);
+        close(sol.parts.cache_write, 2.5 * 2.0);
+        close(sol.parts.cache_read, 0.2 * 2.0);
+        close(sol.parts.output, 10.0 * 1.5);
+        let luna = estimate_cost("6-Luna-Fast", &usage).unwrap();
+        assert!(luna.complete);
+        close(luna.parts.total(), 0.021);
+
+        assert_eq!(estimate_cost("6.2-Sol", &usage), None);
+        assert_eq!(estimate_cost("gpt-6.2-sol", &usage), None);
     }
 
     #[test]

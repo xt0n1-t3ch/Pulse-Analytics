@@ -4,6 +4,47 @@ All notable changes to **Pulse** are documented here. Format follows [Keep a Cha
 
 ## [Unreleased]
 
+## [1.9.7] - 2026-10-17
+
+GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna support, on-demand Codex quota reads and webview hardening. The database remains schema 7, Claude config schema 6 and Codex presence config schema 13 are unchanged, and the immutable shared core stays at 2.0.1. Pulse adds a reusable Codex probe folder at `PULSE_HOME/codex/probe-home`; no existing file changes format. Rollback to 1.9.6 needs only its package. GitHub macOS packages have no Apple Developer ID signature or notarization.
+
+### Added
+
+- Support GPT-6.1 Sol (`gpt-6.1-sol`), GPT-6 Sol (`gpt-6-sol`) and GPT-6 Luna (`gpt-6-luna`) from the canonical Codex model catalog (verified 2026-10-16 against the OpenAI model cards). Pulse labels them "GPT-6.1 Sol", "GPT-6 Sol" and "GPT-6 Luna" with Low to Max efforts, plus Ultra on both Sol models. Prices per million tokens: GPT-6.1 Sol $2 input, $2.50 cache write, $0.10 cache read, $10 output; GPT-6 Sol $2 / $2.50 / $0.20 / $10; GPT-6 Luna $0.10 / $0.125 / $0.01 / $0.50. Fast costs 2×, and a request above 272,000 input tokens costs 2× input and cache and 1.5× output. Bundled Codex context fallback: GPT-6.1 Sol 500,000 at 95% (475,000 usable; a secondary-source figure, see the Codex model guide), GPT-6 Sol and Luna 872,000. Observed session context and the local `models_cache.json` still take precedence. Ultrafast is not modeled.
+- Orion App maps `6.1-Sol`, `GPT-6.1-Sol`, `gpt-6.1-sol`, `6-Sol`, `6-Luna` and their `-Fast` variants to the catalog, so GPT-6 Sol sessions are now priced instead of unpriced. Catalog models show their catalog name, and a fast variant adds "· Fast". Context fallback uses the same mapping.
+
+### Changed
+
+- Pin `codex-presence-core` 2.0.1 to the upstream Codex-Discord-Rich-Presence v1.11.3 release (`77d5dd6`). The core API is unchanged from v1.11.2; v1.11.3 owns the GPT-6 catalog rows that Pulse copies.
+- The API-equivalent history estimate for GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna, like Astra, is withheld when a stored session total is above 272,000 input tokens, because the total cannot show which requests crossed the long-context threshold. Rows already stored are not changed.
+
+### Security
+
+- Remove the webview's filesystem write grant and its `$HOME/**` scope. Every export (HTML report, CSV, analytics JSON) already downloads through the browser, so no frontend code needs file access. Remove unused `dialog:allow-save`, `notification:default` and window hide/show/focus grants.
+- Add a Content Security Policy to the Pulse window: bundled scripts only, no `eval`, inline styles, IPC, local and `data:`/`blob:` images plus `https://cdn.discordapp.com` for the Discord avatar and banner preview.
+- Set `withGlobalTauri` to `false`. The title bar window controls import `@tauri-apps/api/window` instead of reading `window.__TAURI__`.
+- Limit links the webview can open in the system browser to `https://` URLs.
+- Compare the dev bridge bearer token in constant time.
+- Grant the event listen/unlisten/emit and app theme commands the frontend already calls. They were missing from the capability, so live snapshot pushes fell back to polling, notification read/dismiss changes did not reach the tray and the native window theme did not follow the in-app toggle.
+- Update rustls to 0.23.46 (RUSTSEC-2026-0346 to 0349).
+- The isolated Codex quota probe deletes any `auth.json` it wrote as soon as the probe ends, and again before the next probe after a crash.
+- Record RUSTSEC-2026-0367, 0368 and 0369 in `zip` 4.6.1 as reviewed exceptions. `tauri-plugin-updater` uses `zip` only on Windows, extracts only after the minisign signature check passes, and no updater release accepts the fixed `zip` 9. See the [dependency audit](docs/maintainers/dependencies.md#updater-zip-advisories).
+
+### Fixed
+
+- Pulse no longer starts a Codex `app-server` every 30 seconds whatever the provider. The Codex account quota is read only when Codex is the Discord provider, Codex or All providers is the analytics scope shown in an open view, a Codex session is live, or the Accounts view is open, and only when a Codex CLI is installed. Readings are reused for 3 minutes, failures retry after 2 minutes, and a manual refresh still reads at once. A reading older than 4 minutes is labeled stale.
+- The main quota lane and the Accounts view share one cached reading and one probe per Codex home, so the default `~/.codex` account is no longer probed twice.
+- Codex quota probes reuse one isolated home at `PULSE_HOME/codex/probe-home` instead of creating a new `%TEMP%\.tmp*` folder with Codex log databases on every read. The home is reset when it passes 32 MB. Pulse-managed account homes prune Codex log databases past 64 MB. Existing leftover `%TEMP%` folders are not removed.
+- Every Codex and Claude process Pulse starts (quota probes and sign-in) runs in a Windows job object, or its own process group on Linux and macOS, and is killed and reaped on success, error, timeout, cancel and drop. Killing the `cmd.exe` shim no longer leaves the real Codex process running.
+- Resolve the Codex CLI from PATH, the user-local installs and the npm package behind `codex.cmd` before starting a PowerShell search, and cache the result until the file disappears.
+- Reload the Codex presence config only when the file changes instead of on every 5-second poll.
+- Cap the daemon diagnostic log at 1 MB with one rotated copy, and remove atomic-write temp files left in `PULSE_HOME` by a crash once they are a day old.
+
+### Dependencies
+
+- tauri 2.11.6, tauri-plugin-single-instance 2.4.5, thiserror 2.0.21, clap 4.6.7, serde_json 1.0.154; add windows-sys 0.61 for job objects.
+- Frontend tooling: vite 6.4.4, vitest and @vitest/coverage-v8 5.0.5, svelte 5.57.2, svelte-check 4.7.7, happy-dom 20.14.6, @testing-library/user-event 14.6.8, source-map-js 1.2.2.
+
 ## [1.9.6] - 2026-09-29
 
 Orion App provider and Claude Sonnet 5.5 release. The database remains schema 7, Claude config schema 6 and Codex presence config schema 13 are unchanged, and the immutable shared core stays at 2.0.1. Orion App settings live in the new `pulse-orion.json`; no existing file changes format. Rollback to 1.9.5 needs only its package: Orion sessions already saved stay in the database and 1.9.5 does not show them. GitHub macOS packages have no Apple Developer ID signature or notarization.

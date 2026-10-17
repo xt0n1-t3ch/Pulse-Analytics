@@ -4,7 +4,7 @@
 
 Local analytics and Discord Rich Presence for **Claude Code, Codex, OpenCode, Command Code and Orion App**. Find a task, understand its data, then follow the relevant implementation or release contract.
 
-**Published: Pulse v1.9.6** · **Previous release: v1.9.5** · **Docs refreshed September 27, 2026**
+**Published: Pulse v1.9.7** · **Previous release: v1.9.6** · **Docs refreshed October 17, 2026**
 
 [Start here](#start-here) · [Models and analytics](#models-and-analytics) · [Build and maintain](#build-and-maintain) · [Version](#version)
 
@@ -46,15 +46,15 @@ Local analytics and Discord Rich Presence for **Claude Code, Codex, OpenCode, Co
 | Quality and security | [Test map](../tests/index.md) · [Dependency audit](maintainers/dependencies.md) |
 | Releases | [Release procedure](maintainers/releases.md) · [Six-platform acceptance](maintainers/platforms.md) |
 
-The immutable v1.9.6 release includes all six platform/architecture targets, checksums and signed updater payloads. Native package checks passed; installed-GUI acceptance is recorded separately per operating system. See [current platform status](maintainers/platforms.md#current-release-status).
+The immutable v1.9.7 release includes all six platform/architecture targets, checksums and signed updater payloads. Native package checks passed; installed-GUI acceptance is recorded separately per operating system. See [current platform status](maintainers/platforms.md#current-release-status).
 
-Version **v1.9.6** adds the Orion App provider with its own Discord identity. **v1.9.5** showed the current Claude plan after an upgrade, corrected Sonnet 5 and Fable 5.1 prices and added an opt-in Claude history correction. **v1.9.4** corrected Claude token counting and **v1.9.3** added Claude Opus 5.5, on top of the 1.9 line: Accounts, the Command Code provider, native allowances and promoted Codex per-event cost. It is published through the six-platform Release workflow with signed updater artifacts. GitHub macOS packages carry no Apple Developer ID signature or notarization.
+Version **v1.9.7** adds GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna, reads the Codex account quota only when it is needed and hardens the window's security policy. **v1.9.6** added the Orion App provider with its own Discord identity. **v1.9.5** showed the current Claude plan after an upgrade, corrected Sonnet 5 and Fable 5.1 prices and added an opt-in Claude history correction. **v1.9.4** corrected Claude token counting and **v1.9.3** added Claude Opus 5.5, on top of the 1.9 line: Accounts, the Command Code provider, native allowances and promoted Codex per-event cost. It is published through the six-platform Release workflow with signed updater artifacts. GitHub macOS packages carry no Apple Developer ID signature or notarization.
 
 ## Version
 
-- Latest published app: **v1.9.6**
-- Version owners in this checkout: **v1.9.6**
-- Shared core: **2.0.1**, immutable v1.11.2 pin
+- Latest published app: **v1.9.7**
+- Version owners in this checkout: **v1.9.7**
+- Shared core: **2.0.1**, immutable v1.11.3 pin
 - Schema: **Claude config v6 / Codex config v13 / Pulse analytics DB v6 in 1.8.2; v7 in 1.9.1**
 - Version owners: [release contract](../scripts/release-contract.json) and [upstream manifest](../src/codex/UPSTREAM.json).
 - Windows WSL discovery is opt-in through `CC_PRESENCE_INCLUDE_WSL=1`.

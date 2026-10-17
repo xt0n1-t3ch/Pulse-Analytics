@@ -186,7 +186,6 @@ if (typeof globalThis !== "undefined") {
     const w = window as unknown as Record<string, unknown>;
     w.__TAURI_INTERNALS__ = internals;
     w.__TAURI_EVENT_PLUGIN_INTERNALS__ = eventInternals;
-    w.__TAURI__ = { window: { getCurrentWindow: () => fakeWindow } };
   }
 }
 

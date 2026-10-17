@@ -696,3 +696,111 @@ mod astra_tests {
         assert_eq!(rates.output_per_million, 50.0);
     }
 }
+
+#[cfg(test)]
+mod gpt_6_family_tests {
+    use super::*;
+
+    #[test]
+    fn gpt_6_family_has_standard_and_fast_labels() {
+        assert_eq!(
+            format_model_display("gpt-6.1-sol", Some(ReasoningEffort::Medium), false),
+            "GPT-6.1 Sol · Medium"
+        );
+        assert_eq!(
+            format_model_display("gpt-6.1-sol-fast", Some(ReasoningEffort::Ultra), true),
+            "GPT-6.1 Sol · Ultra · ⚡ Fast"
+        );
+        assert_eq!(
+            format_model_display("GPT-6.1-Sol", Some(ReasoningEffort::XHigh), false),
+            "GPT-6.1 Sol · Extra High"
+        );
+        assert_eq!(
+            format_model_display("gpt-6-sol", Some(ReasoningEffort::Max), false),
+            "GPT-6 Sol · Max"
+        );
+        assert_eq!(
+            format_model_display("gpt-6-luna", Some(ReasoningEffort::Ultra), true),
+            "GPT-6 Luna · ⚡ Fast"
+        );
+    }
+
+    #[test]
+    fn gpt_6_sol_luna_context_rates_and_efforts_match_the_catalog() {
+        let cases = [
+            ("gpt-6.1-sol", 500_000, 95, 2.0, 2.5, 0.1, 10.0, true),
+            ("gpt-6-sol", 872_000, 100, 2.0, 2.5, 0.2, 10.0, true),
+            ("gpt-6-luna", 872_000, 100, 0.1, 0.125, 0.01, 0.5, false),
+        ];
+        for (id, raw, percent, input, write, read, output, ultra) in cases {
+            let model = resolve_model(id).expect("catalog model");
+            assert_eq!(model.canonical_id(), id);
+            let context = model.context().expect("catalog context");
+            assert_eq!(context.raw_tokens, raw, "raw context for {id}");
+            assert_eq!(context.effective_percent, percent, "percent for {id}");
+            assert_eq!(context.api_tokens, Some(1_050_000));
+            assert_eq!(context.max_input_tokens, Some(922_000));
+            assert_eq!(context.max_output_tokens, Some(128_000));
+            assert_eq!(context.long_context_input_threshold, Some(272_000));
+
+            let rates = model.api_rates().expect("catalog rates");
+            assert_eq!(rates.input_per_million, input, "input for {id}");
+            assert_eq!(rates.cache_write_per_million, Some(write), "write for {id}");
+            assert_eq!(rates.cached_input_per_million, read, "read for {id}");
+            assert_eq!(rates.output_per_million, output, "output for {id}");
+            assert!(model.credit_rates().is_none());
+            assert_eq!(model.fast_usage_multiplier(), Some(2.0));
+            let long = model.long_context_pricing().expect("long-context pricing");
+            assert_eq!(long.input_and_cache, 2.0);
+            assert_eq!(long.output, 1.5);
+
+            for effort in [
+                ReasoningEffort::Low,
+                ReasoningEffort::Medium,
+                ReasoningEffort::High,
+                ReasoningEffort::XHigh,
+                ReasoningEffort::Max,
+            ] {
+                assert!(model.supports_effort(effort), "{effort:?} for {id}");
+            }
+            assert_eq!(model.supports_effort(ReasoningEffort::Ultra), ultra);
+            assert!(!model.supports_effort(ReasoningEffort::Minimal));
+        }
+    }
+
+    #[test]
+    fn unknown_gpt_6_variants_stay_unresolved() {
+        for id in ["gpt-6.2-sol", "gpt-6.1-luna", "gpt-6.1-sol-ultrafast"] {
+            assert!(resolve_model(id).is_none(), "{id}");
+        }
+    }
+
+    #[test]
+    fn gpt_6_1_sol_context_prefers_observed_then_local_cache_then_bundle() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = dir.path().join("models_cache.json");
+        std::fs::write(
+            &cache,
+            r#"{"models":[{"slug":"gpt-6.1-sol","context_window":272000,"effective_context_window_percent":95}]}"#,
+        )
+        .expect("cache fixture");
+
+        let observed = resolve_context_window_from_cache_path("gpt-6.1-sol", Some(475_000), &cache)
+            .expect("observed context");
+        assert_eq!(observed.effective_tokens, 475_000);
+        assert_eq!(observed.source, ContextSource::ObservedJsonl);
+
+        let local = resolve_context_window_from_cache_path("gpt-6.1-sol", None, &cache)
+            .expect("local context");
+        assert_eq!(local.raw_tokens, 272_000);
+        assert_eq!(local.effective_tokens, 258_400);
+        assert_eq!(local.source, ContextSource::LocalModelCache);
+
+        std::fs::write(&cache, r#"{"models":[]}"#).expect("empty cache");
+        let bundled = resolve_context_window_from_cache_path("gpt-6.1-sol", None, &cache)
+            .expect("bundled context");
+        assert_eq!(bundled.raw_tokens, 500_000);
+        assert_eq!(bundled.effective_tokens, 475_000);
+        assert_eq!(bundled.source, ContextSource::BundledCatalog);
+    }
+}

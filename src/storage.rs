@@ -22,6 +22,11 @@ pub fn database_path() -> PathBuf {
     home().join("pulse-analytics.db")
 }
 
+/// Isolated `CODEX_HOME` reused by every read-only Codex quota probe.
+pub fn codex_probe_home() -> PathBuf {
+    home().join("codex").join("probe-home")
+}
+
 pub fn initialize() -> Result<()> {
     if !home().is_absolute() {
         bail!("PULSE_HOME must be an absolute path");
@@ -30,7 +35,45 @@ pub fn initialize() -> Result<()> {
         &home(),
         &crate::config::claude_home(),
         &crate::codex::config::codex_home(),
-    )
+    )?;
+    sweep_stale_atomic_temps(&home(), STALE_TEMP_AGE);
+    Ok(())
+}
+
+const STALE_TEMP_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// `NamedTempFile::new_in` names its file `.tmp` plus six alphanumerics. A
+/// crash between create and persist leaves that file behind forever.
+fn is_atomic_temp_name(name: &str) -> bool {
+    name.strip_prefix(".tmp").is_some_and(|suffix| {
+        suffix.len() == 6 && suffix.bytes().all(|byte| byte.is_ascii_alphanumeric())
+    })
+}
+
+fn sweep_stale_atomic_temps(root: &Path, min_age: std::time::Duration) {
+    let now = std::time::SystemTime::now();
+    for dir in [root.to_path_buf(), root.join("claude"), root.join("codex")] {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            let stale = metadata
+                .modified()
+                .ok()
+                .and_then(|modified| now.duration_since(modified).ok())
+                .is_some_and(|age| age >= min_age);
+            if metadata.is_file()
+                && stale
+                && is_atomic_temp_name(&entry.file_name().to_string_lossy())
+                && let Err(error) = fs::remove_file(entry.path())
+            {
+                tracing::warn!(path = %entry.path().display(), %error, "failed to remove stale temp file");
+            }
+        }
+    }
 }
 
 /// Copy once, never move or overwrite. SQLite creates a consistent snapshot,
@@ -218,6 +261,34 @@ mod tests {
             fs::read_to_string(source.join("pulse-provider.json")).unwrap(),
             "invalid"
         );
+    }
+
+    #[test]
+    fn sweep_removes_only_old_atomic_temp_files() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("codex")).unwrap();
+        let stale = root.path().join(".tmpfaVwJJ");
+        let nested = root.path().join("codex").join(".tmpAb12Cd");
+        let other = root.path().join(".tmp-not-ours.json");
+        let config = root.path().join("pulse-provider.json");
+        let dir = root.path().join(".tmpDir123");
+        for path in [&stale, &nested, &other, &config] {
+            fs::write(path, b"x").unwrap();
+        }
+        fs::create_dir(&dir).unwrap();
+
+        sweep_stale_atomic_temps(root.path(), std::time::Duration::from_secs(3600));
+        assert!(
+            stale.exists(),
+            "a fresh temp may belong to an in-flight write"
+        );
+
+        sweep_stale_atomic_temps(root.path(), std::time::Duration::ZERO);
+        assert!(!stale.exists());
+        assert!(!nested.exists());
+        assert!(other.exists());
+        assert!(config.exists());
+        assert!(dir.exists());
     }
 
     #[test]

@@ -127,19 +127,50 @@ fn pause() {
     let _ = io::stdin().lock().read_line(&mut String::new());
 }
 
+const DIAGNOSTIC_LOG_CAP_BYTES: u64 = 1024 * 1024;
+
 /// Write a diagnostic line to a log file next to the config.
 /// Best-effort — silently ignores write failures.
 fn log_diagnostic(msg: &str) {
-    use std::io::Write;
     let log_path = cc_discord_presence::storage::home()
         .join("claude")
         .join("cc-discord-presence-debug.log");
+    append_capped(&log_path, msg, DIAGNOSTIC_LOG_CAP_BYTES);
+}
+
+/// Appends one timestamped line. A log at or past `cap` is first moved to
+/// `<name>.old`, so at most two capped files exist.
+fn append_capped(log_path: &std::path::Path, msg: &str, cap: u64) {
+    use std::io::Write;
+    if std::fs::metadata(log_path).is_ok_and(|metadata| metadata.len() >= cap) {
+        let _ = std::fs::rename(log_path, log_path.with_extension("log.old"));
+    }
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&log_path)
+        .open(log_path)
     {
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
         let _ = writeln!(file, "[{timestamp}] {msg}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::append_capped;
+
+    #[test]
+    fn diagnostic_log_rotates_once_it_reaches_its_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("debug.log");
+        for index in 0..50 {
+            append_capped(&log, &format!("line {index}"), 256);
+        }
+        let current = std::fs::metadata(&log).unwrap().len();
+        let rotated = std::fs::metadata(log.with_extension("log.old"))
+            .unwrap()
+            .len();
+        assert!(current < 256 + 64, "current log is {current} bytes");
+        assert!(rotated < 256 + 64, "rotated log is {rotated} bytes");
     }
 }

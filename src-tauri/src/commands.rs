@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use cc_discord_presence::codex::account_usage::{
-    AccountUsageManager, AccountUsageReading, effective_limits_from_envelopes, fresh_envelopes,
+    AccountUsageReading, effective_limits_from_envelopes, fresh_envelopes,
 };
 use cc_discord_presence::codex::config::{
     DesktopPresenceDesign, PresenceConfig as CodexPresenceConfig, PresenceSurface,
@@ -533,7 +533,7 @@ fn codex_route_from_probe(
                 reset_credits,
                 individual_limits,
                 chrono::Utc::now(),
-                chrono::Duration::seconds(30),
+                cc_discord_presence::codex::account_usage::reading_max_age(),
                 chrono::Utc::now(),
             );
             (route, Some(usage), None)
@@ -549,24 +549,119 @@ fn codex_route_from_probe(
     }
 }
 
+fn modified_time(path: &std::path::Path) -> Option<SystemTime> {
+    std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok()
+}
+
+/// Reloads a config file only when its modification time changes.
+#[derive(Default)]
+struct ConfigReload {
+    modified: Option<SystemTime>,
+}
+
+impl ConfigReload {
+    fn observed(path: &std::path::Path) -> Self {
+        Self {
+            modified: modified_time(path),
+        }
+    }
+
+    fn reload_if_changed<T>(
+        &mut self,
+        path: &std::path::Path,
+        load: impl FnOnce() -> anyhow::Result<T>,
+    ) -> Option<T> {
+        let modified = modified_time(path);
+        if modified.is_some() && modified == self.modified {
+            return None;
+        }
+        let loaded = load().ok()?;
+        // Loading may create the file with defaults.
+        self.modified = modified_time(path);
+        Some(loaded)
+    }
+}
+
+/// Window in which an analytics request still counts as someone looking. The
+/// webview polls analytics every five seconds only while it is visible.
+const ANALYTICS_DEMAND_WINDOW: Duration = Duration::from_secs(60);
+
+static ANALYTICS_SCOPE_SEEN: Mutex<Option<(bool, Instant)>> = Mutex::new(None);
+
+/// A missing scope means the active provider, which the Discord-provider
+/// demand already covers.
+fn analytics_scope_includes_codex(provider: Option<&str>) -> bool {
+    provider
+        .map(|value| value.trim().to_ascii_lowercase())
+        .is_some_and(|value| value == "all" || value == "codex")
+}
+
+fn note_analytics_scope(provider: Option<&str>) {
+    if let Ok(mut seen) = ANALYTICS_SCOPE_SEEN.lock() {
+        *seen = Some((analytics_scope_includes_codex(provider), Instant::now()));
+    }
+}
+
+fn analytics_wants_codex(now: Instant) -> bool {
+    ANALYTICS_SCOPE_SEEN.lock().is_ok_and(|seen| {
+        seen.is_some_and(|(includes_codex, at)| {
+            includes_codex && now.saturating_duration_since(at) < ANALYTICS_DEMAND_WINDOW
+        })
+    })
+}
+
+/// Reasons to read the Codex account quota. Each read starts a Codex
+/// app-server, so none of them means no read at all.
+#[derive(Clone, Copy, Debug, Default)]
+struct CodexProbeDemand {
+    discord_provider: bool,
+    analytics: bool,
+    live_session: bool,
+}
+
+impl CodexProbeDemand {
+    fn wanted(self, cli_available: impl FnOnce() -> bool) -> bool {
+        (self.discord_provider || self.analytics || self.live_session) && cli_available()
+    }
+}
+
+fn request_codex_usage(
+    trigger: &std::sync::mpsc::SyncSender<()>,
+    force: &AtomicBool,
+    wanted: bool,
+    force_refresh: bool,
+) {
+    if !wanted {
+        return;
+    }
+    if force_refresh {
+        force.store(true, Ordering::Release);
+    }
+    let _ = trigger.try_send(());
+}
+
 #[allow(clippy::too_many_arguments)]
 fn independently_probe_access(
     usage_mgr: &mut UsageManager,
     codex_usage_trigger: &std::sync::mpsc::SyncSender<()>,
     codex_usage_force: &AtomicBool,
     codex_usage_latest: &Arc<Mutex<Option<Result<AccountUsageReading, String>>>>,
+    codex_probe_wanted: bool,
     api_probe_cache: &mut ApiProbeCache,
     force_refresh: bool,
     active_provider: Provider,
     codex_plan_detector: &mut PlanDetector,
     codex_plan_config: &cc_discord_presence::codex::config::OpenAiPlanDisplayConfig,
 ) -> Vec<AccessRouteSnapshot> {
-    if force_refresh {
-        codex_usage_force.store(true, Ordering::Release);
-    }
-    // Trigger the app-server lane on every tick, regardless of which provider
-    // currently owns the UI/presence surface.
-    let _ = codex_usage_trigger.try_send(());
+    // The worker owns the app-server; this tick never waits on it.
+    request_codex_usage(
+        codex_usage_trigger,
+        codex_usage_force,
+        codex_probe_wanted,
+        force_refresh,
+    );
 
     let refresh_claude = force_refresh && active_provider != Provider::Claude;
     let (claude_route, _, _, _, _) = claude_route_from_probe(usage_mgr, refresh_claude);
@@ -671,7 +766,7 @@ fn active_access_route(data: &CachedData) -> AccessRouteSnapshot {
                     subscription_source("codex", None),
                     usage,
                     now,
-                    chrono::Duration::seconds(30),
+                    cc_discord_presence::codex::account_usage::reading_max_age(),
                     now,
                 )
             })
@@ -959,11 +1054,13 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
         let force = Arc::clone(&codex_usage_force);
         let latest = Arc::clone(&codex_usage_latest);
         thread::spawn(move || {
-            let mut manager = AccountUsageManager::read_only();
             while codex_usage_requests.recv().is_ok() {
-                let result = manager
-                    .get_usage(force.swap(false, Ordering::AcqRel))
-                    .map_err(|error| error.to_string());
+                let result = cc_discord_presence::codex::account_usage::read_shared_usage(
+                    None,
+                    true,
+                    force.swap(false, Ordering::AcqRel),
+                )
+                .map_err(|error| error.to_string());
                 if let Ok(mut slot) = latest.lock() {
                     *slot = Some(result);
                 }
@@ -984,6 +1081,8 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
         let mut usage_mgr = UsageManager::read_only();
         let mut claude_config = PresenceConfig::load_or_init().unwrap_or_default();
         let mut codex_config = CodexPresenceConfig::load_or_init().unwrap_or_default();
+        let mut codex_config_reload =
+            ConfigReload::observed(&cc_discord_presence::codex::config::config_path());
         let mut claude_discord = ClaudeDiscordPresence::new(claude_config.effective_client_id());
         let mut codex_discord = CodexDiscordPresence::new(codex_config.effective_client_id());
         let mut codex_plan_detector = PlanDetector::new();
@@ -1029,14 +1128,24 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
             let discord_enabled =
                 discord_enabled && std::env::var("PULSE_DISABLE_DISCORD").as_deref() != Ok("1");
 
-            if let Ok(fresh) = CodexPresenceConfig::load_or_init() {
+            if let Some(fresh) = codex_config_reload.reload_if_changed(
+                &cc_discord_presence::codex::config::config_path(),
+                CodexPresenceConfig::load_or_init,
+            ) {
                 codex_config = fresh;
             }
+            let codex_probe_wanted = CodexProbeDemand {
+                discord_provider: provider == Provider::Codex,
+                analytics: analytics_wants_codex(Instant::now()),
+                live_session: data.lock().is_ok_and(|d| !d.live_codex.is_empty()),
+            }
+            .wanted(cc_discord_presence::codex::account_usage::codex_cli_available);
             let mut independently_probed_routes = independently_probe_access(
                 &mut usage_mgr,
                 &codex_usage_trigger,
                 &codex_usage_force,
                 &codex_usage_latest,
+                codex_probe_wanted,
                 &mut api_probe_cache,
                 force_refresh,
                 provider,
@@ -1519,12 +1628,6 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                         chrono::Utc::now(),
                         chrono::Duration::minutes(15),
                     );
-                    if force_refresh {
-                        codex_usage_force.store(true, Ordering::Release);
-                    }
-                    // The account protocol has independent response timeouts;
-                    // never hold session persistence or Discord updates on it.
-                    let _ = codex_usage_trigger.try_send(());
                     let account_usage = codex_usage_latest
                         .lock()
                         .ok()
@@ -1603,7 +1706,7 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                                     }) {
                                         chrono::Duration::minutes(15)
                                     } else {
-                                        chrono::Duration::seconds(30)
+                                        cc_discord_presence::codex::account_usage::reading_max_age()
                                     };
                                 let mut source = subscription_source("codex", access_plan.clone());
                                 if usage.source.signals.iter().any(|signal| {
@@ -4093,6 +4196,7 @@ pub async fn get_dashboard_bundle(provider: Option<String>) -> DashboardBundle {
 }
 
 pub fn dashboard_bundle_blocking(provider: Option<String>) -> DashboardBundle {
+    note_analytics_scope(provider.as_deref());
     let data = crate::db::get_dashboard_data_scoped(provider.as_deref(), 7, 5000);
     DashboardBundle {
         summary: data.summary,
@@ -4163,6 +4267,7 @@ pub fn get_daily_stats(days: Option<i64>, provider: Option<String>) -> Vec<crate
 
 #[tauri::command]
 pub fn get_analytics_summary(provider: Option<String>) -> crate::db::AnalyticsSummary {
+    note_analytics_scope(provider.as_deref());
     crate::db::get_analytics_summary_scoped(provider.as_deref())
 }
 
@@ -5447,6 +5552,7 @@ pub async fn get_costs_bundle(project: Option<String>, provider: Option<String>)
 }
 
 pub fn costs_bundle_blocking(project: Option<String>, provider: Option<String>) -> CostsBundle {
+    note_analytics_scope(provider.as_deref());
     let data = crate::db::get_costs_data_scoped(provider.as_deref(), 30, project.as_deref(), 200);
     CostsBundle {
         history: data.history,
@@ -5724,6 +5830,115 @@ fn resolve_codex_plan(
         detector.resolve_from_sessions(sessions, &config.openai_plan)
     } else {
         detector.resolve_from_envelopes(envelopes, &config.openai_plan)
+    }
+}
+
+#[cfg(test)]
+mod codex_probe_gate_tests {
+    use super::{
+        ANALYTICS_DEMAND_WINDOW, ANALYTICS_SCOPE_SEEN, CodexProbeDemand, ConfigReload,
+        analytics_wants_codex, note_analytics_scope, request_codex_usage,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    fn ticks(demand: CodexProbeDemand, cli_available: bool, count: usize) -> (usize, bool) {
+        let (trigger, requests) = std::sync::mpsc::sync_channel::<()>(1);
+        let force = AtomicBool::new(false);
+        let mut received = 0;
+        for tick in 0..count {
+            let wanted = demand.wanted(|| cli_available);
+            request_codex_usage(&trigger, &force, wanted, tick % 10 == 0);
+            // The worker drains one request per tick, as the real lane does.
+            received += requests.try_recv().map_or(0, |()| 1);
+        }
+        (received, force.load(Ordering::Acquire))
+    }
+
+    #[test]
+    fn no_probe_is_requested_while_nothing_needs_codex() {
+        let cli_checked = std::cell::Cell::new(false);
+        let idle = CodexProbeDemand::default();
+        assert!(!idle.wanted(|| {
+            cli_checked.set(true);
+            true
+        }));
+        assert!(
+            !cli_checked.get(),
+            "CLI discovery must not run without demand"
+        );
+
+        // About ten minutes of five-second ticks, Claude selected, no live
+        // Codex session, analytics scoped away from Codex.
+        assert_eq!(ticks(idle, true, 120), (0, false));
+    }
+
+    #[test]
+    fn each_reason_alone_requests_a_probe_when_the_cli_exists() {
+        for demand in [
+            CodexProbeDemand {
+                discord_provider: true,
+                ..CodexProbeDemand::default()
+            },
+            CodexProbeDemand {
+                analytics: true,
+                ..CodexProbeDemand::default()
+            },
+            CodexProbeDemand {
+                live_session: true,
+                ..CodexProbeDemand::default()
+            },
+        ] {
+            assert!(demand.wanted(|| true));
+            assert_eq!(ticks(demand, true, 12).0, 12);
+            assert_eq!(ticks(demand, false, 12), (0, false));
+        }
+    }
+
+    #[test]
+    fn analytics_demand_follows_the_requested_scope_and_lapses() {
+        let now = Instant::now();
+        for (scope, expected) in [
+            (Some("all"), true),
+            (Some("codex"), true),
+            (Some(" Codex "), true),
+            (Some("claude"), false),
+            (Some("opencode"), false),
+            (None, false),
+        ] {
+            note_analytics_scope(scope);
+            assert_eq!(analytics_wants_codex(Instant::now()), expected, "{scope:?}");
+        }
+        note_analytics_scope(Some("all"));
+        assert!(!analytics_wants_codex(
+            now + ANALYTICS_DEMAND_WINDOW + Duration::from_secs(1)
+        ));
+        *ANALYTICS_SCOPE_SEEN.lock().unwrap() = None;
+        assert!(!analytics_wants_codex(Instant::now()));
+    }
+
+    #[test]
+    fn config_reloads_only_when_the_file_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        std::fs::write(&path, "1").unwrap();
+        let mut reload = ConfigReload::observed(&path);
+        let mut loads = 0;
+        let mut load = || -> anyhow::Result<u32> {
+            loads += 1;
+            Ok(std::fs::read_to_string(&path)?.parse()?)
+        };
+        for _ in 0..20 {
+            assert_eq!(reload.reload_if_changed(&path, &mut load), None);
+        }
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        std::io::Write::write_all(&mut &file, b"2").unwrap();
+        file.set_modified(std::time::SystemTime::now() + Duration::from_secs(5))
+            .unwrap();
+        drop(file);
+        assert_eq!(reload.reload_if_changed(&path, &mut load), Some(2));
+        assert_eq!(reload.reload_if_changed(&path, &mut load), None);
+        assert_eq!(loads, 1);
     }
 }
 

@@ -546,6 +546,106 @@ mod tests {
 }
 
 #[cfg(test)]
+mod gpt_6_family_tests {
+    use super::*;
+
+    fn request(model: &str, input: u64, output: u64, mode: SpeedMode) -> CostComputation {
+        compute_cost_for_request(
+            model,
+            TokenUsage {
+                input_tokens: input,
+                output_tokens: output,
+                cache_write_tokens: Some(0),
+                ..TokenUsage::default()
+            },
+            SessionSpeed::explicit(mode, SpeedSource::ThreadSettings),
+            &PricingConfig::default(),
+            Some(input),
+        )
+    }
+
+    #[test]
+    fn gpt_6_1_sol_requests_use_standard_fast_and_long_context_rates() {
+        let standard = request("gpt-6.1-sol", 100_000, 1_000, SpeedMode::Standard);
+        assert_eq!(standard.status, PricingStatus::Exact);
+        assert_eq!(standard.source, PricingSource::Exact);
+        assert!((standard.total_cost_usd - 0.21).abs() < 1e-9);
+
+        let fast = request("gpt-6.1-sol-fast", 100_000, 1_000, SpeedMode::Fast);
+        assert_eq!(fast.status, PricingStatus::Exact);
+        assert!((fast.total_cost_usd - 0.42).abs() < 1e-9);
+
+        let at_threshold = request("gpt-6.1-sol", 272_000, 1_000, SpeedMode::Standard);
+        assert!((at_threshold.total_cost_usd - 0.554).abs() < 1e-9);
+
+        let long = request("gpt-6.1-sol", 300_000, 1_000, SpeedMode::Standard);
+        assert_eq!(long.status, PricingStatus::Exact);
+        assert!((long.breakdown.input_cost_usd - 1.2).abs() < 1e-9);
+        assert!((long.breakdown.output_cost_usd - 0.015).abs() < 1e-9);
+        assert!((long.total_cost_usd - 1.215).abs() < 1e-9);
+
+        let long_fast = request("gpt-6.1-sol", 300_000, 1_000, SpeedMode::Fast);
+        assert!((long_fast.total_cost_usd - 2.43).abs() < 1e-9);
+    }
+
+    #[test]
+    fn gpt_6_sol_and_luna_price_every_category() {
+        let sol = compute_cost_for_request(
+            "gpt-6-sol",
+            TokenUsage {
+                input_tokens: 100_000,
+                cached_input_tokens: 20_000,
+                cache_write_tokens: Some(10_000),
+                output_tokens: 1_000,
+            },
+            SessionSpeed::explicit(SpeedMode::Standard, SpeedSource::ThreadSettings),
+            &PricingConfig::default(),
+            Some(100_000),
+        );
+        assert_eq!(sol.status, PricingStatus::Exact);
+        assert!((sol.total_cost_usd - 0.179).abs() < 1e-9);
+
+        let luna = request("gpt-6-luna", 100_000, 1_000, SpeedMode::Standard);
+        assert_eq!(luna.status, PricingStatus::Exact);
+        assert!((luna.total_cost_usd - 0.0105).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cumulative_gpt_6_1_sol_input_above_the_threshold_is_a_lower_bound() {
+        let computed = compute_cost(
+            "gpt-6.1-sol",
+            TokenUsage {
+                input_tokens: 300_000,
+                output_tokens: 1_000,
+                ..TokenUsage::default()
+            },
+            SessionSpeed::explicit(SpeedMode::Standard, SpeedSource::ThreadSettings),
+            &PricingConfig::default(),
+        );
+        assert_eq!(computed.status, PricingStatus::Partial);
+        assert!((computed.known_total_cost_usd.expect("subtotal") - 0.61).abs() < 1e-9);
+    }
+
+    #[test]
+    fn unknown_gpt_6_variant_stays_unavailable() {
+        let computed = request("gpt-6.2-sol", 100_000, 1_000, SpeedMode::Standard);
+        assert_eq!(computed.status, PricingStatus::Unavailable);
+        assert_eq!(computed.known_total_cost_usd, None);
+    }
+
+    #[test]
+    fn gpt_6_1_sol_metadata_keeps_codex_and_api_context_apart() {
+        let metadata = model_context_metadata("gpt-6.1-sol").expect("metadata");
+        assert_eq!(metadata.raw_context_window, 500_000);
+        assert_eq!(metadata.oauth_context_window, 475_000);
+        assert_eq!(metadata.api_context_window, Some(1_050_000));
+        assert_eq!(metadata.long_context_input_threshold, Some(272_000));
+        assert_eq!(speed_multiplier("gpt-6.1-sol", true), 2.0);
+        assert_eq!(speed_multiplier("gpt-6.1-sol", false), 1.0);
+    }
+}
+
+#[cfg(test)]
 mod astra_tests {
     use super::*;
     #[test]
