@@ -27,7 +27,7 @@
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.7",
     "typescript": "^5.7.0",
-    "vite": "^6.4.4",
+    "vite": "^6.4.5",
     "vitest": "^5.0.5"
   },
   "overrides": {
