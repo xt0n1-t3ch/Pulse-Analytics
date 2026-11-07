@@ -22,7 +22,7 @@ struct Step {
 }
 
 /// The gate, in the order it runs: cheap format checks first, tests last.
-const STEPS: [Step; 13] = [
+const STEPS: [Step; 14] = [
     Step {
         id: "fmt",
         label: "cargo fmt --check",
@@ -57,6 +57,11 @@ const STEPS: [Step; 13] = [
                 "warnings",
             ],
         ),
+    },
+    Step {
+        id: "clippy-windows",
+        label: "cargo clippy -D warnings (Windows target)",
+        kind: Kind::Native(clippy_windows),
     },
     Step {
         id: "bun-test",
@@ -101,6 +106,32 @@ const STEPS: [Step; 13] = [
         kind: Kind::Native(|root| catalog::parity(root, None)),
     },
 ];
+
+/// Lints the Windows-only code from any host, so a release does not meet it
+/// for the first time on a Windows runner. Other hosts need `cargo-xwin`,
+/// which supplies the MSVC headers and libraries; a Windows host is already
+/// covered by the plain Clippy step.
+fn clippy_windows(root: &Path) -> Result<String> {
+    if cfg!(windows) {
+        return Ok("covered by the Clippy step on this Windows host".into());
+    }
+    run_tool(
+        root,
+        "cargo",
+        &[
+            "xwin",
+            "clippy",
+            "--locked",
+            "--workspace",
+            "--all-targets",
+            "--target",
+            "x86_64-pc-windows-msvc",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )
+}
 
 /// Ids accepted by `--skip`.
 pub fn step_ids() -> Vec<&'static str> {
@@ -187,6 +218,7 @@ mod tests {
                 "lint",
                 "typecheck",
                 "clippy",
+                "clippy-windows",
                 "bun-test",
                 "nextest",
                 "changelog",

@@ -141,8 +141,49 @@ pub fn format_time_until_reset(reset_time: DateTime<Utc>) -> String {
     human_duration(duration.to_std().unwrap_or_default())
 }
 
+/// Decodes text a Windows command printed: UTF-16LE when it starts with a
+/// byte-order mark or its first characters interleave NUL bytes (as `wsl.exe`
+/// prints), UTF-8 otherwise. A trailing odd byte is dropped.
+#[cfg(any(windows, test))]
+pub fn decode_windows_text_output(bytes: &[u8]) -> String {
+    let has_interleaved_nuls = bytes
+        .iter()
+        .skip(1)
+        .step_by(2)
+        .take(64)
+        .any(|byte| *byte == 0);
+    if bytes.starts_with(&[0xFF, 0xFE]) || has_interleaved_nuls {
+        let (pairs, _odd) = bytes.as_chunks::<2>();
+        let utf16: Vec<u16> = pairs.iter().map(|pair| u16::from_le_bytes(*pair)).collect();
+        return String::from_utf16_lossy(&utf16);
+    }
+    String::from_utf8_lossy(bytes).to_string()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_command_output_decodes_utf16_and_utf8() {
+        let utf16: Vec<u8> = [0xFF, 0xFE]
+            .into_iter()
+            .chain("Ubuntu\r\n".encode_utf16().flat_map(u16::to_le_bytes))
+            .collect();
+        assert_eq!(decode_windows_text_output(&utf16), "\u{feff}Ubuntu\r\n");
+
+        let no_bom: Vec<u8> = "C:\\".encode_utf16().flat_map(u16::to_le_bytes).collect();
+        assert_eq!(decode_windows_text_output(&no_bom), "C:\\");
+
+        // A trailing odd byte is dropped, never read past the end.
+        let mut odd = no_bom.clone();
+        odd.push(b'x');
+        assert_eq!(decode_windows_text_output(&odd), "C:\\");
+
+        assert_eq!(
+            decode_windows_text_output("plain ascii".as_bytes()),
+            "plain ascii"
+        );
+    }
+
     use super::*;
 
     #[cfg(unix)]

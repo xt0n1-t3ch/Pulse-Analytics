@@ -1078,7 +1078,7 @@ fn windows_wsl_distro_names() -> Vec<String> {
         return Vec::new();
     }
 
-    decode_windows_text_output(&output.stdout)
+    crate::util::decode_windows_text_output(&output.stdout)
         .lines()
         .map(|line| line.trim().trim_start_matches('*').trim().to_string())
         .filter(|line| !line.is_empty())
@@ -1098,7 +1098,7 @@ fn wsl_home_for_distro(distro: &str) -> Option<String> {
         return None;
     }
 
-    let home = decode_windows_text_output(&output.stdout)
+    let home = crate::util::decode_windows_text_output(&output.stdout)
         .trim()
         .to_string();
     if home.is_empty() { None } else { Some(home) }
@@ -1117,27 +1117,6 @@ fn wsl_home_to_unc_sessions_path(distro: &str, home: &str) -> PathBuf {
     }
     unc.push_str(r"\.codex\sessions");
     PathBuf::from(unc)
-}
-
-#[cfg(windows)]
-fn decode_windows_text_output(bytes: &[u8]) -> String {
-    let has_interleaved_nuls = bytes
-        .iter()
-        .skip(1)
-        .step_by(2)
-        .take(64)
-        .any(|byte| *byte == 0);
-
-    if bytes.starts_with(&[0xFF, 0xFE]) || has_interleaved_nuls {
-        let mut utf16: Vec<u16> = Vec::with_capacity(bytes.len() / 2);
-        let mut chunks = bytes.chunks_exact(2);
-        for chunk in &mut chunks {
-            utf16.push(u16::from_le_bytes([chunk[0], chunk[1]]));
-        }
-        return String::from_utf16_lossy(&utf16);
-    }
-
-    String::from_utf8_lossy(bytes).to_string()
 }
 
 #[cfg(test)]

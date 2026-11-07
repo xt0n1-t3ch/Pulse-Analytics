@@ -17,7 +17,7 @@ cargo xtask check
 bun run build:frontend
 ```
 
-`cargo xtask check` runs `cargo fmt --check`, the Bun format check, oxlint, the type check, Clippy with `-D warnings`, the Bun tests, `cargo nextest run --workspace`, the changelog check, `llms --check`, the checkout release contract, the vendored-core check, the RustSec audit (needs `cargo-audit` 0.22.2 and network) and the model catalog parity check, and prints one line per step.
+`cargo xtask check` runs `cargo fmt --check`, the Bun format check, oxlint, the type check, Clippy with `-D warnings` for the host and for the Windows target (through `cargo xwin` on Linux and macOS), the Bun tests, `cargo nextest run --workspace`, the changelog check, `llms --check`, the checkout release contract, the vendored-core check, the RustSec audit (needs `cargo-audit` 0.22.2 and network) and the model catalog parity check, and prints one line per step.
 
 Changes to OS-specific code, dependencies, installers, signing or release tooling also require the release-tool tests:
 
