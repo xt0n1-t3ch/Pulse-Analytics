@@ -6,6 +6,8 @@ The warnings and the `zip` entries are inherited from the existing Tauri depende
 
 ## Updater zip advisories
 
+[RUSTSEC-2026-0370](https://rustsec.org/advisories/RUSTSEC-2026-0370), [RUSTSEC-2026-0371](https://rustsec.org/advisories/RUSTSEC-2026-0371) and [RUSTSEC-2026-0372](https://rustsec.org/advisories/RUSTSEC-2026-0372) mark `zvariant`, `zbus_names` and `zvariant_derive` unmaintained (2026-10-16) because they were merged into `zbus` 6; none is a vulnerability and none has a patched version. They come through `zbus` 5, which the latest `notify-rust`, `tauri-plugin-notification` and `tauri-plugin-single-instance` still require (checked 2026-11-07). Accepted until those crates move to `zbus` 6.
+
 [RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367) (SUID/SGID bits preserved on extraction), [RUSTSEC-2026-0368](https://rustsec.org/advisories/RUSTSEC-2026-0368) (symlink targets outside the destination) and [RUSTSEC-2026-0369](https://rustsec.org/advisories/RUSTSEC-2026-0369) (Unix permissions applied through symlinks) are fixed in `zip` 9.0.0. Pulse cannot take that fix yet: `tauri-plugin-updater` 2.10.1 declares `zip = "4"` as a Windows-only dependency, and no updater release accepts `zip` 9.
 
 These entries are accepted, not resolved, for these reasons:
