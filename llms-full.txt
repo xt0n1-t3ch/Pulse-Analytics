@@ -3315,11 +3315,6 @@ Pulse versions cover the desktop installers and the `cc-discord-presence` daemon
 
 ## [Unreleased]
 
-### Fixed
-
-- Read the shared-core pin through `[workspace.dependencies]` in the release contract and vendoring checks, and run both, plus the RustSec audit, in `cargo xtask check`, so a release no longer stops at preflight for something the local gate could see.
-- Accept RUSTSEC-2026-0370, 0371 and 0372 (`zvariant`, `zbus_names` and `zvariant_derive` unmaintained, merged into `zbus` 6) until the notification and single-instance crates leave `zbus` 5; none is a vulnerability.
-
 ## [2.0.0] - 2026-11-07
 
 Pulse 2.0.0 keeps everything it writes in `~/.pulse-analytics`, starts no background processes, adds Linux packaging, Claude Haiku 5.5 and GPT-6.1 Terra, and redraws the interface with Tahoe-style corners. Analytics stays at schema 7. The layout under `~/.pulse-analytics` moves into purpose folders on first start. Stored costs remain unchanged until a session is re-read or the history repair runs. Native runtime acceptance and publication must be verified separately from local checks. Back up the analytics database and configuration before replacing an installation.
@@ -3374,6 +3369,8 @@ Pulse 2.0.0 keeps everything it writes in `~/.pulse-analytics`, starts no backgr
 - Stop leaving `-wal` and `-shm` files next to OpenCode, Orion App and Command Code databases.
 - Remove the browser cookie copy left in the temporary folder on Windows.
 - Keep tests out of the user's home folder and remove their temporary folders.
+- Read the shared-core pin through `[workspace.dependencies]` in the release contract and vendoring checks, and run both, plus the RustSec audit, in `cargo xtask check`, so a release no longer stops at preflight for something the local gate could see.
+- Accept RUSTSEC-2026-0370, 0371 and 0372 (`zvariant`, `zbus_names` and `zvariant_derive` unmaintained, merged into `zbus` 6) until the notification and single-instance crates leave `zbus` 5; none is a vulnerability.
 
 ### Security
 
