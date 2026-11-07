@@ -154,6 +154,30 @@ fn release_contract_enforces_the_core_pin_and_schema_contract() {
     );
 }
 
+#[test]
+fn release_contract_reads_a_core_pin_inherited_from_the_workspace() {
+    let fixture = release_fixture("1.5.2");
+    let commit = git_output(fixture.path(), &["rev-parse", "HEAD"]);
+    write_repository_contract(fixture.path(), "1.5.2");
+    let pin = format!(
+        "{{ git = \"https://example.invalid/core\", rev = \"{CORE_REV}\", version = \"2.0.1\" }}"
+    );
+    let inherited = format!(
+        "[workspace]\nmembers = [\".\"]\n\n[workspace.dependencies]\ncodex-presence-core = {pin}\n\n[package]\nname = \"cc-discord-presence\"\nversion = \"1.5.2\"\n\n[dependencies]\ncodex-presence-core.workspace = true\n"
+    );
+    write(fixture.path().join("Cargo.toml"), &inherited);
+    assert_success(check(fixture.path(), "v1.5.2", &commit));
+
+    write(
+        fixture.path().join("Cargo.toml"),
+        &inherited.replace(&pin, "{ path = \"../core\", version = \"2.0.1\" }"),
+    );
+    assert_failure_contains(
+        check(fixture.path(), "v1.5.2", &commit),
+        "immutable Git dependency",
+    );
+}
+
 const CORE_REV: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 fn write_repository_contract(root: &Path, version: &str) {

@@ -80,7 +80,8 @@ pub fn declares_schema(source: &str, version: u64) -> bool {
     })
 }
 
-/// The shared-core pin in `[dependencies]` of the root manifest.
+/// The shared-core pin of the root manifest, followed into
+/// `[workspace.dependencies]` when `[dependencies]` inherits it.
 struct CorePin {
     has_git: bool,
     has_path: bool,
@@ -95,6 +96,16 @@ fn core_pin(root: &Path) -> Result<CorePin> {
         .and_then(|dependencies| dependencies.get("codex-presence-core"))
         .and_then(toml::Value::as_table)
         .context("Cargo.toml does not declare codex-presence-core")?;
+    let dependency = if dependency.get("workspace").and_then(toml::Value::as_bool) == Some(true) {
+        manifest
+            .get("workspace")
+            .and_then(|workspace| workspace.get("dependencies"))
+            .and_then(|dependencies| dependencies.get("codex-presence-core"))
+            .and_then(toml::Value::as_table)
+            .context("Cargo.toml inherits codex-presence-core but [workspace.dependencies] does not declare it")?
+    } else {
+        dependency
+    };
     let text = |key: &str| {
         dependency
             .get(key)
