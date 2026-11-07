@@ -146,11 +146,13 @@ pub fn format_time_until_reset(reset_time: DateTime<Utc>) -> String {
 /// prints), UTF-8 otherwise. A trailing odd byte is dropped.
 #[cfg(any(windows, test))]
 pub fn decode_windows_text_output(bytes: &[u8]) -> String {
+    /// UTF-16 characters inspected for a NUL high byte before choosing UTF-16.
+    const UTF16_PROBE_CHARS: usize = 64;
     let has_interleaved_nuls = bytes
         .iter()
         .skip(1)
         .step_by(2)
-        .take(64)
+        .take(UTF16_PROBE_CHARS)
         .any(|byte| *byte == 0);
     if bytes.starts_with(&[0xFF, 0xFE]) || has_interleaved_nuls {
         let (pairs, _odd) = bytes.as_chunks::<2>();
