@@ -1,3 +1,5 @@
+//! Command Code Discord presence lines and publisher.
+
 use super::{ASSET_KEY, Config, NAME, Session};
 use codex_presence_core::{PresenceFieldId, PresenceLines, PresenceValues, compose_presence};
 use discord_rich_presence::{

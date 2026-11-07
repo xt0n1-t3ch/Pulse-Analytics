@@ -1,3 +1,6 @@
+//! Tauri command layer: the background poller, IPC commands, snapshots and provider presentation
+//! behind the GUI.
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -30,6 +33,7 @@ use cc_discord_presence::config::PresenceConfig;
 use cc_discord_presence::cost;
 use cc_discord_presence::discord::DiscordPresence as ClaudeDiscordPresence;
 use cc_discord_presence::discord::presence_lines as claude_presence_lines;
+use cc_discord_presence::http;
 use cc_discord_presence::opencode::{self, Config as OpenCodeConfig};
 use cc_discord_presence::orion::{self, Config as OrionConfig};
 use cc_discord_presence::provider::Provider;
@@ -54,6 +58,7 @@ use crate::access::{
     subscription_source, window_label,
 };
 use crate::live::PublisherLease;
+use crate::live_writes::LiveWrites;
 use crate::notifications::{NotificationRecord, NotificationStore, QuotaResetObservation};
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
@@ -71,12 +76,13 @@ const REPORTS_BUNDLE_CACHE_TTL: Duration = Duration::from_secs(60);
 
 static START_TIME: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 static DISCORD_USER_CACHE: Mutex<Option<(Instant, Option<DiscordUserInfo>)>> = Mutex::new(None);
-#[allow(clippy::type_complexity)]
-static REPORTS_BUNDLE_CACHE: Mutex<
-    Option<(Instant, (u32, Option<String>, String), ReportsBundle)>,
-> = Mutex::new(None);
+type ReportsBundleCacheEntry = (Instant, (u32, Option<String>, String), ReportsBundle);
+static REPORTS_BUNDLE_CACHE: Mutex<Option<ReportsBundleCacheEntry>> = Mutex::new(None);
 static SNAPSHOT_POLLER_STARTED: AtomicBool = AtomicBool::new(false);
 static INITIAL_SNAPSHOT_READY: AtomicBool = AtomicBool::new(false);
+/// Claude and Codex rows held between their once-a-minute writes.
+static LIVE_SESSION_WRITES: std::sync::OnceLock<Mutex<LiveWrites<SessionInfo>>> =
+    std::sync::OnceLock::new();
 static SESSION_FINGERPRINTS: std::sync::OnceLock<Mutex<HashMap<String, u64>>> =
     std::sync::OnceLock::new();
 fn uptime_secs() -> u64 {
@@ -228,10 +234,12 @@ struct CachedData {
     discord_prefs: DiscordDisplayPrefs,
     codex_opencode_running: bool,
     codex_desktop_surface_running: bool,
-    /// One-shot flag: when set by `refresh_usage` command, the background
-    /// poller invalidates its usage cache on the next tick and forces a
-    /// fresh API call. The flag is cleared after handling.
+    /// One-shot flag: the poller invalidates its usage cache on the next tick
+    /// and forces a fresh API call. The flag is cleared after handling.
     usage_refresh_requested: bool,
+    /// One-shot flag set only by the user's Refresh: the next tick reads the
+    /// Codex account quota, the one read that starts a process.
+    codex_usage_requested: bool,
 }
 
 #[derive(Clone)]
@@ -242,9 +250,9 @@ struct CachedUsage {
     extra_limit: Option<f64>,
     extra_used: Option<f64>,
     extra_pct: Option<f64>,
-    /// Provenance observed by `UsageManager` when these numbers were produced —
+    /// Provenance observed by `UsageManager` when these numbers were produced:
     /// the OAuth handshake or the on-disk cache. Carried through so the UI can
-    /// state how it knows, instead of the old hard-coded `api` label.
+    /// state how it knows.
     source: String,
 }
 
@@ -312,20 +320,20 @@ fn api_probe_route(
 /// request succeeds, while allowance windows remain absent until that API
 /// actually reports them.
 fn probe_api_endpoint(provider: &'static str, key: &str) -> AccessRouteSnapshot {
-    let agent = ureq::AgentBuilder::new().timeout(API_PROBE_TIMEOUT).build();
+    let agent = http::agent(API_PROBE_TIMEOUT, http::DEFAULT_REDIRECTS);
     let mut request = match provider {
         "anthropic" => agent
             .get("https://api.anthropic.com/v1/models")
-            .set("x-api-key", key)
-            .set("anthropic-version", "2023-06-01"),
+            .header("x-api-key", key)
+            .header("anthropic-version", "2023-06-01"),
         _ => agent
             .get("https://api.openai.com/v1/models")
-            .set("Authorization", &format!("Bearer {key}")),
+            .header("Authorization", format!("Bearer {key}")),
     };
-    request = request.set("User-Agent", "cc-discord-presence");
+    request = request.header("User-Agent", "cc-discord-presence");
 
     match request.call() {
-        Ok(response) if (200..300).contains(&response.status()) => {
+        Ok(response) if response.status().is_success() => {
             let source = api_source(
                 provider,
                 AuthMethod::ApiKey,
@@ -338,9 +346,12 @@ fn probe_api_endpoint(provider: &'static str, key: &str) -> AccessRouteSnapshot 
         }
         Ok(response) => AccessRouteSnapshot::unavailable(
             api_source(provider, AuthMethod::ApiKey, AccessProof::None),
-            format!("provider rejected API probe (HTTP {})", response.status()),
+            format!(
+                "provider rejected API probe (HTTP {})",
+                response.status().as_u16()
+            ),
         ),
-        Err(ureq::Error::Status(status, _)) => AccessRouteSnapshot::unavailable(
+        Err(ureq::Error::StatusCode(status)) => AccessRouteSnapshot::unavailable(
             api_source(provider, AuthMethod::ApiKey, AccessProof::None),
             format!("provider rejected API probe (HTTP {status})"),
         ),
@@ -457,7 +468,7 @@ fn claude_route_from_probe(
                 source.proof = AccessProof::QuotaResponse;
             } else if usage_mgr.has_valid_oauth_credentials() {
                 // Numbers came from Pulse's local cache, but the account is still
-                // authenticated — report authenticated rather than signed out.
+                // authenticated: report authenticated rather than signed out.
                 source.proof = AccessProof::AuthenticatedProbe;
             }
             claude_route_from_usage(
@@ -493,8 +504,8 @@ fn trusted_claude_usage(
         .is_some_and(|origin| matches!(origin.auth, UsageAuth::OAuth));
     // Pulse's own short-lived usage cache is written only from a live OAuth 200,
     // so it stays trustworthy while the same account's credentials remain valid.
-    // Only a fully unauthenticated read — no OAuth origin and no unexpired token
-    // — is dropped, which keeps a missing/expired credential at "sign in
+    // Only a fully unauthenticated read (no OAuth origin and no unexpired token)
+    // is dropped, which keeps a missing/expired credential at "sign in
     // required" instead of collapsing a validly signed-in account to it.
     let authenticated = origin_is_oauth || usage_mgr.has_valid_oauth_credentials();
     usage.filter(|_| authenticated)
@@ -509,7 +520,7 @@ fn codex_route_from_probe(
         .lock()
         .ok()
         .and_then(|slot| slot.clone())
-        .unwrap_or_else(|| Err("Codex account quota read is pending".to_string()));
+        .unwrap_or_else(|| Err("refresh to read the Codex account quota".to_string()));
     match account_usage {
         Ok(reading) => {
             let resolved_plan =
@@ -584,65 +595,29 @@ impl ConfigReload {
     }
 }
 
-/// Window in which an analytics request still counts as someone looking. The
-/// webview polls analytics every five seconds only while it is visible.
-const ANALYTICS_DEMAND_WINDOW: Duration = Duration::from_secs(60);
-
-static ANALYTICS_SCOPE_SEEN: Mutex<Option<(bool, Instant)>> = Mutex::new(None);
-
-/// A missing scope means the active provider, which the Discord-provider
-/// demand already covers.
-fn analytics_scope_includes_codex(provider: Option<&str>) -> bool {
-    provider
-        .map(|value| value.trim().to_ascii_lowercase())
-        .is_some_and(|value| value == "all" || value == "codex")
-}
-
-fn note_analytics_scope(provider: Option<&str>) {
-    if let Ok(mut seen) = ANALYTICS_SCOPE_SEEN.lock() {
-        *seen = Some((analytics_scope_includes_codex(provider), Instant::now()));
-    }
-}
-
-fn analytics_wants_codex(now: Instant) -> bool {
-    ANALYTICS_SCOPE_SEEN.lock().is_ok_and(|seen| {
-        seen.is_some_and(|(includes_codex, at)| {
-            includes_codex && now.saturating_duration_since(at) < ANALYTICS_DEMAND_WINDOW
-        })
-    })
-}
-
-/// Reasons to read the Codex account quota. Each read starts a Codex
-/// app-server, so none of them means no read at all.
-#[derive(Clone, Copy, Debug, Default)]
-struct CodexProbeDemand {
-    discord_provider: bool,
-    analytics: bool,
-    live_session: bool,
-}
-
-impl CodexProbeDemand {
-    fn wanted(self, cli_available: impl FnOnce() -> bool) -> bool {
-        (self.discord_provider || self.analytics || self.live_session) && cli_available()
-    }
+/// Each Codex account read starts a Codex app-server, so Pulse reads the
+/// quota only when the user asks and the CLI exists. The CLI lookup itself
+/// may launch a process on Windows, so it waits for the request too.
+fn codex_probe_requested(user_refresh: bool, cli_available: impl FnOnce() -> bool) -> bool {
+    user_refresh && cli_available()
 }
 
 fn request_codex_usage(
     trigger: &std::sync::mpsc::SyncSender<()>,
     force: &AtomicBool,
     wanted: bool,
-    force_refresh: bool,
 ) {
     if !wanted {
         return;
     }
-    if force_refresh {
-        force.store(true, Ordering::Release);
-    }
+    force.store(true, Ordering::Release);
     let _ = trigger.try_send(());
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one probe pass needs every provider cache and worker handle"
+)]
 fn independently_probe_access(
     usage_mgr: &mut UsageManager,
     codex_usage_trigger: &std::sync::mpsc::SyncSender<()>,
@@ -656,12 +631,7 @@ fn independently_probe_access(
     codex_plan_config: &cc_discord_presence::codex::config::OpenAiPlanDisplayConfig,
 ) -> Vec<AccessRouteSnapshot> {
     // The worker owns the app-server; this tick never waits on it.
-    request_codex_usage(
-        codex_usage_trigger,
-        codex_usage_force,
-        codex_probe_wanted,
-        force_refresh,
-    );
+    request_codex_usage(codex_usage_trigger, codex_usage_force, codex_probe_wanted);
 
     let refresh_claude = force_refresh && active_provider != Provider::Claude;
     let (claude_route, _, _, _, _) = claude_route_from_probe(usage_mgr, refresh_claude);
@@ -974,8 +944,7 @@ fn codex_plan_key_from_tier(tier: DetectedPlanTier) -> &'static str {
 /// active provider's on-disk config into the shared cache.
 ///
 /// This is the only thing standing between a saved preference and a fresh
-/// process: the Claude arm used to hard-code `discord_enabled = true`, so
-/// pausing Rich Presence never survived a restart.
+/// process: without it, pausing Rich Presence would not survive a restart.
 pub(crate) fn seed_discord_state_from_disk() {
     seed_discord_state_for(cc_discord_presence::provider::load_active_provider());
 }
@@ -1078,7 +1047,7 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
         let mut claude_parse = SessionParseCache::default();
         let mut codex_git = CodexGitBranchCache::new(Duration::from_secs(30));
         let mut codex_parse = CodexSessionParseCache::default();
-        let mut usage_mgr = UsageManager::read_only();
+        let mut usage_mgr = UsageManager::new();
         let mut claude_config = PresenceConfig::load_or_init().unwrap_or_default();
         let mut codex_config = CodexPresenceConfig::load_or_init().unwrap_or_default();
         let mut codex_config_reload =
@@ -1091,40 +1060,44 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
             PublisherLease::new(cc_discord_presence::codex::config::lock_path());
         let mut api_probe_cache = ApiProbeCache::default();
         let mut last_snapshot_hash = None;
+        let mut last_snapshot_saved: Option<Instant> = None;
 
         let go_usage = crate::opencode_go::start();
         let mut opencode_collector = opencode::Collector::default();
         let mut commandcode_collector = commandcode::Collector::default();
         let mut commandcode_publisher = commandcode::presence::Publisher::default();
-        let mut commandcode_lease = PublisherLease::new(
-            cc_discord_presence::storage::home().join("pulse-commandcode.lock"),
-        );
+        let mut commandcode_lease =
+            PublisherLease::new(cc_discord_presence::storage::state_file("commandcode.lock"));
         let mut commandcode_git = CodexGitBranchCache::new(Duration::from_secs(30));
         let mut orion_collector = orion::Collector::default();
         let mut orion_publisher = orion::presence::Publisher::default();
         let mut orion_lease =
-            PublisherLease::new(cc_discord_presence::storage::home().join("pulse-orion.lock"));
+            PublisherLease::new(cc_discord_presence::storage::state_file("orion.lock"));
         let mut orion_git = CodexGitBranchCache::new(Duration::from_secs(30));
         let mut orion_idle_since: Option<i64> = None;
+        let mut orion_writes = LiveWrites::<(SessionInfo, i64)>::default();
+        let mut commandcode_writes = LiveWrites::<(SessionInfo, i64)>::default();
+        let mut opencode_writes = LiveWrites::<(SessionInfo, i64)>::default();
         let mut opencode_runtime = opencode::process::RuntimeDetector::default();
         let mut opencode_publisher = opencode::presence::Publisher::default();
         let mut opencode_lease =
-            PublisherLease::new(cc_discord_presence::storage::home().join("pulse-opencode.lock"));
+            PublisherLease::new(cc_discord_presence::storage::state_file("opencode.lock"));
         let mut opencode_git = CodexGitBranchCache::new(Duration::from_secs(30));
         loop {
             let provider = current_provider();
-            let (discord_enabled, prefs, force_refresh) = data
+            let (discord_enabled, prefs, force_refresh, codex_refresh) = data
                 .lock()
                 .ok()
                 .map(|mut d| {
                     d.active_provider = provider;
-                    let req = d.usage_refresh_requested;
-                    if req {
-                        d.usage_refresh_requested = false;
-                    }
-                    (d.discord_enabled, d.discord_prefs.clone(), req)
+                    (
+                        d.discord_enabled,
+                        d.discord_prefs.clone(),
+                        std::mem::take(&mut d.usage_refresh_requested),
+                        std::mem::take(&mut d.codex_usage_requested),
+                    )
                 })
-                .unwrap_or((true, DiscordDisplayPrefs::default(), false));
+                .unwrap_or((true, DiscordDisplayPrefs::default(), false, false));
             let discord_enabled =
                 discord_enabled && std::env::var("PULSE_DISABLE_DISCORD").as_deref() != Ok("1");
 
@@ -1134,12 +1107,10 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
             ) {
                 codex_config = fresh;
             }
-            let codex_probe_wanted = CodexProbeDemand {
-                discord_provider: provider == Provider::Codex,
-                analytics: analytics_wants_codex(Instant::now()),
-                live_session: data.lock().is_ok_and(|d| !d.live_codex.is_empty()),
-            }
-            .wanted(cc_discord_presence::codex::account_usage::codex_cli_available);
+            let codex_probe_wanted = codex_probe_requested(
+                codex_refresh,
+                cc_discord_presence::codex::account_usage::codex_cli_available,
+            );
             let mut independently_probed_routes = independently_probe_access(
                 &mut usage_mgr,
                 &codex_usage_trigger,
@@ -1193,10 +1164,13 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                     {
                         session.branch = commandcode_git.get(&session.directory);
                     }
-                    persisted &= crate::db::upsert_external_session(
-                        &crate::commandcode::session_info(session),
-                        session.updated,
-                    );
+                    let live = session.is_active(chrono::Utc::now().timestamp_millis());
+                    let row = (crate::commandcode::session_info(session), session.updated);
+                    if let Some((info, updated)) =
+                        commandcode_writes.offer(&session.id, row, live, Instant::now())
+                    {
+                        persisted &= crate::db::upsert_external_session(&info, updated);
+                    }
                 }
                 if persisted {
                     commandcode_collector.acknowledge(&batch);
@@ -1212,6 +1186,10 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                     .filter(|session| session.is_active(chrono::Utc::now().timestamp_millis()))
                     .map(|session| session.id.clone())
                     .collect();
+                let live_ids: HashSet<String> = active_ids.iter().cloned().collect();
+                for (info, updated) in commandcode_writes.due(&live_ids, Instant::now()) {
+                    crate::db::upsert_external_session(&info, updated);
+                }
                 crate::db::mark_inactive("commandcode", &active_ids);
                 commandcode_live = batch.live;
                 commandcode_diagnostics = batch.diagnostics;
@@ -1238,10 +1216,15 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                     if session.is_recent(now_ms) {
                         session.branch = orion_git.get(&session.directory);
                     }
-                    persisted &= crate::db::upsert_external_session(
-                        &crate::orion::session_info(session),
-                        session.updated,
-                    );
+                    let row = (crate::orion::session_info(session), session.updated);
+                    if let Some((info, updated)) = orion_writes.offer(
+                        &session.id,
+                        row,
+                        session.is_active(now_ms),
+                        Instant::now(),
+                    ) {
+                        persisted &= crate::db::upsert_external_session(&info, updated);
+                    }
                 }
                 if persisted {
                     orion_collector.acknowledge(&batch);
@@ -1259,6 +1242,10 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                     .filter(|session| session.is_active(now_ms))
                     .map(|session| session.id.clone())
                     .collect();
+                let live_ids: HashSet<String> = active_ids.iter().cloned().collect();
+                for (info, updated) in orion_writes.due(&live_ids, Instant::now()) {
+                    crate::db::upsert_external_session(&info, updated);
+                }
                 crate::db::mark_inactive("orion", &active_ids);
                 orion_idle_since = orion::last_activity(&batch.live)
                     .max(batch.last_activity)
@@ -1288,8 +1275,13 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                     if session.is_recent(chrono::Utc::now().timestamp_millis()) {
                         session.branch = opencode_git.get(&session.directory);
                     }
-                    let info = crate::opencode::session_info(session);
-                    persisted &= crate::db::upsert_opencode_session(&info, session.updated);
+                    let live = !session.is_idle(chrono::Utc::now().timestamp_millis());
+                    let row = (crate::opencode::session_info(session), session.updated);
+                    if let Some((info, updated)) =
+                        opencode_writes.offer(&session.id, row, live, Instant::now())
+                    {
+                        persisted &= crate::db::upsert_opencode_session(&info, updated);
+                    }
                 }
                 if persisted {
                     opencode_collector.acknowledge(&batch);
@@ -1309,6 +1301,10 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                     .filter(|session| !session.is_idle(chrono::Utc::now().timestamp_millis()))
                     .map(|session| session.id.clone())
                     .collect();
+                let live_ids: HashSet<String> = active_ids.iter().cloned().collect();
+                for (info, updated) in opencode_writes.due(&live_ids, Instant::now()) {
+                    crate::db::upsert_opencode_session(&info, updated);
+                }
                 crate::db::mark_inactive("opencode", &active_ids);
                 open_diagnostics = batch.diagnostics;
                 open_live = batch.live;
@@ -1534,7 +1530,7 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                                 source.proof = crate::access::AccessProof::QuotaResponse;
                             } else if usage_mgr.has_valid_oauth_credentials() {
                                 // Cached numbers from a prior OAuth read, but the
-                                // account is still authenticated — not signed out.
+                                // account is still authenticated: not signed out.
                                 source.proof = crate::access::AccessProof::AuthenticatedProbe;
                             }
                             claude_route_from_usage(
@@ -1632,7 +1628,9 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                         .lock()
                         .ok()
                         .and_then(|slot| slot.clone())
-                        .unwrap_or_else(|| Err("Codex account quota read is pending".to_string()));
+                        .unwrap_or_else(|| {
+                            Err("refresh to read the Codex account quota".to_string())
+                        });
                     let account_quota_reported = account_usage
                         .as_ref()
                         .is_ok_and(|reading| !reading.envelopes.is_empty());
@@ -1736,10 +1734,11 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
                             ),
                         };
                     let resolved_service_tier = resolve_service_tier();
+                    let processes = cc_discord_presence::process_list::snapshot();
                     let opencode_running =
-                        cc_discord_presence::codex::process::is_opencode_running();
+                        cc_discord_presence::codex::process::opencode_in(&processes);
                     let codex_desktop_running =
-                        cc_discord_presence::codex::process::is_codex_app_running();
+                        cc_discord_presence::codex::process::codex_app_in(&processes);
                     let surface_override = codex_fallback_surface(codex_desktop_running);
 
                     let status = if discord_enabled && publisher_owned {
@@ -1801,8 +1800,12 @@ fn start_background_poller_inner(app: Option<tauri::AppHandle>) {
             if let Ok(snapshot) = build_app_snapshot("live") {
                 let snapshot_hash = app_snapshot_fingerprint(&snapshot);
                 if last_snapshot_hash != Some(snapshot_hash) {
-                    if let Err(error) = persist_app_snapshot(&snapshot) {
-                        tracing::warn!(error = %error, "failed to persist Pulse app snapshot");
+                    let now = Instant::now();
+                    if snapshot_save_due(last_snapshot_saved, now) {
+                        if let Err(error) = persist_app_snapshot(&snapshot) {
+                            tracing::warn!(error = %error, "failed to persist Pulse app snapshot");
+                        }
+                        last_snapshot_saved = Some(now);
                     }
                     if let Some(app) = app.as_ref()
                         && let Err(error) = app.emit("pulse://snapshot", &snapshot)
@@ -1956,8 +1959,8 @@ pub struct AppSnapshot {
 struct PersistedAppSnapshot {
     schema_version: u32,
     provider: String,
-    /// Pulse build that wrote the snapshot. Missing before 1.9.5, so older
-    /// snapshots, with costs and plans computed by that build, are not shown.
+    /// Pulse build that wrote the snapshot. Snapshots from another build, or
+    /// without this field, are not shown because their costs and plans may differ.
     #[serde(default)]
     app_version: String,
     saved_at: String,
@@ -2066,7 +2069,16 @@ fn build_discord_snapshot_payload(
 }
 
 fn app_snapshot_cache_path() -> PathBuf {
-    cc_discord_presence::storage::home().join("pulse-last-app-snapshot.json")
+    cc_discord_presence::storage::cache_path("app-snapshot.json")
+}
+
+/// The saved snapshot only paints the first frame of the next launch, so a
+/// minute-old copy is enough; live changes do not rewrite it every poll.
+const APP_SNAPSHOT_SAVE_INTERVAL: Duration = Duration::from_secs(60);
+
+fn snapshot_save_due(last_saved: Option<Instant>, now: Instant) -> bool {
+    last_saved
+        .is_none_or(|saved| now.saturating_duration_since(saved) >= APP_SNAPSHOT_SAVE_INTERVAL)
 }
 
 fn persist_app_snapshot(snapshot: &AppSnapshot) -> Result<(), String> {
@@ -2272,7 +2284,7 @@ pub struct ModelMetric {
     pub tokens: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct SubagentDetail {
     pub agent_type: String,
     pub model: String,
@@ -2307,9 +2319,12 @@ fn read_session_name(session_id: &str) -> Option<String> {
     Some(truncated)
 }
 
-#[derive(Default, Serialize)]
+#[derive(Clone, Default, Serialize)]
 pub struct SessionInfo {
     pub opencode: Option<opencode::Metadata>,
+    /// Orion App telemetry that has no cross-provider field (absent for other providers).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orion: Option<crate::orion::OrionTelemetry>,
     pub provider: String,
     pub app_name: Option<String>,
     pub session_id: String,
@@ -2485,6 +2500,7 @@ pub(crate) fn build_claude_session_infos(snapshots: &[ClaudeSessionSnapshot]) ->
             let session_name = read_session_name(&s.session_id);
             SessionInfo {
                 opencode: None,
+                orion: None,
                 provider: Provider::Claude.as_str().to_string(),
                 app_name: None,
                 session_id: s.session_id.clone(),
@@ -2618,6 +2634,7 @@ pub(crate) fn build_codex_session_infos(
             let cost_breakdown = &s.cost_breakdown;
             SessionInfo {
                 opencode: None,
+                orion: None,
                 provider: Provider::Codex.as_str().to_string(),
                 app_name: Some(
                     surface
@@ -2712,6 +2729,9 @@ fn persist_live_session_infos(provider: Provider, result: &[SessionInfo]) {
         .collect();
     let fingerprints = SESSION_FINGERPRINTS.get_or_init(|| Mutex::new(HashMap::new()));
     let mut fingerprints = fingerprints.lock().ok();
+    let writes = LIVE_SESSION_WRITES.get_or_init(|| Mutex::new(LiveWrites::default()));
+    let mut writes = writes.lock().ok();
+    let now = Instant::now();
     let mut changed_count = 0;
     for s in result {
         let key = format!("{}:{}", provider.as_str(), s.session_id);
@@ -2720,11 +2740,32 @@ fn persist_live_session_infos(provider: Provider, result: &[SessionInfo]) {
             .as_ref()
             .and_then(|items| items.get(&key))
             .is_some_and(|previous| *previous == fingerprint);
-        if !unchanged && crate::db::upsert_session(s) {
+        if unchanged {
+            continue;
+        }
+        if let Some(items) = fingerprints.as_mut() {
+            items.insert(key.clone(), fingerprint);
+        }
+        let row = match writes.as_mut() {
+            Some(writes) => writes.offer(&key, s.clone(), true, now),
+            None => Some(s.clone()),
+        };
+        if row.is_some_and(|row| crate::db::upsert_session(&row)) {
             changed_count += 1;
-            if let Some(items) = fingerprints.as_mut() {
-                items.insert(key, fingerprint);
-            }
+        }
+    }
+    if let Some(writes) = writes.as_mut() {
+        let provider_prefix = format!("{}:", provider.as_str());
+        let mut live = active_keys.clone();
+        // Other providers' held rows are not this call's to flush.
+        live.extend(
+            writes
+                .held_keys()
+                .filter(|key| !key.starts_with(&provider_prefix))
+                .map(str::to_string),
+        );
+        for row in writes.due(&live, now) {
+            changed_count += usize::from(crate::db::upsert_session(&row));
         }
     }
     if let Some(items) = fingerprints.as_mut() {
@@ -2868,9 +2909,8 @@ pub fn dismiss_notification(id: i64) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn set_discord_enabled(enabled: bool) -> Result<DiscordSettings, String> {
-    // Persist for whichever provider is active. Claude used to skip this branch
-    // entirely, so the master switch lived only in `shared()` and every restart
-    // silently turned Rich Presence back on.
+    // Persist for whichever provider is active; a switch kept only in `shared()`
+    // would silently turn Rich Presence back on at every restart.
     match current_provider() {
         Provider::Orion => {
             let mut config = OrionConfig::load().map_err(|error| error.to_string())?;
@@ -2909,7 +2949,10 @@ pub fn set_discord_enabled(enabled: bool) -> Result<DiscordSettings, String> {
 }
 
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Tauri passes each preference as its own invoke argument"
+)]
 pub fn set_discord_display_prefs(
     show_project: bool,
     show_branch: bool,
@@ -3016,9 +3059,17 @@ pub fn set_codex_desktop_design(design: String) -> Result<DiscordSettings, Strin
 }
 
 /// Ask the background poller to drop its usage cache and hit the API on the
-/// next tick. The UI's refresh button is wired to this — real data within ~5s.
+/// next tick. The UI's refresh button is wired to this; real data arrives within ~5s.
 #[tauri::command]
 pub fn refresh_usage() {
+    if let Ok(mut d) = shared().lock() {
+        d.usage_refresh_requested = true;
+        d.codex_usage_requested = true;
+    }
+}
+
+/// The startup refresh: provider HTTP reads only, never a Codex app-server.
+pub fn request_usage_refresh() {
     if let Ok(mut d) = shared().lock() {
         d.usage_refresh_requested = true;
     }
@@ -3171,8 +3222,8 @@ fn apply_claude_display_prefs(config: &mut PresenceConfig, prefs: &DiscordDispla
 /// Applies the shared field switches to the Codex config.
 ///
 /// `credits` is passed separately because it is Codex-only. A payload composed
-/// while Claude is active always carries `show_credits = false` — Claude has no
-/// such field — so copying it here silently disabled Credits on the Codex side
+/// while Claude is active always carries `show_credits = false` because Claude
+/// has no such field, so copying it here silently disabled Credits on the Codex side
 /// every time an unrelated Claude toggle was saved.
 fn apply_codex_display_prefs(
     config: &mut CodexPresenceConfig,
@@ -3196,9 +3247,9 @@ fn apply_codex_display_prefs(
 /// Whether the incoming payload actually carries a meaningful `show_credits`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CreditsMirror {
-    /// Composed while Codex was active — the value is the user's choice.
+    /// Composed while Codex was active: the value is the user's choice.
     Apply,
-    /// Composed while a provider without Credits was active — keep what Codex has.
+    /// Composed while a provider without Credits was active; keep what Codex has.
     Preserve,
 }
 
@@ -3414,7 +3465,7 @@ pub fn get_discord_settings() -> Result<DiscordSettings, String> {
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn build_claude_discord_preview(
     sessions: &[ClaudeSessionSnapshot],
     config: &PresenceConfig,
@@ -3466,7 +3517,7 @@ fn build_claude_discord_preview_with_access(
     }
 }
 
-#[allow(dead_code)]
+#[cfg(test)]
 fn build_codex_discord_preview(
     sessions: &[CodexSessionSnapshot],
     config: &CodexPresenceConfig,
@@ -3475,6 +3526,7 @@ fn build_codex_discord_preview(
     build_codex_discord_preview_with_access(sessions, config, desktop_surface_running, None)
 }
 
+#[cfg(test)]
 fn build_codex_discord_preview_with_access(
     sessions: &[CodexSessionSnapshot],
     config: &CodexPresenceConfig,
@@ -3571,91 +3623,7 @@ pub struct DiscordUserInfo {
 }
 
 fn discord_leveldb_dirs() -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    let variants = ["discord", "discordcanary", "discordptb"];
-
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            for v in &variants {
-                dirs.push(
-                    PathBuf::from(&appdata)
-                        .join(v)
-                        .join("Local Storage/leveldb"),
-                );
-            }
-        }
-        if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
-            let pascal = ["Discord", "DiscordCanary", "DiscordPTB"];
-            for v in &pascal {
-                dirs.push(
-                    PathBuf::from(&localappdata)
-                        .join(v)
-                        .join("Local Storage/leveldb"),
-                );
-            }
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    if let Ok(home) = std::env::var("HOME") {
-        let home_path = PathBuf::from(&home);
-        let variants_mac = [
-            "discord",
-            "discordcanary",
-            "discordptb",
-            "Discord",
-            "Discord Canary",
-            "Discord PTB",
-        ];
-        for v in &variants_mac {
-            dirs.push(
-                home_path
-                    .join("Library/Application Support")
-                    .join(v)
-                    .join("Local Storage/leveldb"),
-            );
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    if let Ok(home) = std::env::var("HOME") {
-        let home_path = PathBuf::from(&home);
-        for v in &variants {
-            dirs.push(
-                home_path
-                    .join(".config")
-                    .join(v)
-                    .join("Local Storage/leveldb"),
-            );
-        }
-        let flatpak_ids = [
-            "com.discordapp.Discord",
-            "com.discordapp.DiscordCanary",
-            "com.discordapp.DiscordPTB",
-        ];
-        for id in &flatpak_ids {
-            dirs.push(
-                home_path
-                    .join(".var/app")
-                    .join(id)
-                    .join("config/discord/Local Storage/leveldb"),
-            );
-        }
-        for v in &variants {
-            dirs.push(
-                home_path
-                    .join("snap")
-                    .join(v)
-                    .join("current/.config")
-                    .join(v)
-                    .join("Local Storage/leveldb"),
-            );
-        }
-    }
-
-    dirs
+    crate::discord_dirs::local_storage_dirs()
 }
 
 #[tauri::command]
@@ -3723,11 +3691,9 @@ fn discord_user_from_rpc(
 
 fn local_discord_banner_hash(user_id: &str) -> Option<String> {
     use std::io::Read;
-    let appdata = std::env::var_os("APPDATA").map(PathBuf::from)?;
     let needle = format!("/banners/{user_id}/");
     let mut files = Vec::new();
-    for variant in ["discord", "discordcanary", "discordptb"] {
-        let root = appdata.join(variant).join("Cache/Cache_Data");
+    for root in crate::discord_dirs::cache_dirs() {
         if let Ok(entries) = std::fs::read_dir(root) {
             files.extend(entries.flatten().filter_map(|entry| {
                 let metadata = entry.metadata().ok()?;
@@ -4167,7 +4133,7 @@ pub fn set_active_provider(provider: String) -> Result<(), String> {
     cc_discord_presence::provider::save_active_provider(provider)
         .map_err(|error| error.to_string())?;
     // The switch flags and field visibility belong to the provider, not to the
-    // session — re-read them only after persistence succeeds.
+    // session: re-read them only after persistence succeeds.
     seed_discord_state_for(provider);
     Ok(())
 }
@@ -4196,7 +4162,6 @@ pub async fn get_dashboard_bundle(provider: Option<String>) -> DashboardBundle {
 }
 
 pub fn dashboard_bundle_blocking(provider: Option<String>) -> DashboardBundle {
-    note_analytics_scope(provider.as_deref());
     let data = crate::db::get_dashboard_data_scoped(provider.as_deref(), 7, 5000);
     DashboardBundle {
         summary: data.summary,
@@ -4217,8 +4182,10 @@ pub fn get_session_history(
 }
 
 #[tauri::command]
-// Tauri exposes these filters as flat invoke arguments; nesting them would break the public IPC shape.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Tauri exposes these filters as flat invoke arguments; nesting them would break the IPC shape"
+)]
 pub fn get_session_history_filtered(
     from_iso: Option<String>,
     to_iso: Option<String>,
@@ -4267,7 +4234,6 @@ pub fn get_daily_stats(days: Option<i64>, provider: Option<String>) -> Vec<crate
 
 #[tauri::command]
 pub fn get_analytics_summary(provider: Option<String>) -> crate::db::AnalyticsSummary {
-    note_analytics_scope(provider.as_deref());
     crate::db::get_analytics_summary_scoped(provider.as_deref())
 }
 
@@ -5378,7 +5344,7 @@ pub fn reports_bundle_blocking(
 /// The view lists a capped page of recent sessions for its table, but a KPI
 /// that describes a 30-day value has to cover the whole window. Summing the
 /// visible page instead understates the value by exactly the sessions that
-/// did not fit — which is how the screen came to report $7.73 against an
+/// did not fit, which is how the screen came to report $7.73 against an
 /// actual $7,371.35.
 #[derive(Serialize, Clone, Debug, Default, PartialEq)]
 pub struct CostTotals {
@@ -5552,7 +5518,6 @@ pub async fn get_costs_bundle(project: Option<String>, provider: Option<String>)
 }
 
 pub fn costs_bundle_blocking(project: Option<String>, provider: Option<String>) -> CostsBundle {
-    note_analytics_scope(provider.as_deref());
     let data = crate::db::get_costs_data_scoped(provider.as_deref(), 30, project.as_deref(), 200);
     CostsBundle {
         history: data.history,
@@ -5834,2306 +5799,7 @@ fn resolve_codex_plan(
 }
 
 #[cfg(test)]
-mod codex_probe_gate_tests {
-    use super::{
-        ANALYTICS_DEMAND_WINDOW, ANALYTICS_SCOPE_SEEN, CodexProbeDemand, ConfigReload,
-        analytics_wants_codex, note_analytics_scope, request_codex_usage,
-    };
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::time::{Duration, Instant};
-
-    fn ticks(demand: CodexProbeDemand, cli_available: bool, count: usize) -> (usize, bool) {
-        let (trigger, requests) = std::sync::mpsc::sync_channel::<()>(1);
-        let force = AtomicBool::new(false);
-        let mut received = 0;
-        for tick in 0..count {
-            let wanted = demand.wanted(|| cli_available);
-            request_codex_usage(&trigger, &force, wanted, tick % 10 == 0);
-            // The worker drains one request per tick, as the real lane does.
-            received += requests.try_recv().map_or(0, |()| 1);
-        }
-        (received, force.load(Ordering::Acquire))
-    }
-
-    #[test]
-    fn no_probe_is_requested_while_nothing_needs_codex() {
-        let cli_checked = std::cell::Cell::new(false);
-        let idle = CodexProbeDemand::default();
-        assert!(!idle.wanted(|| {
-            cli_checked.set(true);
-            true
-        }));
-        assert!(
-            !cli_checked.get(),
-            "CLI discovery must not run without demand"
-        );
-
-        // About ten minutes of five-second ticks, Claude selected, no live
-        // Codex session, analytics scoped away from Codex.
-        assert_eq!(ticks(idle, true, 120), (0, false));
-    }
-
-    #[test]
-    fn each_reason_alone_requests_a_probe_when_the_cli_exists() {
-        for demand in [
-            CodexProbeDemand {
-                discord_provider: true,
-                ..CodexProbeDemand::default()
-            },
-            CodexProbeDemand {
-                analytics: true,
-                ..CodexProbeDemand::default()
-            },
-            CodexProbeDemand {
-                live_session: true,
-                ..CodexProbeDemand::default()
-            },
-        ] {
-            assert!(demand.wanted(|| true));
-            assert_eq!(ticks(demand, true, 12).0, 12);
-            assert_eq!(ticks(demand, false, 12), (0, false));
-        }
-    }
-
-    #[test]
-    fn analytics_demand_follows_the_requested_scope_and_lapses() {
-        let now = Instant::now();
-        for (scope, expected) in [
-            (Some("all"), true),
-            (Some("codex"), true),
-            (Some(" Codex "), true),
-            (Some("claude"), false),
-            (Some("opencode"), false),
-            (None, false),
-        ] {
-            note_analytics_scope(scope);
-            assert_eq!(analytics_wants_codex(Instant::now()), expected, "{scope:?}");
-        }
-        note_analytics_scope(Some("all"));
-        assert!(!analytics_wants_codex(
-            now + ANALYTICS_DEMAND_WINDOW + Duration::from_secs(1)
-        ));
-        *ANALYTICS_SCOPE_SEEN.lock().unwrap() = None;
-        assert!(!analytics_wants_codex(Instant::now()));
-    }
-
-    #[test]
-    fn config_reloads_only_when_the_file_changes() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config.json");
-        std::fs::write(&path, "1").unwrap();
-        let mut reload = ConfigReload::observed(&path);
-        let mut loads = 0;
-        let mut load = || -> anyhow::Result<u32> {
-            loads += 1;
-            Ok(std::fs::read_to_string(&path)?.parse()?)
-        };
-        for _ in 0..20 {
-            assert_eq!(reload.reload_if_changed(&path, &mut load), None);
-        }
-        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
-        std::io::Write::write_all(&mut &file, b"2").unwrap();
-        file.set_modified(std::time::SystemTime::now() + Duration::from_secs(5))
-            .unwrap();
-        drop(file);
-        assert_eq!(reload.reload_if_changed(&path, &mut load), Some(2));
-        assert_eq!(reload.reload_if_changed(&path, &mut load), None);
-        assert_eq!(loads, 1);
-    }
-}
+mod codex_probe_gate_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        REPORTS_BUNDLE_CACHE, aggregate_cost_totals, build_reports_bundle_for_scope_from_roots,
-        cached_reports_bundle,
-    };
-    use super::{
-        active_access_route, active_presence_presentation, api_probe_route,
-        build_claude_context_breakdown, build_claude_session_infos, build_codex_discord_preview,
-        build_codex_discord_preview_with_access, build_codex_session_infos,
-        claude_route_from_usage, codex_fallback_surface, codex_plan_key_from_tier,
-        codex_session_surface, codex_total_input_tokens, cost_availability, daily_cost_series,
-        dismiss_notification, extract_discord_user, get_notifications,
-        get_unread_notification_count, mark_all_notifications_read, mark_notification_read,
-        merge_access_routes, plan_key_from_override, route_for_provider,
-        route_limits_for_claude_presence, route_limits_for_presence, scan_discord_leveldb_dirs,
-        semantic_snapshot_fingerprint,
-    };
-    use crate::access::{
-        AccessAvailability, AccessFreshness, AccessProof, AccessProvenance, AccessRouteSnapshot,
-        AccessSnapshot, AccessSourceKind, AccessWindow, AuthMethod, access_route_from_usage,
-        subscription_source,
-    };
-    use crate::notifications::NotificationStore;
-    use cc_discord_presence::codex::config::{
-        DesktopPresenceDesign, DisplayConfig, OpenAiPlanMode,
-        PresenceConfig as TestCodexPresenceConfig, PresenceSurface as TestPresenceSurface,
-        PrivacyConfig,
-    };
-    use cc_discord_presence::codex::cost::{
-        CostAttribution, PricingSource, PricingStatus, TokenCostBreakdown,
-    };
-    use cc_discord_presence::codex::model::{SessionSpeed, SpeedMode, SpeedSource};
-    use cc_discord_presence::codex::session::{
-        CodexSessionSnapshot, ContextWindowSnapshot, ContextWindowSource,
-    };
-    use cc_discord_presence::codex::telemetry::limits::RateLimits;
-    use cc_discord_presence::codex::telemetry::plan::DetectedPlanTier;
-    use cc_discord_presence::codex::telemetry::plan::PlanDetector;
-    use cc_discord_presence::codex::telemetry::service_tier::resolve_service_tier;
-    use cc_discord_presence::config::PresenceConfig as TestClaudePresenceConfig;
-    use cc_discord_presence::cost;
-    use cc_discord_presence::provider::Provider;
-
-    use cc_discord_presence::session::{ClaudeSessionSnapshot, DataSource, ReasoningEffort, Speed};
-    use cc_discord_presence::usage::{ExtraUsage, UsageData, UsageWindow};
-    use codex_presence_core::{
-        QuotaScope, QuotaWindow, RateLimitScope, UsageSignal, UsageSnapshot, UsageSource,
-    };
-    use std::cell::Cell;
-    use std::path::PathBuf;
-    use std::sync::Mutex;
-    use std::time::{Duration, SystemTime};
-
-    static REPORTS_BUNDLE_CACHE_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-    fn quota_usage(
-        provider: &str,
-        signal: UsageSignal,
-        windows: Vec<QuotaWindow>,
-    ) -> UsageSnapshot {
-        UsageSnapshot {
-            source: UsageSource::new(format!("{provider}-subscription:default"), [signal]),
-            scopes: vec![QuotaScope {
-                id: Some(provider.to_string()),
-                name: None,
-                kind: RateLimitScope::GlobalAccount,
-                windows,
-            }],
-            credits: None,
-            observed_at: Some(chrono::Utc::now()),
-            provenance_source: "deterministic fixture".to_string(),
-        }
-    }
-
-    fn discord_user_record(
-        user_id: &str,
-        username: &str,
-        global_name: Option<&str>,
-        avatar_hash: &str,
-        padding: usize,
-    ) -> Vec<u8> {
-        let global_name = global_name
-            .map(|name| format!(r#", "global_name":"{name}""#))
-            .unwrap_or_default();
-        format!(
-            r#"{{"id":"{user_id}","username":"{username}"{}{},"discriminator":"0","avatar":"{avatar_hash}"}}{}"#,
-            " ".repeat(padding),
-            global_name,
-            " ".repeat(120)
-        )
-        .into_bytes()
-    }
-
-    fn discord_user_fixture(global_name: Option<&str>, padding: usize) -> Vec<u8> {
-        discord_user_record(
-            "123456789012345678",
-            "pulse-user",
-            global_name,
-            "avatar-hash",
-            padding,
-        )
-    }
-
-    fn discord_test_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "pulse-discord-user-{tag}-{}-{:?}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .expect("system time")
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).expect("create discord test dir");
-        dir
-    }
-
-    #[test]
-    fn discord_user_extracts_global_name_from_bounded_record_region() {
-        let data = discord_user_fixture(Some("Pulse Display"), 700);
-
-        let user = extract_discord_user(&data).expect("discord user");
-
-        assert_eq!(user.global_name.as_deref(), Some("Pulse Display"));
-    }
-
-    #[test]
-    fn discord_user_treats_empty_or_missing_global_name_as_absent() {
-        let empty = extract_discord_user(&discord_user_fixture(Some(""), 0)).expect("discord user");
-        let missing = extract_discord_user(&discord_user_fixture(None, 0)).expect("discord user");
-
-        assert_eq!(empty.global_name, None);
-        assert_eq!(missing.global_name, None);
-    }
-
-    #[test]
-    fn discord_user_scan_skips_unreadable_entry_and_uses_later_file() {
-        let dir = discord_test_dir("unreadable");
-        std::fs::create_dir(dir.join("newest.ldb")).expect("create unreadable directory entry");
-        std::fs::write(dir.join("older.log"), discord_user_fixture(None, 0))
-            .expect("write valid discord record");
-
-        let user = scan_discord_leveldb_dirs(std::slice::from_ref(&dir)).expect("discord user");
-
-        assert_eq!(user.username, "pulse-user");
-        std::fs::remove_dir_all(dir).expect("remove discord test dir");
-    }
-
-    #[test]
-    fn discord_user_scan_falls_back_to_second_candidate_directory() {
-        let first = discord_test_dir("first-empty");
-        let second = discord_test_dir("second-valid");
-        std::fs::write(first.join("000001.log"), b"not a discord user")
-            .expect("write empty candidate");
-        std::fs::write(second.join("000002.ldb"), discord_user_fixture(None, 0))
-            .expect("write valid candidate");
-
-        let user = scan_discord_leveldb_dirs(&[first.clone(), second.clone()])
-            .expect("discord user from second candidate");
-
-        assert_eq!(user.user_id, "123456789012345678");
-        std::fs::remove_dir_all(first).expect("remove first discord test dir");
-        std::fs::remove_dir_all(second).expect("remove second discord test dir");
-    }
-
-    #[test]
-    fn discord_user_scan_uses_newest_file_across_candidate_directories() {
-        let first = discord_test_dir("first-older");
-        let second = discord_test_dir("second-newer");
-        let older_path = first.join("000001.ldb");
-        let newer_path = second.join("000002.ldb");
-        std::fs::write(
-            &older_path,
-            discord_user_record("111111111111111111", "old-user", None, "old-avatar", 0),
-        )
-        .expect("write older discord record");
-        std::fs::write(
-            &newer_path,
-            discord_user_record("222222222222222222", "current-user", None, "new-avatar", 0),
-        )
-        .expect("write newer discord record");
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&older_path)
-            .expect("open older discord record")
-            .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000))
-            .expect("set older modification time");
-        std::fs::OpenOptions::new()
-            .write(true)
-            .open(&newer_path)
-            .expect("open newer discord record")
-            .set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_100))
-            .expect("set newer modification time");
-
-        let user = scan_discord_leveldb_dirs(&[first.clone(), second.clone()])
-            .expect("discord user from globally newest file");
-
-        assert_eq!(user.user_id, "222222222222222222");
-        assert_eq!(user.username, "current-user");
-        std::fs::remove_dir_all(first).expect("remove first discord test dir");
-        std::fs::remove_dir_all(second).expect("remove second discord test dir");
-    }
-
-    #[test]
-    fn discord_user_extract_prefers_richer_later_record() {
-        let mut data = discord_user_record("111111111111111111", "bare-user", None, "", 0);
-        data.extend_from_slice(&discord_user_record(
-            "222222222222222222",
-            "current-user",
-            Some("Current Display"),
-            "current-avatar",
-            0,
-        ));
-
-        let user = extract_discord_user(&data).expect("best discord user");
-
-        assert_eq!(user.user_id, "222222222222222222");
-        assert_eq!(user.global_name.as_deref(), Some("Current Display"));
-        assert_eq!(user.avatar_hash, "current-avatar");
-    }
-
-    #[test]
-    fn discord_user_extract_resolves_single_clean_record() {
-        let user = extract_discord_user(&discord_user_fixture(Some("Pulse Display"), 0))
-            .expect("single discord user");
-
-        assert_eq!(user.user_id, "123456789012345678");
-        assert_eq!(user.username, "pulse-user");
-    }
-
-    #[test]
-    fn discord_user_never_mixes_fields_from_a_following_profile() {
-        // Trailing filler mirrors real LevelDB bulk: the extractor's outer loop
-        // only keeps scanning while a record-sized lookahead remains.
-        let mut data = br#"{"id":"123456789012345678"}"#.to_vec();
-        data.extend_from_slice(
-            br#"{"id":"987654321098765432","username":"next-account","avatar":"hashB"}"#,
-        );
-        data.extend_from_slice(b" ".repeat(120).as_slice());
-
-        let user = extract_discord_user(&data).expect("second profile resolves");
-
-        assert_eq!(user.user_id, "987654321098765432");
-        assert_eq!(user.username, "next-account");
-        assert_eq!(user.avatar_hash, "hashB");
-    }
-
-    #[test]
-    fn discord_user_global_name_decodes_escapes_and_survives_braces_in_values() {
-        let mut data =
-            br#"{"id":"123456789012345678","username":"brace-user","note":"evil } tail","global_name":"Pulse \"Dev\""}"#
-                .to_vec();
-        data.extend_from_slice(b" ".repeat(120).as_slice());
-
-        let user = extract_discord_user(&data).expect("discord user");
-
-        assert_eq!(user.global_name.as_deref(), Some("Pulse \"Dev\""));
-        assert_eq!(user.username, "brace-user");
-    }
-
-    fn proofed_route(
-        provider: &str,
-        signal: UsageSignal,
-        windows: Vec<QuotaWindow>,
-    ) -> AccessRouteSnapshot {
-        let mut source = subscription_source(provider, None);
-        source.proof = AccessProof::QuotaResponse;
-        access_route_from_usage(
-            source,
-            quota_usage(provider, signal, windows),
-            chrono::Utc::now(),
-            chrono::Duration::seconds(30),
-            chrono::Utc::now(),
-        )
-    }
-
-    #[test]
-    fn simultaneous_codex_and_claude_routes_are_retained() {
-        let codex = proofed_route(
-            "codex",
-            UsageSignal::CodexSubscriptionUsage,
-            vec![QuotaWindow {
-                window_minutes: 7_777,
-                used_percent: 12.0,
-                remaining_percent: 88.0,
-                resets_at: None,
-            }],
-        );
-        let claude = proofed_route(
-            "claude",
-            UsageSignal::ClaudeSubscriptionUsage,
-            vec![QuotaWindow {
-                window_minutes: 2_345,
-                used_percent: 34.0,
-                remaining_percent: 66.0,
-                resets_at: None,
-            }],
-        );
-        let snapshot = merge_access_routes(&[], [codex, claude]);
-
-        assert_eq!(snapshot.routes.len(), 2);
-        assert!(
-            snapshot
-                .routes
-                .iter()
-                .any(|route| route.source.kind == AccessSourceKind::CodexSubscription)
-        );
-        assert!(
-            snapshot
-                .routes
-                .iter()
-                .any(|route| route.source.kind == AccessSourceKind::ClaudeSubscription)
-        );
-    }
-
-    #[test]
-    fn active_provider_selection_does_not_depend_on_route_order() {
-        let codex = proofed_route(
-            "codex",
-            UsageSignal::CodexSubscriptionUsage,
-            vec![QuotaWindow {
-                window_minutes: 17,
-                used_percent: 1.0,
-                remaining_percent: 99.0,
-                resets_at: None,
-            }],
-        );
-        let claude = proofed_route(
-            "claude",
-            UsageSignal::ClaudeSubscriptionUsage,
-            vec![QuotaWindow {
-                window_minutes: 4_321,
-                used_percent: 2.0,
-                remaining_percent: 98.0,
-                resets_at: None,
-            }],
-        );
-        let mut data = super::CachedData {
-            active_provider: Provider::Claude,
-            access: AccessSnapshot {
-                routes: vec![codex, claude],
-            },
-            ..Default::default()
-        };
-        assert_eq!(active_access_route(&data).source.provider, "claude");
-        data.active_provider = Provider::Codex;
-        assert_eq!(active_access_route(&data).source.provider, "codex");
-        assert_eq!(
-            route_for_provider(&data, Provider::Codex)
-                .unwrap()
-                .source
-                .kind,
-            AccessSourceKind::CodexSubscription
-        );
-    }
-
-    #[test]
-    fn failed_api_auth_is_unavailable_and_unproofed() {
-        let mut cache = super::ApiProbeEntry::default();
-        let route = api_probe_route("openai", None, &mut cache);
-        assert_eq!(route.availability, AccessAvailability::Unavailable);
-        assert_eq!(route.source.proof, AccessProof::None);
-        assert!(route.windows.is_empty());
-        assert_eq!(route.source.kind, AccessSourceKind::OpenAiApi);
-        assert_eq!(route.source.auth_method, AuthMethod::ApiKey);
-        assert_eq!(AccessSnapshot::new(vec![route]).routes.len(), 1);
-    }
-
-    #[test]
-    fn failed_refresh_replaces_old_windows_instead_of_leaking_stale_usage() {
-        let old = proofed_route(
-            "codex",
-            UsageSignal::CodexSubscriptionUsage,
-            vec![QuotaWindow {
-                window_minutes: 300,
-                used_percent: 75.0,
-                remaining_percent: 25.0,
-                resets_at: None,
-            }],
-        );
-        let replacement = AccessRouteSnapshot::unavailable(
-            subscription_source("codex", None),
-            "account probe failed",
-        );
-        let snapshot = merge_access_routes(&[old], [replacement]);
-        assert_eq!(snapshot.routes.len(), 1);
-        assert!(snapshot.routes[0].windows.is_empty());
-        assert_eq!(
-            snapshot.routes[0].availability,
-            AccessAvailability::Unavailable
-        );
-    }
-
-    #[test]
-    fn provider_windows_keep_arbitrary_durations_without_synthetic_buckets() {
-        let route = proofed_route(
-            "claude",
-            UsageSignal::ClaudeSubscriptionUsage,
-            vec![
-                QuotaWindow {
-                    window_minutes: 17,
-                    used_percent: 11.0,
-                    remaining_percent: 89.0,
-                    resets_at: None,
-                },
-                QuotaWindow {
-                    window_minutes: 4_321,
-                    used_percent: 22.0,
-                    remaining_percent: 78.0,
-                    resets_at: None,
-                },
-            ],
-        );
-        assert_eq!(
-            route
-                .windows
-                .iter()
-                .map(|window| window.quota.window_minutes)
-                .collect::<Vec<_>>(),
-            vec![17, 4_321]
-        );
-    }
-
-    #[test]
-    fn snapshot_fingerprint_ignores_wall_clock_fields_but_not_telemetry() {
-        let first = serde_json::json!({
-            "sync_state": "syncing",
-            "snapshot_captured_at": "2026-08-12T10:00:00Z",
-            "health": {"uptime_seconds": 10, "status": "ok"},
-            "discord_preview": {"duration_secs": 10, "state": "7d 96%"},
-            "sessions": [{"duration_secs": 10, "tokens_per_sec": 4.5, "tokens": 100}]
-        });
-        let second = serde_json::json!({
-            "sync_state": "live",
-            "snapshot_captured_at": "2026-08-12T10:00:05Z",
-            "health": {"uptime_seconds": 15, "status": "ok"},
-            "discord_preview": {"duration_secs": 15, "state": "7d 96%"},
-            "sessions": [{"duration_secs": 15, "tokens_per_sec": 3.0, "tokens": 100}]
-        });
-        let changed = serde_json::json!({
-            "health": {"uptime_seconds": 15, "status": "ok"},
-            "discord_preview": {"duration_secs": 15, "state": "7d 95%"},
-            "sessions": [{"duration_secs": 15, "tokens_per_sec": 3.0, "tokens": 101}]
-        });
-
-        assert_eq!(
-            semantic_snapshot_fingerprint(first),
-            semantic_snapshot_fingerprint(second)
-        );
-        assert_ne!(
-            semantic_snapshot_fingerprint(serde_json::json!({
-                "health": {"uptime_seconds": 15, "status": "ok"},
-                "discord_preview": {"duration_secs": 15, "state": "7d 96%"},
-                "sessions": [{"duration_secs": 15, "tokens_per_sec": 3.0, "tokens": 100}]
-            })),
-            semantic_snapshot_fingerprint(changed)
-        );
-    }
-
-    fn persisted_snapshot_fixture() -> serde_json::Value {
-        serde_json::json!({
-            "revision": 1,
-            "sync_state": "live",
-            "snapshot_captured_at": "2026-08-12T10:00:00Z",
-            "health": {},
-            "metrics": {},
-            "sessions": [],
-            "access": {},
-            "rate_limits": null,
-            "discord_preview": {},
-            "discord_settings": {},
-            "plan": {}
-        })
-    }
-
-    #[test]
-    fn persisted_snapshot_is_provider_scoped_and_returns_as_syncing() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let path = temp.path().join("snapshot.json");
-        super::persist_app_snapshot_value_at(&path, Provider::Claude, persisted_snapshot_fixture())
-            .expect("persist snapshot");
-
-        let loaded = super::load_persisted_app_snapshot_at(&path, Provider::Claude)
-            .expect("load snapshot")
-            .expect("matching provider snapshot");
-        assert_eq!(loaded["sync_state"], "syncing");
-        assert_eq!(loaded["snapshot_captured_at"], "2026-08-12T10:00:00Z");
-        assert!(
-            super::load_persisted_app_snapshot_at(&path, Provider::Codex)
-                .expect("provider mismatch is not an I/O failure")
-                .is_none()
-        );
-    }
-
-    /// A snapshot from another build or from long ago would show values that
-    /// build computed, so startup waits for the first live poll instead.
-    #[test]
-    fn persisted_snapshot_from_another_build_or_too_old_is_not_shown() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let path = temp.path().join("snapshot.json");
-        super::persist_app_snapshot_value_at(&path, Provider::Claude, persisted_snapshot_fixture())
-            .expect("persist snapshot");
-        let rewrite = |edit: &dyn Fn(&mut serde_json::Value)| {
-            let mut value: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-            edit(&mut value);
-            std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
-        };
-        let loads = || {
-            super::load_persisted_app_snapshot_at(&path, Provider::Claude)
-                .expect("not an I/O failure")
-                .is_some()
-        };
-        assert!(loads(), "same build, fresh");
-
-        rewrite(&|value| value["app_version"] = serde_json::json!("0.0.0-older-build"));
-        assert!(!loads(), "another build");
-
-        rewrite(&|value| {
-            value.as_object_mut().unwrap().remove("app_version");
-        });
-        assert!(!loads(), "unversioned snapshot");
-
-        rewrite(&|value| {
-            value["app_version"] = serde_json::json!(env!("CARGO_PKG_VERSION"));
-            value["saved_at"] =
-                serde_json::json!((chrono::Utc::now() - chrono::Duration::hours(25)).to_rfc3339());
-        });
-        assert!(!loads(), "older than the maximum age");
-
-        rewrite(&|value| value["saved_at"] = serde_json::json!("not-a-date"));
-        assert!(!loads(), "unparseable save time");
-    }
-
-    #[test]
-    fn corrupt_or_wrong_contract_persisted_snapshot_is_never_promoted() {
-        let temp = tempfile::tempdir().expect("tempdir");
-        let path = temp.path().join("snapshot.json");
-        std::fs::write(&path, b"not-json").expect("write corrupt cache");
-        assert!(super::load_persisted_app_snapshot_at(&path, Provider::Claude).is_err());
-
-        super::persist_app_snapshot_value_at(
-            &path,
-            Provider::Claude,
-            serde_json::json!({"revision": 1}),
-        )
-        .expect("persist invalid contract");
-        assert!(super::load_persisted_app_snapshot_at(&path, Provider::Claude).is_err());
-    }
-
-    #[test]
-    fn usage_snapshot_transport_uses_public_scope_labels() {
-        let snapshot = codex_presence_core::UsageSnapshot {
-            source: UsageSource::new("codex-session-jsonl", [UsageSignal::CodexSessionJsonl]),
-            scopes: vec![codex_presence_core::QuotaScope {
-                id: Some("codex".to_string()),
-                name: None,
-                kind: codex_presence_core::RateLimitScope::GlobalAccount,
-                windows: Vec::new(),
-            }],
-            credits: None,
-            observed_at: None,
-            provenance_source: "fixture".to_string(),
-        };
-        let value = serde_json::to_value(super::UsageSnapshotTransport::from_snapshot(
-            "codex", snapshot,
-        ))
-        .expect("usage snapshot JSON");
-        assert_eq!(value["provider"], "codex");
-        assert_eq!(value["source"], "fixture");
-        assert_eq!(value["usage_source"]["stream_id"], "codex-session-jsonl");
-        assert_eq!(value["scopes"][0]["kind"], "global_account");
-    }
-
-    #[test]
-    fn legacy_model_distribution_transport_remains_tuple_shaped() {
-        let rows = vec![crate::db::ModelStat {
-            model: "gpt-5.6-sol".to_string(),
-            session_count: 2,
-            priced_sessions: 1,
-            cost_basis: crate::db::CostBasis::Partial,
-            cost_sources: vec!["provider_billed".to_string()],
-            total_cost: 4.25,
-        }];
-
-        assert_eq!(
-            super::legacy_model_distribution(rows),
-            vec![("gpt-5.6-sol".to_string(), 2, 4.25)]
-        );
-    }
-
-    #[test]
-    fn budget_validation_rejects_invalid_values_before_persistence() {
-        assert!(super::set_budget(-1.0, Some(80.0)).is_err());
-        assert!(super::set_budget(f64::NAN, Some(80.0)).is_err());
-        assert!(super::set_budget(10.0, Some(101.0)).is_err());
-        assert!(super::set_budget(10.0, Some(f64::INFINITY)).is_err());
-    }
-
-    fn sample_claude_snapshot(model_id: &str) -> ClaudeSessionSnapshot {
-        ClaudeSessionSnapshot {
-            session_id: format!("{model_id}-session"),
-            cwd: PathBuf::from("D:/X/Pulse"),
-            project_name: "pulse".into(),
-            git_branch: None,
-            model: Some(model_id.to_string()),
-            model_display: Some(cost::model_display_name(model_id)),
-            session_total_tokens: Some(120_000),
-            last_turn_tokens: Some(2_000),
-            session_delta_tokens: None,
-            input_tokens: 100_000,
-            output_tokens: 20_000,
-            cache_creation_tokens: 0,
-            cache_read_tokens: 0,
-            max_turn_api_input: 100_000,
-            current_context_tokens: 100_000,
-            reasoning_effort: ReasoningEffort::High,
-            reasoning_effort_explicit: true,
-            has_thinking_blocks: false,
-            speed: Speed::Standard,
-            service_tier: None,
-            total_cost: 2.0,
-            input_cost: 1.0,
-            output_cost: 1.0,
-            cache_write_cost: 0.0,
-            cache_read_cost: 0.0,
-            total_api_duration_ms: 0,
-            limits: cc_discord_presence::session::RateLimits::default(),
-            activity: None,
-            started_at: None,
-            last_token_event_at: None,
-            last_activity: SystemTime::now(),
-            source: DataSource::Jsonl,
-            source_file: PathBuf::from("session.jsonl"),
-            background_work: cc_discord_presence::workflow_state::BackgroundWorkInfo::default(),
-            subagents: Vec::new(),
-            is_subagent: false,
-            parent_session_id: None,
-        }
-    }
-
-    /// `CLAUDE_HOME` / `CODEX_HOME` are process-global, so every test that
-    /// redirects them must hold this lock or they clobber each other under
-    /// libtest's default multi-threaded runner.
-    static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    /// Redirects both provider homes at a fresh temp tree and returns the guard
-    /// that keeps other home-mutating tests out until the caller is done.
-    fn isolated_homes(tag: &str) -> (std::sync::MutexGuard<'static, ()>, PathBuf, PathBuf) {
-        let guard = HOME_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let temp = std::env::temp_dir().join(format!("pulse-{tag}-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&temp);
-        let claude_home = temp.join("claude");
-        let codex_home = temp.join("codex");
-        std::fs::create_dir_all(&claude_home).expect("claude home");
-        std::fs::create_dir_all(&codex_home).expect("codex home");
-        unsafe {
-            std::env::set_var("CLAUDE_HOME", &claude_home);
-            std::env::set_var("CODEX_HOME", &codex_home);
-            std::env::set_var("PULSE_HOME", &temp);
-        }
-        (guard, claude_home, codex_home)
-    }
-
-    #[test]
-    fn claude_rich_presence_toggle_survives_a_restart() {
-        let (_guard, _claude_home, _codex_home) = isolated_homes("claude-rp-toggle");
-        super::set_active_provider("claude".to_string()).expect("save Claude provider");
-
-        let settings = super::set_discord_enabled(false).expect("disable Claude presence");
-        assert!(!settings.enabled, "the command must report the new state");
-
-        // Restart equivalent: nothing but the on-disk config survives, and the
-        // startup path is what seeds the in-memory cache.
-        let claude = TestClaudePresenceConfig::load_or_init().expect("claude config");
-        assert!(
-            !claude.presence_enabled,
-            "turning Rich Presence off must be written to the Claude config"
-        );
-
-        if let Ok(mut data) = super::shared().lock() {
-            data.discord_enabled = true; // pretend a fresh process default
-        }
-        super::seed_discord_state_from_disk();
-
-        // The poller decides whether to publish to Discord from this cached flag,
-        // so seeding it wrong is what makes a paused presence come back to life.
-        let cached_enabled = super::shared()
-            .lock()
-            .expect("shared state")
-            .discord_enabled;
-        assert!(
-            !cached_enabled,
-            "startup must seed the cached presence flag from disk, not force it on"
-        );
-
-        let after_restart = super::get_discord_settings().expect("settings after restart");
-        assert!(
-            !after_restart.enabled,
-            "startup must honour the persisted Claude presence flag instead of forcing it on"
-        );
-    }
-
-    #[test]
-    fn claude_display_prefs_persist_even_when_the_codex_mirror_write_fails() {
-        let (_guard, _claude_home, codex_home) = isolated_homes("mirror-failure");
-        super::set_active_provider("claude".to_string()).expect("save Claude provider");
-
-        // Make the Codex home unusable: a regular file where a directory is
-        // expected, so `CodexPresenceConfig::load_or_init` cannot succeed.
-        std::fs::remove_dir_all(&codex_home).expect("clear codex home");
-        std::fs::write(&codex_home, b"not a directory").expect("occupy codex home");
-
-        let settings = super::set_discord_display_prefs(
-            true, false, true, true, true, true, true, false, true, true,
-        )
-        .expect("a broken Codex mirror must not fail the active provider's save");
-
-        assert!(
-            !settings.display_prefs.show_branch,
-            "the returned canonical payload must reflect the change the user made"
-        );
-        let claude = TestClaudePresenceConfig::load_or_init().expect("claude config");
-        assert!(
-            !claude.privacy.show_git_branch,
-            "the Claude config must keep the change even though the mirror write failed"
-        );
-    }
-
-    #[test]
-    fn saving_claude_toggles_preserves_the_codex_credits_preference() {
-        let (_guard, _claude_home, _codex_home) = isolated_homes("credits-mirror");
-
-        // Codex owns Credits and has it on.
-        super::set_active_provider("codex".to_string()).expect("save Codex provider");
-        super::set_discord_display_prefs(
-            true, true, true, true, true, true, true, true, true, true,
-        )
-        .expect("save under codex");
-        assert!(
-            TestCodexPresenceConfig::load_or_init()
-                .expect("codex config")
-                .privacy
-                .show_credits
-        );
-
-        // Claude has no Credits field, so its payload always carries `false`.
-        // Saving an unrelated Claude toggle must not disable Codex Credits.
-        super::set_active_provider("claude".to_string()).expect("save Claude provider");
-        super::set_discord_display_prefs(
-            true, false, true, true, true, true, true, false, true, true,
-        )
-        .expect("save under claude");
-
-        let codex = TestCodexPresenceConfig::load_or_init().expect("codex config");
-        assert!(
-            codex.privacy.show_credits,
-            "a Claude-side save must not clobber a Codex-only preference"
-        );
-        assert!(
-            !codex.privacy.show_git_branch,
-            "shared fields still mirror across providers"
-        );
-    }
-
-    #[test]
-    fn discord_controls_are_saved_for_claude_and_codex_together() {
-        let (_guard, _claude_home, _codex_home) = isolated_homes("display-prefs");
-
-        super::set_discord_display_prefs(
-            true, false, true, true, true, true, false, true, false, true,
-        )
-        .expect("save display preferences");
-        super::set_active_provider("codex".to_string()).expect("save Codex provider");
-        let settings = super::set_discord_enabled(false).expect("disable Codex presence");
-
-        let claude = TestClaudePresenceConfig::load_or_init().expect("claude config");
-        let codex = TestCodexPresenceConfig::load_or_init().expect("codex config");
-
-        assert!(!claude.privacy.show_git_branch);
-        assert!(!codex.privacy.show_git_branch);
-        assert!(claude.privacy.show_cost);
-        assert!(codex.privacy.show_cost);
-        assert!(!claude.privacy.show_limits);
-        assert!(!codex.privacy.show_limits);
-        assert!(codex.privacy.show_credits);
-        assert!(!claude.privacy.show_context);
-        assert!(!codex.privacy.show_context);
-        assert!(claude.privacy.show_systems);
-        assert!(codex.privacy.show_systems);
-        assert!(!codex.presence_enabled);
-        assert!(!settings.enabled);
-    }
-
-    #[test]
-    fn switching_provider_keeps_lane_diagnostics_without_selecting_old_provider() {
-        let (_guard, _claude_home, _codex_home) = isolated_homes("provider-switch-access");
-        if let Ok(mut data) = super::shared().lock() {
-            data.access = super::AccessSnapshot {
-                routes: vec![crate::access::AccessRouteSnapshot::unavailable(
-                    crate::access::subscription_source("codex", None),
-                    "fixture",
-                )],
-            };
-        }
-
-        super::seed_discord_state_for(Provider::Claude);
-
-        let routes = super::shared()
-            .lock()
-            .expect("shared state")
-            .access
-            .routes
-            .clone();
-        assert_eq!(routes.len(), 1, "independent lane diagnostics stay cached");
-        assert_eq!(routes[0].source.provider, "codex");
-        let data = super::shared().lock().expect("shared state");
-        assert_eq!(super::active_access_route(&data).source.provider, "claude");
-    }
-
-    #[test]
-    fn switching_to_claude_does_not_leak_a_stale_codex_plan_info() {
-        let (_guard, _claude_home, _codex_home) = isolated_homes("provider-switch-plan");
-        let mut codex = TestCodexPresenceConfig::load_or_init().expect("codex config");
-        codex.openai_plan.mode = OpenAiPlanMode::Manual;
-        codex.openai_plan.tier = cc_discord_presence::codex::config::OpenAiPlanTier::Pro20x;
-        codex.save().expect("codex plan override");
-
-        super::set_active_provider("codex".to_string()).expect("save Codex provider");
-        assert_eq!(super::get_plan_info().plan_key, "pro_20x");
-
-        super::set_active_provider("claude".to_string()).expect("save Claude provider");
-        let claude_plan = super::get_plan_info();
-        assert_eq!(claude_plan.provider, "claude");
-        assert_ne!(claude_plan.plan_key, "pro_20x");
-        assert_eq!(claude_plan.plan_name, "Unknown");
-        assert!(
-            !claude_plan.detected,
-            "no Claude plan proof must be Unknown"
-        );
-    }
-
-    #[test]
-    fn invalid_claude_max_override_is_not_reported_as_a_plan() {
-        let (_guard, _claude_home, _codex_home) = isolated_homes("invalid-claude-plan");
-        super::set_active_provider("claude".to_string()).expect("save Claude provider");
-
-        let mut config = TestClaudePresenceConfig::load_or_init().expect("Claude config");
-        config.plan = Some("max".to_string());
-        config.save().expect("save invalid plan fixture");
-
-        let plan = super::get_plan_info();
-        assert_eq!(plan.provider, "claude");
-        assert_eq!(plan.plan_key, "");
-        assert_eq!(plan.plan_name, "Unknown");
-        assert!(!plan.detected);
-    }
-
-    #[test]
-    fn notification_commands_share_the_durable_store_lifecycle() {
-        let (_guard, _claude_home, _codex_home) = isolated_homes("notification-commands");
-        let connection = crate::notifications::open_default_database().expect("notification db");
-        let record = NotificationStore::new(&connection)
-            .observe(
-                crate::notifications::NotificationSpec {
-                    kind: crate::notifications::NotificationKind::ProviderHealth,
-                    provider: "codex".to_string(),
-                    key: "account".to_string(),
-                    title: "Codex provider".to_string(),
-                    body: "Provider unavailable".to_string(),
-                    action: None,
-                },
-                chrono::Utc::now(),
-            )
-            .expect("record notification")
-            .expect("new notification");
-
-        assert_eq!(get_unread_notification_count(), 1);
-        assert_eq!(
-            get_notifications(Some(10))
-                .expect("list notifications")
-                .len(),
-            1
-        );
-        assert!(mark_notification_read(record.id).expect("mark notification read"));
-        assert_eq!(get_unread_notification_count(), 0);
-        assert_eq!(
-            mark_all_notifications_read().expect("mark all notifications read"),
-            0
-        );
-        assert!(super::mark_notification_unread(record.id).unwrap());
-        assert_eq!(get_unread_notification_count(), 1);
-        assert_eq!(mark_all_notifications_read().unwrap(), 1);
-        assert_eq!(super::mark_all_notifications_unread().unwrap(), 1);
-        let cleared = super::dismiss_all_notifications().unwrap();
-        assert_eq!(cleared.count, 1);
-        assert!(get_notifications(Some(10)).unwrap().is_empty());
-        assert_eq!(super::restore_notifications(cleared.undo_token).unwrap(), 1);
-        assert!(dismiss_notification(record.id).expect("dismiss notification"));
-        assert!(
-            get_notifications(Some(10))
-                .expect("list notifications after dismiss")
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn access_diagnostics_never_become_native_health_or_threshold_alerts() {
-        let connection = rusqlite::Connection::open_in_memory().expect("notification sqlite");
-        NotificationStore::initialize(&connection).expect("notification schema");
-        let store = NotificationStore::new(&connection);
-
-        let mut authenticated = subscription_source("claude", None);
-        authenticated.proof = AccessProof::QuotaResponse;
-        let healthy = AccessRouteSnapshot {
-            source: authenticated,
-            availability: AccessAvailability::Available,
-            freshness: AccessFreshness::Fresh,
-            provenance: AccessProvenance::ProviderApi,
-            observed_at: None,
-            fetched_at: None,
-            expires_at: None,
-            windows: Vec::new(),
-            credits: None,
-            rate_limit_reset_credits: None,
-            individual_limits: Vec::new(),
-            extra_usage: None,
-            local_history: Default::default(),
-            error: None,
-            unavailable_reason: None,
-            usage: None,
-        };
-
-        // A proofed healthy sample is still only a baseline.
-        super::observe_access_notifications(None, Some(&store), Provider::Claude, &healthy);
-        assert!(store.list_all(Some(20)).expect("baseline rows").is_empty());
-
-        // A displayable cache with no provider proof (or an unavailable route)
-        // must not emit a native quota or health alert at the poll cadence —
-        // only genuine quota-reset edges do.
-        let mut cached = healthy.clone();
-        cached.source.proof = AccessProof::None;
-        cached.provenance = AccessProvenance::MemoryCache;
-        cached.windows = vec![AccessWindow {
-            key: "weekly".to_string(),
-            label: None,
-            quota: QuotaWindow {
-                window_minutes: 10_080,
-                used_percent: 95.0,
-                remaining_percent: 5.0,
-                resets_at: None,
-            },
-        }];
-        super::observe_access_notifications(None, Some(&store), Provider::Claude, &cached);
-        assert!(store.list_all(Some(20)).expect("cached rows").is_empty());
-
-        let unavailable = AccessRouteSnapshot::unavailable(
-            subscription_source("claude", None),
-            "no credentials — check .credentials.json",
-        );
-        super::observe_access_notifications(None, Some(&store), Provider::Claude, &unavailable);
-        assert!(store.list_all(Some(20)).expect("edge rows").is_empty());
-    }
-
-    #[test]
-    fn codex_discord_settings_reflect_persisted_privacy_design_and_publisher() {
-        let config = TestCodexPresenceConfig {
-            presence_enabled: false,
-            privacy: PrivacyConfig {
-                show_git_branch: false,
-                ..PrivacyConfig::default()
-            },
-            display: DisplayConfig {
-                desktop_presence_design: DesktopPresenceDesign::ChatGptApp,
-                ..DisplayConfig::default()
-            },
-            ..TestCodexPresenceConfig::default()
-        };
-        let cached = super::CachedData {
-            active_provider: cc_discord_presence::provider::Provider::Codex,
-            discord_status: "Controlled by external daemon".to_string(),
-            discord_publisher: "external_daemon".to_string(),
-            discord_enabled: true,
-            ..Default::default()
-        };
-
-        let settings = super::build_discord_settings(
-            cc_discord_presence::provider::Provider::Codex,
-            &cached,
-            None,
-            Some(&config),
-        );
-
-        assert_eq!(settings.provider, "codex");
-        assert!(!settings.enabled);
-        assert_eq!(settings.publisher, "external_daemon");
-        assert!(!settings.display_prefs.show_branch);
-        assert_eq!(settings.desktop_design.as_deref(), Some("chatgpt_app"));
-        assert!(settings.supports_desktop_design);
-    }
-
-    #[test]
-    fn claude_session_info_surfaces_ultracode_background_work_safely() {
-        let mut snapshot = sample_claude_snapshot("claude-opus-4-8");
-        snapshot.background_work = cc_discord_presence::workflow_state::BackgroundWorkInfo {
-            workflow_active: true,
-            active_agent_count: 2,
-            latest_signal_at: Some(SystemTime::now()),
-        };
-
-        let infos = build_claude_session_infos(&[snapshot]);
-
-        assert_eq!(infos[0].workflow_label.as_deref(), Some("ULTRACODE"));
-        assert_eq!(infos[0].subagent_count, 2);
-        assert!(infos[0].subagents.is_empty());
-    }
-
-    #[test]
-    fn claude_session_info_does_not_call_plain_thinking_a_workflow() {
-        let mut snapshot = sample_claude_snapshot("claude-opus-4-8");
-        snapshot.has_thinking_blocks = true;
-        snapshot.background_work =
-            cc_discord_presence::workflow_state::BackgroundWorkInfo::default();
-
-        let infos = build_claude_session_infos(&[snapshot]);
-
-        assert_eq!(infos[0].workflow_label, None);
-    }
-
-    #[test]
-    fn claude_session_cost_provenance_distinguishes_jsonl_estimates_from_statusline() {
-        let jsonl = sample_claude_snapshot("claude-opus-4-8");
-        let mut statusline = jsonl.clone();
-        statusline.source = DataSource::Statusline;
-
-        let estimated = build_claude_session_infos(&[jsonl]);
-        let exact = build_claude_session_infos(&[statusline]);
-
-        assert_eq!(estimated[0].cost_basis, "estimated");
-        assert_eq!(exact[0].cost_basis, "exact");
-    }
-
-    #[test]
-    fn discord_preview_uses_the_same_claude_presence_lines_as_publish() {
-        let mut snapshot = sample_claude_snapshot("claude-opus-4-8");
-        snapshot.project_name = "PropertyAlpha-Agent".to_string();
-        snapshot.git_branch = Some("feat/marketplace-addtochat-liveview-management".to_string());
-        snapshot.background_work = cc_discord_presence::workflow_state::BackgroundWorkInfo {
-            workflow_active: true,
-            active_agent_count: 1,
-            latest_signal_at: Some(SystemTime::now()),
-        };
-
-        let mut config = TestClaudePresenceConfig {
-            plan: Some("max_20x".to_string()),
-            ..Default::default()
-        };
-        super::apply_claude_display_prefs(
-            &mut config,
-            &super::DiscordDisplayPrefs {
-                show_project: true,
-                show_branch: false,
-                show_model: true,
-                show_activity: true,
-                show_tokens: true,
-                show_cost: true,
-                show_limits: false,
-                show_credits: false,
-                show_context: false,
-                show_systems: true,
-            },
-        );
-
-        let preview = super::build_claude_discord_preview(&[snapshot], &config);
-
-        assert!(preview.has_session);
-        assert!(preview.details.contains("PropertyAlpha-Agent"));
-        assert!(!preview.details.contains("feat/marketplace"));
-        assert!(preview.state.contains("ULTRACODE"));
-        assert!(preview.state.contains("1 agent"));
-        assert!(!preview.state.contains("5h"));
-        assert!(!preview.state.contains("7d"));
-        assert!(!preview.state.contains("Ctx"));
-    }
-
-    #[test]
-    fn claude_preview_and_live_share_extra_usage_from_the_access_route() {
-        let now = chrono::Utc::now();
-        let snapshot = sample_claude_snapshot("claude-opus-4-8");
-        let usage = UsageData {
-            five_hour: UsageWindow {
-                utilization: 20.0,
-                resets_at: None,
-            },
-            seven_day: UsageWindow {
-                utilization: 35.0,
-                resets_at: None,
-            },
-            sonnet_free: None,
-            limits: Vec::new(),
-            extra_usage: Some(ExtraUsage {
-                is_enabled: true,
-                monthly_limit: Some(75.0),
-                used_credits: Some(10.0),
-                utilization: Some(13.333),
-            }),
-        };
-        let route = claude_route_from_usage(
-            subscription_source("claude", None),
-            &usage,
-            now,
-            now,
-            chrono::Duration::seconds(300),
-            now,
-            "OAuth usage API",
-        );
-        let mut config = TestClaudePresenceConfig::default();
-        config.privacy.show_cost = true;
-        config.privacy.show_limits = true;
-
-        let preview = super::build_claude_discord_preview_with_access(
-            std::slice::from_ref(&snapshot),
-            &config,
-            Some(&route),
-            Some(&usage),
-        );
-        let limits = route_limits_for_claude_presence(Some(&route));
-        let (_details, live_state, _tooltip) =
-            super::claude_presence_lines(&snapshot, limits.as_ref(), Some(&usage), &config);
-
-        assert_eq!(preview.state, live_state);
-        assert!(preview.state.contains("5h 20% used"));
-        assert!(preview.state.contains("7d 35% used"));
-        assert!(preview.state.contains("Extra $10.00/$75.00"));
-    }
-
-    #[test]
-    fn claude_presence_candidate_keeps_background_work_when_token_event_is_stale() {
-        let mut snapshot = sample_claude_snapshot("claude-opus-4-8");
-        snapshot.last_token_event_at = Some(chrono::Utc::now() - chrono::Duration::minutes(20));
-        snapshot.last_activity = SystemTime::now();
-        snapshot.background_work = cc_discord_presence::workflow_state::BackgroundWorkInfo {
-            workflow_active: true,
-            active_agent_count: 1,
-            latest_signal_at: Some(snapshot.last_activity),
-        };
-
-        let cutoff = SystemTime::now()
-            .checked_sub(Duration::from_secs(600))
-            .expect("cutoff");
-        let cutoff_chrono = chrono::Utc::now() - chrono::Duration::seconds(600);
-
-        assert!(super::is_claude_presence_candidate(
-            &snapshot,
-            cutoff,
-            cutoff_chrono
-        ));
-    }
-
-    #[test]
-    fn claude_session_info_flags_inflated_tokenizer_for_sonnet_5_and_opus_4_7_plus() {
-        for model_id in ["claude-sonnet-5", "claude-opus-4-8"] {
-            let snapshots = [sample_claude_snapshot(model_id)];
-            let infos = build_claude_session_infos(&snapshots);
-            assert!(infos[0].has_inflated_tokenizer, "{model_id}");
-        }
-    }
-
-    #[test]
-    fn claude_session_info_does_not_flag_inflated_tokenizer_for_sonnet_4_6() {
-        let snapshots = [sample_claude_snapshot("claude-sonnet-4-6")];
-        let infos = build_claude_session_infos(&snapshots);
-
-        assert!(!infos[0].has_inflated_tokenizer);
-    }
-
-    #[test]
-    fn codex_session_info_never_carries_an_inflated_tokenizer_flag() {
-        let standard = build_codex_session_infos(
-            &[sample_codex_snapshot()],
-            &TestCodexPresenceConfig::default(),
-            TestPresenceSurface::Cli,
-        );
-
-        assert!(!standard[0].has_inflated_tokenizer);
-    }
-
-    #[test]
-    fn codex_session_info_does_not_invent_subagent_count() {
-        let infos = build_codex_session_infos(
-            &[sample_codex_snapshot()],
-            &TestCodexPresenceConfig::default(),
-            TestPresenceSurface::Cli,
-        );
-
-        assert_eq!(infos[0].subagent_count, 0);
-        assert!(infos[0].subagents.is_empty());
-        assert_eq!(infos[0].workflow_label, None);
-    }
-
-    #[test]
-    fn session_info_context_used_tokens_reflects_current_fill_not_the_historical_peak() {
-        let snapshot = ClaudeSessionSnapshot {
-            max_turn_api_input: 999_486,
-            current_context_tokens: 25_500,
-            ..sample_claude_snapshot("claude-sonnet-5")
-        };
-        let infos = build_claude_session_infos(&[snapshot]);
-
-        assert_eq!(
-            infos[0].context_used_tokens, 25_500,
-            "the live-session ctx-1m badge must show current fill, not the all-time peak"
-        );
-        assert_eq!(
-            infos[0].context_window_tokens, 1_000_000,
-            "the 1M-vs-200K window-size decision is unaffected -- it stays keyed off the \
-             historical peak (max_turn_api_input), which correctly never decreases"
-        );
-    }
-
-    #[test]
-    fn context_breakdown_used_tokens_reflects_current_fill_not_the_historical_peak() {
-        let snapshot = ClaudeSessionSnapshot {
-            max_turn_api_input: 999_486,
-            current_context_tokens: 25_500,
-            ..sample_claude_snapshot("claude-sonnet-5")
-        };
-        let breakdown = build_claude_context_breakdown(Some(&snapshot));
-
-        assert_eq!(
-            breakdown.used_tokens, 25_500,
-            "the Context Window view must show current fill, not the session's all-time peak"
-        );
-        assert_eq!(breakdown.context_window, 1_000_000);
-        assert_eq!(breakdown.system_prompt, 0);
-        assert_eq!(breakdown.system_tools, 0);
-        assert_eq!(breakdown.autocompact_buffer, 0);
-        assert_eq!(breakdown.messages, breakdown.used_tokens);
-        assert_eq!(breakdown.free_space, 1_000_000 - 25_500);
-        assert!(
-            breakdown.free_space > 0,
-            "a session that genuinely emptied out after compaction must show real free space, \
-             not 0 (the exact symptom Tony reported: a CRITICAL \"100% full\" recommendation \
-             for a session that isn't actually full right now)"
-        );
-
-        let empty = super::empty_context_breakdown("Claude", 200_000);
-        assert_eq!(empty.used_tokens, 0);
-        assert_eq!(empty.autocompact_buffer, 0);
-        assert_eq!(empty.free_space, 200_000);
-    }
-
-    #[test]
-    fn plan_key_from_override_accepts_display_labels_and_auto() {
-        assert_eq!(plan_key_from_override("Max 20x ($200/mo)"), Some("max_20x"));
-        assert_eq!(plan_key_from_override("Max 5x ($100/mo)"), Some("max_5x"));
-        assert_eq!(plan_key_from_override("  Teams plan  "), Some("team"));
-        assert_eq!(plan_key_from_override("enterprise"), Some("enterprise"));
-        assert_eq!(plan_key_from_override("pro monthly"), Some("pro"));
-        assert_eq!(plan_key_from_override("free"), Some("free"));
-        assert_eq!(plan_key_from_override("Max"), None);
-        assert_eq!(plan_key_from_override("auto"), None);
-        assert_eq!(plan_key_from_override(""), None);
-    }
-
-    #[test]
-    fn codex_plan_key_maps_detected_tiers_to_frontend_contract() {
-        assert_eq!(codex_plan_key_from_tier(DetectedPlanTier::Free), "free");
-        assert_eq!(codex_plan_key_from_tier(DetectedPlanTier::Go), "go");
-        assert_eq!(codex_plan_key_from_tier(DetectedPlanTier::Plus), "plus");
-        assert_eq!(
-            codex_plan_key_from_tier(DetectedPlanTier::Business),
-            "business"
-        );
-        assert_eq!(
-            codex_plan_key_from_tier(DetectedPlanTier::Enterprise),
-            "enterprise"
-        );
-        assert_eq!(codex_plan_key_from_tier(DetectedPlanTier::Pro5x), "pro_5x");
-        assert_eq!(
-            codex_plan_key_from_tier(DetectedPlanTier::Pro20x),
-            "pro_20x"
-        );
-        assert_eq!(codex_plan_key_from_tier(DetectedPlanTier::Unknown), "");
-    }
-
-    fn sample_codex_snapshot() -> CodexSessionSnapshot {
-        CodexSessionSnapshot {
-            session_id: "session".into(),
-            cwd: PathBuf::from("D:/X/Web Development/MCP Servers/cc-discord-presence"),
-            project_name: "pulse".into(),
-            git_branch: None,
-            model: Some("gpt-5.4".into()),
-            originator: None,
-            source: None,
-            reasoning_effort: None,
-            speed: SessionSpeed::default(),
-            approval_policy: None,
-            sandbox_policy: None,
-            session_total_tokens: Some(54_764_083),
-            last_turn_tokens: None,
-            session_delta_tokens: None,
-            input_tokens_total: 54_626_018,
-            cached_input_tokens_total: 52_219_136,
-            cache_write_tokens_total: None,
-            output_tokens_total: 138_065,
-            last_input_tokens: None,
-            last_cached_input_tokens: None,
-            last_output_tokens: None,
-            total_cost_usd: 0.0,
-            known_cost_usd: None,
-            cost_breakdown: TokenCostBreakdown {
-                input_cost_usd: 0.0,
-                cache_write_cost_usd: 0.0,
-                cached_input_cost_usd: 0.0,
-                output_cost_usd: 0.0,
-                cached_input_savings_usd: 0.0,
-            },
-            pricing_source: PricingSource::Fallback,
-            pricing_status: PricingStatus::Unavailable,
-            cost_attribution: CostAttribution::SingleModel,
-            cost_breakdown_reconciled: false,
-            context_window: None,
-            limits: RateLimits::default(),
-            rate_limit_envelopes: Vec::new(),
-            activity: None,
-            started_at: None,
-            last_token_event_at: None,
-            last_activity: SystemTime::UNIX_EPOCH,
-            source_file: PathBuf::from("C:/Users/xt0n1/.codex/sessions/sample.jsonl"),
-        }
-    }
-
-    #[test]
-    fn codex_total_input_tokens_uses_telemetry_total_without_double_counting_cache() {
-        let snapshot = sample_codex_snapshot();
-        assert_eq!(codex_total_input_tokens(&snapshot), 54_626_018);
-    }
-
-    #[test]
-    fn codex_session_info_uses_the_canonical_effective_context_for_gpt_5_4() {
-        // The snapshot carries no observed context window, so resolution falls
-        // back to the model catalogue. Pin it here: without an explicit window
-        // the resolver also consults ~/.codex/models_cache.json, which makes
-        // the expected value depend on whichever Codex build last wrote that
-        // file on the developer's machine.
-        let mut snapshot = sample_codex_snapshot();
-        snapshot.context_window = Some(ContextWindowSnapshot {
-            raw_window_tokens: 272_000,
-            window_tokens: 258_400,
-            effective_percent: Some(95),
-            used_tokens: 0,
-            remaining_tokens: 258_400,
-            remaining_percent: 100.0,
-            source: ContextWindowSource::Event,
-            raw_source: ContextWindowSource::Event,
-        });
-
-        let infos = build_codex_session_infos(
-            &[snapshot],
-            &TestCodexPresenceConfig::default(),
-            TestPresenceSurface::Cli,
-        );
-
-        assert_eq!(infos[0].context_window, "258.4K");
-        assert_eq!(infos[0].context_window_tokens, 258_400);
-    }
-
-    #[test]
-    fn codex_discord_preview_idles_as_codex_app_when_desktop_is_running() {
-        let config = TestCodexPresenceConfig::default();
-        let preview = build_codex_discord_preview(&[], &config, true);
-
-        assert_eq!(preview.app_name, "Codex App");
-        assert_eq!(preview.details, "Codex App");
-        assert_eq!(preview.state, "Idling...");
-        assert!(!preview.has_session);
-    }
-
-    #[test]
-    fn codex_discord_preview_uses_selected_chatgpt_identity_and_hides_branch() {
-        let mut snapshot = sample_codex_snapshot();
-        snapshot.model = Some("gpt-5.6-sol".into());
-        snapshot.reasoning_effort = Some(cc_discord_presence::codex::model::ReasoningEffort::Max);
-        snapshot.git_branch = Some("main".into());
-        snapshot.originator = Some("Codex Desktop".into());
-        let mut config = TestCodexPresenceConfig::default();
-        config.display.desktop_presence_design = DesktopPresenceDesign::ChatGptApp;
-        config.privacy.show_git_branch = false;
-        config.openai_plan.mode = OpenAiPlanMode::Manual;
-
-        let preview = build_codex_discord_preview(&[snapshot], &config, true);
-
-        assert_eq!(preview.app_name, "ChatGPT App");
-        assert_eq!(preview.large_image_key, "codex-logo");
-        assert_eq!(preview.large_text, "ChatGPT App");
-        assert!(!preview.details.contains("main"));
-        assert!(
-            preview
-                .state
-                .starts_with("GPT-5.6 Sol · Max | Pro 20x ($200/month)")
-        );
-    }
-
-    #[test]
-    fn discord_preview_and_live_share_access_route_for_quota_and_cost() {
-        let now = chrono::Utc::now();
-        let mut snapshot = sample_codex_snapshot();
-        snapshot.known_cost_usd = Some(4.25);
-        snapshot.pricing_status = PricingStatus::Exact;
-        snapshot.cost_breakdown = TokenCostBreakdown {
-            input_cost_usd: 1.25,
-            cache_write_cost_usd: 0.0,
-            cached_input_cost_usd: 1.0,
-            output_cost_usd: 2.0,
-            cached_input_savings_usd: 0.0,
-        };
-        snapshot.limits = RateLimits::new(vec![
-            cc_discord_presence::codex::telemetry::limits::UsageWindow {
-                used_percent: 99.0,
-                remaining_percent: 1.0,
-                window_minutes: 300,
-                resets_at: None,
-            },
-            cc_discord_presence::codex::telemetry::limits::UsageWindow {
-                used_percent: 88.0,
-                remaining_percent: 12.0,
-                window_minutes: 10_080,
-                resets_at: None,
-            },
-        ]);
-        let route = access_route_from_usage(
-            subscription_source("codex", Some("Pro 20x".to_string())),
-            UsageSnapshot {
-                source: UsageSource::new(
-                    "codex-subscription:default",
-                    [UsageSignal::CodexSubscriptionUsage],
-                ),
-                scopes: vec![QuotaScope {
-                    id: Some("codex".to_string()),
-                    name: Some("Global account quota".to_string()),
-                    kind: RateLimitScope::GlobalAccount,
-                    windows: vec![
-                        QuotaWindow {
-                            window_minutes: 300,
-                            used_percent: 17.0,
-                            remaining_percent: 83.0,
-                            resets_at: None,
-                        },
-                        QuotaWindow {
-                            window_minutes: 10_080,
-                            used_percent: 42.0,
-                            remaining_percent: 58.0,
-                            resets_at: None,
-                        },
-                    ],
-                }],
-                credits: None,
-                observed_at: Some(now),
-                provenance_source: "app_server".to_string(),
-            },
-            now,
-            chrono::Duration::seconds(30),
-            now,
-        );
-        let mut config = TestCodexPresenceConfig::default();
-        config.privacy.show_limits = true;
-        config.privacy.show_cost = true;
-        let preview = build_codex_discord_preview_with_access(
-            &[snapshot.clone()],
-            &config,
-            false,
-            Some(&route),
-        );
-        let plan =
-            PlanDetector::with_cache_path(tempfile::tempdir().unwrap().path().join("plan.json"))
-                .resolve_from_sessions(&[snapshot.clone()], &config.openai_plan);
-        let service_tier = resolve_service_tier();
-        let live = active_presence_presentation(
-            codex_session_surface(&snapshot, codex_fallback_surface(false)),
-            &snapshot,
-            route_limits_for_presence(Some(&route)).as_ref(),
-            &plan,
-            &service_tier,
-            &config,
-        );
-
-        assert_eq!(preview.details, live.details);
-        assert_eq!(preview.state, live.state);
-        assert!(preview.state.contains("5h 83%"));
-        assert!(preview.state.contains("7d 58%"));
-        assert!(preview.state.contains("$4.25"));
-
-        let mut stale = route.clone();
-        stale.freshness = AccessFreshness::Stale;
-        let stale_preview =
-            build_codex_discord_preview_with_access(&[snapshot], &config, false, Some(&stale));
-        assert!(!stale_preview.state.contains("5h"));
-        assert!(!stale_preview.state.contains("7d"));
-        assert!(stale_preview.state.contains("$4.25"));
-    }
-
-    #[test]
-    fn codex_weekly_and_model_weekly_do_not_duplicate_the_global_window() {
-        let now = chrono::Utc::now();
-        let route = access_route_from_usage(
-            subscription_source("codex", None),
-            UsageSnapshot {
-                source: UsageSource::new(
-                    "codex-subscription:default",
-                    [UsageSignal::CodexSubscriptionUsage],
-                ),
-                scopes: vec![
-                    QuotaScope {
-                        id: Some("codex".to_string()),
-                        name: None,
-                        kind: RateLimitScope::GlobalAccount,
-                        windows: vec![QuotaWindow {
-                            window_minutes: 10_080,
-                            used_percent: 52.0,
-                            remaining_percent: 48.0,
-                            resets_at: Some(now + chrono::Duration::days(5)),
-                        }],
-                    },
-                    QuotaScope {
-                        id: Some("codex_bengalfox".to_string()),
-                        name: Some("GPT-5.3-Codex-Spark".to_string()),
-                        kind: RateLimitScope::ModelScoped,
-                        windows: vec![QuotaWindow {
-                            window_minutes: 10_080,
-                            used_percent: 0.0,
-                            remaining_percent: 100.0,
-                            resets_at: Some(now + chrono::Duration::days(7)),
-                        }],
-                    },
-                ],
-                credits: None,
-                observed_at: Some(now),
-                provenance_source: "app_server".to_string(),
-            },
-            now,
-            chrono::Duration::seconds(30),
-            now,
-        );
-
-        let (primary, secondary) = super::route_window_slots(&route);
-        assert!(primary.is_none(), "weekly must not be reused as a 5h slot");
-        assert_eq!(secondary.map(|window| window.key.as_str()), Some("weekly"));
-
-        let legacy = super::rate_limit_info_from_access(&route);
-        assert_eq!(legacy.five_hour_window_minutes, None);
-        assert_eq!(legacy.seven_day_window_minutes, Some(10_080));
-    }
-
-    #[test]
-    fn codex_model_scoped_five_hour_is_not_promoted_to_global_discord() {
-        let now = chrono::Utc::now();
-        let route = access_route_from_usage(
-            subscription_source("codex", None),
-            UsageSnapshot {
-                source: UsageSource::new(
-                    "codex-subscription:default",
-                    [UsageSignal::CodexSubscriptionUsage],
-                ),
-                scopes: vec![
-                    QuotaScope {
-                        id: Some("codex".to_string()),
-                        name: None,
-                        kind: RateLimitScope::GlobalAccount,
-                        windows: vec![QuotaWindow {
-                            window_minutes: 10_080,
-                            used_percent: 5.0,
-                            remaining_percent: 95.0,
-                            resets_at: Some(now + chrono::Duration::days(7)),
-                        }],
-                    },
-                    QuotaScope {
-                        id: Some("codex_bengalfox".to_string()),
-                        name: Some("GPT-5.3-Codex-Spark".to_string()),
-                        kind: RateLimitScope::ModelScoped,
-                        windows: vec![
-                            QuotaWindow {
-                                window_minutes: 300,
-                                used_percent: 0.0,
-                                remaining_percent: 100.0,
-                                resets_at: Some(now + chrono::Duration::hours(5)),
-                            },
-                            QuotaWindow {
-                                window_minutes: 10_080,
-                                used_percent: 0.0,
-                                remaining_percent: 100.0,
-                                resets_at: Some(now + chrono::Duration::days(7)),
-                            },
-                        ],
-                    },
-                ],
-                credits: None,
-                observed_at: Some(now),
-                provenance_source: "app_server".to_string(),
-            },
-            now,
-            chrono::Duration::seconds(30),
-            now,
-        );
-
-        let limits = route_limits_for_presence(Some(&route)).expect("fresh global quota");
-        assert_eq!(
-            limits.primary().map(|window| window.window_minutes),
-            Some(10_080),
-            "a model-scoped 5h window must not become the global Discord primary"
-        );
-        assert_eq!(
-            limits.primary().map(|window| window.remaining_percent),
-            Some(95.0)
-        );
-        assert!(limits.secondary().is_none());
-
-        let mut config = TestCodexPresenceConfig::default();
-        config.privacy.show_limits = true;
-        let preview = build_codex_discord_preview_with_access(
-            &[sample_codex_snapshot()],
-            &config,
-            false,
-            Some(&route),
-        );
-        assert!(
-            preview.state.contains("7d 95% remaining"),
-            "{}",
-            preview.state
-        );
-        assert!(!preview.state.contains("5h"), "{}", preview.state);
-    }
-
-    #[test]
-    fn context_recommendation_maps_each_tier_at_boundaries() {
-        use super::{
-            CONTEXT_COMPACT_NOW_PCT, CONTEXT_COMPACT_SOON_PCT, CONTEXT_WATCH_PCT,
-            context_recommendation,
-        };
-
-        assert_eq!(CONTEXT_WATCH_PCT, 50.0);
-        assert_eq!(CONTEXT_COMPACT_SOON_PCT, 80.0);
-        assert_eq!(CONTEXT_COMPACT_NOW_PCT, 95.0);
-
-        let healthy = context_recommendation(49.0);
-        let watch = context_recommendation(50.0);
-        let soon = context_recommendation(80.0);
-        let now = context_recommendation(95.0);
-        let full = context_recommendation(100.0);
-
-        assert!(healthy.contains("healthy"));
-        assert!(watch.contains("half"));
-        assert!(soon.contains("compact soon"));
-        assert!(now.contains("compact now"));
-        assert!(full.contains("compact now"));
-
-        assert_ne!(healthy, watch);
-        assert_ne!(watch, soon);
-        assert_ne!(soon, now);
-    }
-
-    #[test]
-    fn codex_session_info_does_not_multiply_canonical_fast_cost_twice() {
-        use super::build_codex_session_infos;
-
-        let mut snapshot = sample_codex_snapshot();
-        snapshot.model = Some("gpt-5.5".into());
-        snapshot.speed = SessionSpeed::explicit(SpeedMode::Fast, SpeedSource::ThreadSettings);
-        snapshot.total_cost_usd = 4.0;
-        snapshot.known_cost_usd = Some(4.0);
-        snapshot.pricing_status = PricingStatus::Exact;
-        snapshot.cost_breakdown = TokenCostBreakdown {
-            input_cost_usd: 1.0,
-            cache_write_cost_usd: 0.0,
-            cached_input_cost_usd: 0.5,
-            output_cost_usd: 2.5,
-            cached_input_savings_usd: 4.5,
-        };
-
-        let info = build_codex_session_infos(
-            &[snapshot],
-            &TestCodexPresenceConfig::default(),
-            TestPresenceSurface::Cli,
-        );
-
-        assert!((info[0].cost - 4.0).abs() < 0.0001);
-        assert!((info[0].input_cost - 1.0).abs() < 0.0001);
-        assert!((info[0].output_cost - 2.5).abs() < 0.0001);
-        assert!((info[0].cache_read_cost - 0.5).abs() < 0.0001);
-        assert!(info[0].cost_available);
-        assert_eq!(info[0].cost_basis, "exact");
-        assert!(info[0].fast);
-    }
-
-    #[test]
-    fn codex_session_info_preserves_partial_cost_from_shared_metrics() {
-        let mut snapshot = sample_codex_snapshot();
-        snapshot.known_cost_usd = Some(0.454);
-        snapshot.total_cost_usd = 0.454;
-        snapshot.pricing_status = PricingStatus::Partial;
-        snapshot.cost_breakdown = TokenCostBreakdown {
-            input_cost_usd: 0.2,
-            output_cost_usd: 0.254,
-            ..TokenCostBreakdown::default()
-        };
-
-        let info = build_codex_session_infos(
-            &[snapshot],
-            &TestCodexPresenceConfig::default(),
-            TestPresenceSurface::Cli,
-        );
-
-        assert_eq!(info[0].cost, 0.454);
-        assert_eq!(info[0].input_cost, 0.2);
-        assert_eq!(info[0].output_cost, 0.254);
-        assert!(info[0].cost_available);
-        assert_eq!(info[0].cost_basis, "partial");
-    }
-
-    // ---- Reports cost timeline ---------------------------------------
-
-    /// Builds a history row that landed `days_ago` days before today.
-    /// A SQL daily total placed `days_ago` calendar days before today.
-    fn cost_row(days_ago: i64, cost: f64, sessions: i64) -> crate::db::DailyCostRow {
-        let date = chrono::Utc::now().date_naive() - chrono::Duration::days(days_ago);
-        crate::db::DailyCostRow {
-            date: date.format("%Y-%m-%d").to_string(),
-            cost,
-            sessions,
-            priced_sessions: sessions,
-            cost_basis: crate::db::CostBasis::Exact,
-            cost_sources: vec!["fixture".to_string()],
-        }
-    }
-
-    /// A stored session dated `days_ago` calendar days before today.
-    fn session_on_day(days_ago: i64, cost: f64) -> crate::db::HistoricalSession {
-        let date = chrono::Utc::now().date_naive() - chrono::Duration::days(days_ago);
-        crate::db::HistoricalSession {
-            started_at: Some(format!("{}T12:00:00Z", date.format("%Y-%m-%d"))),
-            total_cost: cost,
-            cost_basis: crate::db::CostBasis::Exact,
-            cost_source: "fixture".to_string(),
-            known_cost: Some(cost),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn daily_cost_series_returns_one_point_per_day_oldest_first() {
-        let series = daily_cost_series(&[], 7);
-        assert_eq!(series.len(), 7);
-        let dates: Vec<&str> = series.iter().map(|p| p.date.as_str()).collect();
-        let mut sorted = dates.clone();
-        sorted.sort_unstable();
-        assert_eq!(dates, sorted, "series must run oldest to newest");
-    }
-
-    /// A day without sessions is a real "you spent nothing" observation, so it
-    /// must appear as a zero point rather than vanish from the timeline.
-    #[test]
-    fn daily_cost_series_zero_fills_days_without_sessions() {
-        let series = daily_cost_series(&[cost_row(1, 12.5, 1)], 5);
-        assert_eq!(series.len(), 5);
-        let zero_days = series.iter().filter(|p| p.cost == 0.0).count();
-        assert_eq!(zero_days, 4);
-        let spend_day = series.iter().find(|p| p.cost > 0.0).expect("spend day");
-        assert!((spend_day.cost - 12.5).abs() < 0.000_001);
-        assert_eq!(spend_day.sessions, 1);
-    }
-
-    #[test]
-    fn daily_cost_series_carries_the_aggregated_day_total() {
-        let series = daily_cost_series(&[cost_row(2, 8.0, 3)], 5);
-        let day = series.iter().find(|p| p.sessions > 0).expect("busy day");
-        assert!((day.cost - 8.0).abs() < 0.000_001);
-        assert_eq!(day.sessions, 3);
-        assert_eq!(day.priced_sessions, 3);
-        assert_eq!(day.cost_basis, crate::db::CostBasis::Exact);
-        assert_eq!(day.cost_sources, vec!["fixture".to_string()]);
-    }
-
-    #[test]
-    fn report_windows_preserve_cost_coverage_for_7_30_90_and_365_days() {
-        for days in [7, 30, 90, 365] {
-            let series = daily_cost_series(&[cost_row(0, 4.25, 2)], days);
-            assert_eq!(series.len(), days as usize);
-            let current = series.last().expect("current day");
-            assert_eq!(current.cost, 4.25);
-            assert_eq!(current.sessions, 2);
-            assert_eq!(current.priced_sessions, 2);
-            assert_eq!(current.cost_basis, crate::db::CostBasis::Exact);
-        }
-    }
-
-    #[test]
-    fn cached_reports_bundle_reuses_fresh_bundle_for_same_key() {
-        let _test_guard = REPORTS_BUNDLE_CACHE_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *REPORTS_BUNDLE_CACHE
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-        let builds = Cell::new(0);
-        let project = Some("cache-test-same-key-7717".to_string());
-        let provider = "all-cache-test-7717".to_string();
-
-        let first = cached_reports_bundle(7717, project.clone(), provider.clone(), || {
-            builds.set(builds.get() + 1);
-            build_reports_bundle_for_scope_from_roots(
-                &provider,
-                Some(7717),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-            )
-        });
-        let second = cached_reports_bundle(7717, project, provider, || {
-            builds.set(builds.get() + 1);
-            unreachable!("fresh matching cache entry should skip the builder")
-        });
-
-        assert_eq!(builds.get(), 1);
-        assert_eq!(
-            serde_json::to_value(first).expect("serialize first bundle"),
-            serde_json::to_value(second).expect("serialize cached bundle")
-        );
-    }
-
-    #[test]
-    fn cached_reports_bundle_rebuilds_for_different_key() {
-        let _test_guard = REPORTS_BUNDLE_CACHE_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *REPORTS_BUNDLE_CACHE
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-        let builds = Cell::new(0);
-
-        for (days, project) in [
-            (7717, Some("cache-test-key-a-7717".to_string())),
-            (7718, Some("cache-test-key-b-7718".to_string())),
-        ] {
-            cached_reports_bundle(
-                days,
-                project,
-                "all-cache-test-key-change".to_string(),
-                || {
-                    builds.set(builds.get() + 1);
-                    build_reports_bundle_for_scope_from_roots(
-                        "all-cache-test-key-change",
-                        Some(i64::from(days)),
-                        Vec::new(),
-                        Vec::new(),
-                        Vec::new(),
-                        Vec::new(),
-                    )
-                },
-            );
-        }
-
-        assert_eq!(builds.get(), 2);
-    }
-
-    #[test]
-    fn all_provider_report_bundle_aggregates_without_cross_provider_guidance() {
-        let mut codex = session_on_day(0, 2.0);
-        codex.id = "codex:scope".to_string();
-        codex.provider = "codex".to_string();
-        codex.model = "GPT-5.6 Sol".to_string();
-        let mut claude = session_on_day(0, 7.0);
-        claude.id = "claude:scope".to_string();
-        claude.provider = "claude".to_string();
-        claude.model = "Claude Opus 5".to_string();
-
-        let bundle = build_reports_bundle_for_scope_from_roots(
-            "all",
-            Some(7),
-            vec![codex, claude],
-            vec![cost_row(0, 9.0, 2)],
-            Vec::new(),
-            Vec::new(),
-        );
-
-        assert_eq!(bundle.provider, "all");
-        assert_eq!(bundle.total_sessions, 2);
-        assert_eq!(bundle.priced_sessions, 2);
-        assert_eq!(bundle.cost_basis, crate::db::CostBasis::Exact);
-        assert_eq!(bundle.daily_costs.last().expect("today").cost, 9.0);
-        assert!(bundle.model_routing.is_none());
-        assert!(bundle.recommendations.is_empty());
-        assert_eq!(bundle.trace_overview.provider_display, "All providers");
-        assert!(
-            bundle
-                .cache_health
-                .diagnosis
-                .contains("aggregated across All providers")
-        );
-    }
-
-    #[test]
-    fn daily_cost_series_ignores_sessions_outside_the_window() {
-        // 60 days ago is outside a 7-day window; the series stays flat.
-        let series = daily_cost_series(&[cost_row(60, 40.0, 1)], 7);
-        assert_eq!(series.len(), 7);
-        assert!(series.iter().all(|p| p.cost == 0.0));
-    }
-
-    /// The first plotted date is the same day the SQL aggregate starts from,
-    /// so a session on the boundary day is charted instead of silently
-    /// disagreeing with the analyzers that counted it.
-    #[test]
-    fn daily_cost_series_plots_the_boundary_day_of_the_window() {
-        let series = daily_cost_series(&[cost_row(6, 7.25, 2)], 7);
-        let first = series.first().expect("first day");
-        assert_eq!(first.date, cost_row(6, 0.0, 0).date);
-        assert!((first.cost - 7.25).abs() < 0.000_001);
-        assert_eq!(first.sessions, 2);
-    }
-
-    // ---- Cost Analysis KPI totals ------------------------------------
-
-    /// KPIs must cover every session in the window, not just the page the
-    /// table happens to display.
-    #[test]
-    fn cost_totals_sum_every_session_in_the_window() {
-        let sessions: Vec<_> = (0..250).map(|i| session_on_day(i % 30, 2.0)).collect();
-        let totals = aggregate_cost_totals(30, &sessions);
-        assert_eq!(totals.sessions, 250);
-        assert!((totals.total_cost - 500.0).abs() < 0.000_001);
-    }
-
-    /// The four cost categories must reconcile with the headline total, or the
-    /// "Cost by type" breakdown silently disagrees with "Total spent".
-    #[test]
-    fn cost_totals_categories_reconcile_with_the_headline() {
-        let mut a = session_on_day(1, 0.0);
-        a.input_cost = 1.5;
-        a.output_cost = 2.0;
-        a.cache_write_cost = 0.75;
-        a.cache_read_cost = 0.25;
-        a.total_cost = 4.5;
-        a.known_cost = Some(4.5);
-
-        let totals = aggregate_cost_totals(30, &[a]);
-        let by_category = totals.input_cost
-            + totals.output_cost
-            + totals.cache_write_cost
-            + totals.cache_read_cost;
-        assert!((by_category - totals.total_cost).abs() < 0.000_001);
-    }
-
-    #[test]
-    fn cost_totals_are_zero_for_an_empty_window() {
-        let totals = aggregate_cost_totals(7, &[]);
-        assert_eq!(totals.sessions, 0);
-        assert_eq!(totals.total_cost, 0.0);
-        assert_eq!(totals.days, 7);
-        assert_eq!(
-            totals.cost_basis,
-            crate::db::CostBasis::Unavailable,
-            "an empty window is not an exact zero-cost observation"
-        );
-    }
-
-    #[test]
-    fn cost_totals_keep_partial_coverage_and_ignore_unavailable_raw_costs() {
-        let mut exact = session_on_day(1, 2.5);
-        exact.cost_basis = crate::db::CostBasis::Exact;
-        exact.cost_source = "session-calculated".to_string();
-        exact.known_cost = Some(2.5);
-
-        let mut unavailable = session_on_day(1, 99.0);
-        unavailable.cost_basis = crate::db::CostBasis::Unavailable;
-        unavailable.cost_source = "unknown".to_string();
-        unavailable.known_cost = None;
-
-        let totals = aggregate_cost_totals(30, &[exact, unavailable]);
-
-        assert_eq!(totals.cost_basis, crate::db::CostBasis::Partial);
-        assert_eq!(totals.sessions, 2);
-        assert_eq!(totals.priced_sessions, 1);
-        assert_eq!(totals.total_cost, 2.5);
-        assert_eq!(totals.cost_sources, vec!["session-calculated".to_string()]);
-        assert_eq!(totals.billed_spend_usd, None);
-        assert_eq!(totals.api_equivalent_usd, Some(2.5));
-        assert_eq!(totals.billed_sessions, 0);
-        assert_eq!(totals.api_equivalent_sessions, 1);
-    }
-
-    #[test]
-    fn cost_totals_keep_billed_and_api_equivalent_values_in_separate_fields() {
-        let mut billed = session_on_day(1, 10.0);
-        billed.cost_basis = crate::db::CostBasis::Exact;
-        billed.cost_source = "provider_billed".to_string();
-        billed.known_cost = Some(10.0);
-
-        let mut estimated = session_on_day(1, 90.0);
-        estimated.cost_basis = crate::db::CostBasis::Estimated;
-        estimated.cost_source = "api_equivalent".to_string();
-        estimated.known_cost = Some(90.0);
-
-        let totals = aggregate_cost_totals(30, &[billed, estimated]);
-
-        assert_eq!(totals.total_cost, 100.0);
-        assert_eq!(totals.billed_spend_usd, Some(10.0));
-        assert_eq!(totals.api_equivalent_usd, Some(90.0));
-        assert_eq!(totals.billed_sessions, 1);
-        assert_eq!(totals.api_equivalent_sessions, 1);
-    }
-
-    #[test]
-    fn cost_totals_keep_usage_breakdown_when_cost_is_unavailable() {
-        let mut unavailable = session_on_day(1, 99.0);
-        unavailable.cost_basis = crate::db::CostBasis::Unavailable;
-        unavailable.cost_source = "unknown".to_string();
-        unavailable.known_cost = None;
-        unavailable.input_tokens = 100_000;
-        unavailable.output_tokens = 20_000;
-        unavailable.cache_write_tokens = 5_000;
-        unavailable.cache_read_tokens = 75_000;
-        unavailable.total_tokens = 200_000;
-
-        let totals = aggregate_cost_totals(30, &[unavailable]);
-
-        assert_eq!(totals.cost_basis, crate::db::CostBasis::Unavailable);
-        assert_eq!(totals.input_tokens, 100_000);
-        assert_eq!(totals.output_tokens, 20_000);
-        assert_eq!(totals.cache_write_tokens, 5_000);
-        assert_eq!(totals.cache_read_tokens, 75_000);
-        assert_eq!(totals.total_tokens, 200_000);
-    }
-
-    #[test]
-    fn metrics_cost_availability_distinguishes_empty_partial_and_exact_zero() {
-        assert_eq!(
-            cost_availability(&[]),
-            (false, "unavailable".to_string()),
-            "an empty session set has no cost observation"
-        );
-
-        let mut exact = build_claude_session_infos(&[sample_claude_snapshot("claude-opus-4-8")]);
-        exact[0].cost = 0.0;
-        exact[0].cost_basis = "exact".into();
-        assert_eq!(cost_availability(&exact), (true, "exact".to_string()));
-
-        let mut mixed = build_claude_session_infos(&[sample_claude_snapshot("claude-opus-4-8")]);
-        mixed[0].cost_available = false;
-        mixed[0].cost_basis = "unavailable".to_string();
-        assert_eq!(
-            cost_availability(&mixed),
-            (false, "unavailable".to_string())
-        );
-        mixed[0].cost_available = true;
-        mixed[0].cost_basis = "partial".into();
-        assert_eq!(cost_availability(&mixed), (true, "partial".to_string()));
-    }
-
-    /// The cache-savings estimate multiplies a token count by a per-token rate.
-    /// Both must come from this aggregate, so `pure_input_tokens` has to be the
-    /// denominator that matches `input_cost` over the same sessions.
-    #[test]
-    fn cost_totals_expose_pure_input_tokens_for_the_input_rate() {
-        let mut s = session_on_day(1, 0.0);
-        s.input_tokens = 100_000;
-        s.cache_write_tokens = 30_000;
-        s.cache_read_tokens = 50_000;
-        s.input_cost = 0.1;
-
-        let totals = aggregate_cost_totals(30, &[s]);
-        // 100k total input minus 30k written minus 50k read = 20k pure.
-        assert_eq!(totals.pure_input_tokens, 20_000);
-        assert_eq!(totals.cache_read_tokens, 50_000);
-
-        let rate = totals.input_cost / totals.pure_input_tokens as f64;
-        assert!((rate - 0.000_005).abs() < 1e-9, "rate was {rate}");
-    }
-
-    /// Cache-heavy sessions can report more cached than raw input tokens; the
-    /// pure-input count must clamp at zero rather than going negative and
-    /// flipping the derived rate.
-    #[test]
-    fn cost_totals_never_report_negative_pure_input() {
-        let mut s = session_on_day(1, 0.0);
-        s.input_tokens = 1_000;
-        s.cache_write_tokens = 5_000;
-        s.cache_read_tokens = 9_000;
-
-        let totals = aggregate_cost_totals(30, &[s]);
-        assert_eq!(totals.pure_input_tokens, 0);
-    }
-
-    /// Per-model and per-project breakdowns must reconcile with the headline.
-    /// Summing only the visible page made the bars claim $7.72 on a window
-    /// whose real spend was $7,371.
-    #[test]
-    fn cost_totals_breakdowns_reconcile_with_the_headline() {
-        let mut a = session_on_day(1, 10.0);
-        a.model = "Claude Opus 5".into();
-        a.project = "pulse".into();
-        let mut b = session_on_day(2, 4.0);
-        b.model = "Claude Sonnet 5".into();
-        b.project = "pulse".into();
-        let mut c = session_on_day(3, 6.0);
-        c.model = "Claude Opus 5".into();
-        c.project = "other".into();
-
-        let totals = aggregate_cost_totals(30, &[a, b, c]);
-
-        let model_sum: f64 = totals.by_model.iter().map(|m| m.cost).sum();
-        let project_sum: f64 = totals.by_project.iter().map(|p| p.cost).sum();
-        assert!((model_sum - totals.total_cost).abs() < 0.000_001);
-        assert!((project_sum - totals.total_cost).abs() < 0.000_001);
-
-        // Highest spend first, with sessions grouped rather than listed.
-        assert_eq!(totals.by_model[0].label, "Claude Opus 5");
-        assert!((totals.by_model[0].cost - 16.0).abs() < 0.000_001);
-        assert_eq!(totals.by_model[0].sessions, 2);
-        assert_eq!(totals.by_project[0].label, "pulse");
-        assert!((totals.by_project[0].cost - 14.0).abs() < 0.000_001);
-    }
-
-    /// Runs only as an isolated process because poisoning the global cache is
-    /// intentionally irreversible for that test binary.
-    #[test]
-    #[ignore = "poisons process-global shared state; run this test alone"]
-    fn poisoned_shared_state_fails_the_entire_snapshot_instead_of_fabricating_defaults() {
-        let (_guard, _claude_home, _codex_home) = isolated_homes("snapshot-poisoned");
-        let shared = super::shared();
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _guard = shared.lock().expect("lock shared state before poison");
-            panic!("simulated poller panic while holding shared state");
-        }));
-
-        let Err(error) = super::build_app_snapshot("live") else {
-            panic!("a poisoned core state must fail the whole snapshot");
-        };
-        assert!(error.contains("shared snapshot state is unavailable"));
-    }
-    #[test]
-    fn every_plan_override_survives_reload_and_matches_the_discord_payload() {
-        let (_guard, _, _) = isolated_homes("plan-override-matrix");
-        super::set_active_provider("codex".into()).unwrap();
-        let mut session = sample_codex_snapshot();
-        session.model = Some("gpt-6-astra".into());
-        let automatic = codex_presence_core::RateLimitEnvelope {
-            plan_type: Some("prolite".into()),
-            scope: RateLimitScope::GlobalAccount,
-            observed_at: Some(chrono::Utc::now()),
-            ..Default::default()
-        };
-        if let Ok(mut data) = super::shared().lock() {
-            data.codex_plan_envelopes = vec![automatic.clone()];
-        }
-        for (key, label) in [
-            ("free", "Free"),
-            ("go", "Go"),
-            ("plus", "Plus"),
-            ("pro_5x", "Pro 5x"),
-            ("pro_20x", "Pro 20x"),
-            ("business", "Business"),
-            ("enterprise", "Enterprise"),
-            ("edu", "Edu"),
-        ] {
-            super::set_plan_override(key.into(), Some("codex".into())).unwrap();
-            super::seed_discord_state_from_disk();
-            let config = TestCodexPresenceConfig::load_or_init().unwrap();
-            let plan = super::resolve_codex_plan(
-                &[session.clone()],
-                &config,
-                std::slice::from_ref(&automatic),
-            );
-            let info = super::get_plan_info();
-            assert_eq!(info.plan_key, key);
-            assert!(!info.detected);
-            assert!(info.plan_name.starts_with(label));
-            let preview = super::build_codex_discord_preview_with_plan(
-                &[session.clone()],
-                &config,
-                true,
-                None,
-                &plan,
-            );
-            assert!(preview.state.contains(label), "{key}: {}", preview.state);
-            assert!(!preview.state.contains("Unknown"));
-        }
-        assert!(super::set_plan_override("invalid".into(), Some("codex".into())).is_err());
-        assert_eq!(super::get_plan_info().plan_key, "edu");
-        super::set_plan_override("auto".into(), Some("codex".into())).unwrap();
-        let automatic_info = super::get_plan_info();
-        assert!(automatic_info.detected);
-        assert_eq!(automatic_info.plan_key, "pro_5x");
-    }
-}
+mod tests;

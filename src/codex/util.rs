@@ -1,3 +1,5 @@
+//! Helpers for the Codex modules: tracing, silent commands, formatting and atomic JSON writes.
+
 use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;

@@ -1,0 +1,20 @@
+{
+    "plugins": ["typescript"],
+    "categories": {
+        "correctness": "error",
+        "suspicious": "error",
+        "style": "off"
+    },
+    "rules": {
+        "no-underscore-dangle": [
+            "error",
+            {
+                "allow": [
+                    "__TAURI_INTERNALS__",
+                    "__TAURI_EVENT_PLUGIN_INTERNALS__",
+                    "__PULSE_UI_VERSION__"
+                ]
+            }
+        ]
+    }
+}

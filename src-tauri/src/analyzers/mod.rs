@@ -1,9 +1,9 @@
-//! Analyzers — ported natively from the cchubber Node.js CLI
+//! Analyzers: ported natively from the cchubber Node.js CLI
 //! (https://github.com/azkhh/cchubber, MIT licensed).
 //!
 //! Each submodule operates on the `HistoricalSession` slice we already store
 //! in the Pulse SQLite DB, so analysis needs no external processes or fresh
-//! JSONL parses — everything is a pure function over durable session rows.
+//! JSONL parses: everything is a pure function over durable session rows.
 
 pub mod cache_health;
 pub mod inflection;

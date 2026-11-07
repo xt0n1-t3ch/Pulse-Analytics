@@ -1,3 +1,5 @@
+//! Checks of the Tauri configuration and capability files that protect the webview.
+
 use std::path::Path;
 
 use serde_json::Value;

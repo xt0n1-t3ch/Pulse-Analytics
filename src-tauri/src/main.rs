@@ -1,3 +1,5 @@
+//! Pulse desktop entry point: window and tray lifecycle, plugins and the background poller.
+
 #![windows_subsystem = "windows"]
 
 use pulse::{accounts, commands, update_check};
@@ -115,9 +117,8 @@ fn create_or_show_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| match event {
-            // Restore on a single left-click (the common Windows gesture) as
-            // well as a double-click; show_window is idempotent so the extra
-            // Click emitted during a double-click is harmless.
+            // A single left-click restores like a double-click; `show_window`
+            // is idempotent, so the click inside a double-click is harmless.
             tauri::tray::TrayIconEvent::Click {
                 button: tauri::tray::MouseButton::Left,
                 button_state: tauri::tray::MouseButtonState::Up,
@@ -133,22 +134,38 @@ fn create_or_show_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Turns off WebKitGTK's DMA-BUF renderer on NVIDIA, where it can leave the
+/// window blank. Must run before any thread starts.
+#[cfg(target_os = "linux")]
+fn apply_linux_webview_workaround() {
+    use pulse::platform;
+    let current = std::env::var_os(platform::WEBKIT_DMABUF_VARIABLE);
+    if platform::dmabuf_workaround_needed(current.as_deref(), platform::nvidia_driver_present()) {
+        // SAFETY: this is the first statement of `main`; no other thread exists
+        // yet, so nothing can read or write the environment concurrently.
+        unsafe {
+            std::env::set_var(platform::WEBKIT_DMABUF_VARIABLE, "1");
+        }
+    }
+}
+
 fn main() {
+    #[cfg(target_os = "linux")]
+    apply_linux_webview_workaround();
     if let Err(error) = cc_discord_presence::storage::initialize() {
         eprintln!("Pulse storage initialization failed: {error:#}");
         std::process::exit(1);
     }
     cc_discord_presence::power::apply_from_env("PULSE_EFFICIENCY_MODE");
-    // Debug builds also serve the read-only dev bridge so the UI can be
-    // reviewed in a browser against real backend data.
+    // Debug builds serve the read-only dev bridge so the UI can be reviewed in
+    // a browser against real backend data.
     #[cfg(debug_assertions)]
     pulse::dev_bridge::spawn();
 
     let builder = tauri::Builder::default();
-    // Register single-instance FIRST, before every other plugin and the
-    // poller. The repo-owned native E2E probe is the only exception: debug
-    // builds with an isolated PULSE_E2E_RUN_ID must coexist with an installed
-    // Pulse process so validation never has to stop the user's app.
+    // Single-instance registers first, before every other plugin and the
+    // poller. The native E2E probe is the only exception: debug builds with an
+    // isolated PULSE_E2E_RUN_ID must coexist with an installed Pulse.
     let builder = if native_e2e_probe_requested() {
         builder
     } else {
@@ -157,30 +174,56 @@ fn main() {
         }))
     };
 
+    // The updater plugin is left out when a package manager owns the install:
+    // on Linux it would overwrite the packaged binary (see
+    // `update_check::update_channel`).
+    let builder = if update_check::current_update_channel() == update_check::UpdateChannel::InApp {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    };
+
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        // Native Windows/macOS/Linux notifications are delivered by the
-        // official Tauri plugin; the notification center persists its own
-        // records so delivery failures never erase unread state.
+        // The notification center persists its own records, so a failed native
+        // delivery never erases unread state.
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
-        // In-app updates: downloads and installs signed releases without
-        // sending the user to the GitHub releases page.
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
-            // Load persisted preferences into their synchronous mirror before
-            // the window can emit a close event.
+            // The close handler reads the preference synchronously, so load it
+            // before the window can emit a close event.
             pulse::app_settings::init();
-            // A running Pulse GUI owns the analytics DB and Discord presence
-            // outright. Reap any stray CLI / dev-bridge poller so nothing
-            // double-writes in the background. Release-only: the dev
-            // browser-review flow intentionally runs the standalone bridge.
+            // Built here rather than from the config so the webview profile
+            // lives under PULSE_HOME instead of the platform data folder.
+            let window_config = app
+                .config()
+                .app
+                .windows
+                .first()
+                .expect("tauri.conf.json defines the main window");
+            let window =
+                tauri::WebviewWindowBuilder::from_config(app.handle(), window_config)?
+                    .data_directory(cc_discord_presence::storage::webview_dir())
+                    .build()?;
+            #[cfg(target_os = "linux")]
+            let _ = window.with_webview(|webview| {
+                let webview = webview.inner();
+                if pulse::platform::enable_corner_shape(&webview) {
+                    webkit2gtk::WebViewExt::reload(&webview);
+                }
+            });
+            #[cfg(not(target_os = "linux"))]
+            let _ = window;
+            // A running Pulse GUI owns the analytics database and Discord
+            // presence; reap any stray CLI or dev-bridge poller so nothing
+            // double-writes. Release-only: the browser-review flow runs the
+            // standalone bridge on purpose.
             #[cfg(not(debug_assertions))]
             cc_discord_presence::process_guard::reap_stray_pollers();
             commands::start_background_poller(app.handle().clone());
-            commands::refresh_usage();
+            commands::request_usage_refresh();
             let tray_app = app.handle().clone();
             app.listen("pulse://snapshot", move |_| {
                 refresh_tray_presentation(&tray_app);
@@ -274,13 +317,17 @@ fn main() {
             commands::copy_fix_prompt,
             commands::get_reports_bundle,
             update_check::check_app_update,
+            update_check::get_update_channel,
             update_check::open_app_release_page,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if !pulse::app_settings::close_to_tray_enabled() {
-                    // Preference is "quit on close": exit the whole app so no
-                    // poller/thread lingers in the background.
+                // Without a tray the window could never be restored, so quit
+                // instead of hiding. Quitting also keeps no poller running in
+                // the background.
+                if !pulse::app_settings::close_to_tray_enabled()
+                    || !pulse::platform::tray_supported()
+                {
                     window.app_handle().exit(0);
                     return;
                 }

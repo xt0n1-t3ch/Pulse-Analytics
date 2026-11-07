@@ -1,3 +1,5 @@
+//! Detection of running OpenCode and OpenChamber processes.
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -20,24 +22,25 @@ struct ManagedProcess {
     runtime: String,
 }
 
+/// OpenCode and OpenChamber processes with their executable paths, read in-process.
 pub fn running_processes() -> Vec<ProcessIdentity> {
     #[cfg(windows)]
     {
-        let script = "Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(opencode|opencode-cli|OpenChamber)\\.exe$' } | ForEach-Object { @{pid=$_.ProcessId;parent_pid=$_.ParentProcessId;executable=$_.ExecutablePath} } | ConvertTo-Json -Compress";
-        let Ok(output) = crate::codex::util::silent_command("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command", script])
-            .output()
-        else {
-            return Vec::new();
-        };
-        if !output.status.success() {
-            return Vec::new();
-        }
-        serde_json::from_slice::<Vec<ProcessIdentity>>(&output.stdout).unwrap_or_else(|_| {
-            serde_json::from_slice::<ProcessIdentity>(&output.stdout)
-                .into_iter()
-                .collect()
-        })
+        crate::process_list::snapshot()
+            .into_iter()
+            .filter(|process| {
+                ["opencode.exe", "opencode-cli.exe", "OpenChamber.exe"]
+                    .iter()
+                    .any(|name| process.name.eq_ignore_ascii_case(name))
+            })
+            .filter_map(|process| {
+                Some(ProcessIdentity {
+                    pid: process.pid,
+                    parent_pid: process.parent_pid,
+                    executable: crate::process_list::executable_path(process.pid)?,
+                })
+            })
+            .collect()
     }
     #[cfg(not(windows))]
     {

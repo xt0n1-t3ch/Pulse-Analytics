@@ -1,3 +1,5 @@
+//! Codex session discovery and JSONL parsing into session snapshots.
+
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -1032,7 +1034,8 @@ mod tests {
             snapshot.pricing_status,
             crate::codex::cost::PricingStatus::Partial
         );
-        assert!((snapshot.total_cost_usd - 0.01266).abs() < 1e-9);
+        // gpt-5.5: 900 x $5 + 100 x $0.50 + 200 x $30 = $0.01055; luna delta: 900 x $0.20 + 100 x $0.02 + 200 x $1.20 = $0.000422 (per 1M)
+        assert!((snapshot.total_cost_usd - 0.010972).abs() < 1e-9);
     }
 
     #[test]

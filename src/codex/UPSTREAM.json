@@ -12,7 +12,7 @@
     "promotion_status": "promoted"
   },
   "compatibility": {
-    "pulse": "1.9.7",
+    "pulse": "2.0.0",
     "presence_config_schema": 13,
     "usage_snapshot_revision": 1,
     "app_snapshot_revision": 1
@@ -38,8 +38,18 @@
       "gpt-6-astra",
       "gpt-6.1-sol",
       "gpt-6-sol",
-      "gpt-6-luna"
+      "gpt-6-luna",
+      "gpt-6.1-terra"
     ],
+    "rate_refresh": {
+      "verified_on": "2026-11-07",
+      "models": [
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna"
+      ],
+      "note": "Standard API rates follow the published table; gpt-5.6-sol at $4 / $20 is promotional until 2026-11-30"
+    },
     "behavior": [
       "omit unknown account plan from Discord model label",
       "read-only linked-account app-server probes"

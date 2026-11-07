@@ -1,3 +1,5 @@
+//! Claude presence configuration: schema, privacy switches, defaults and atomic persistence.
+
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -16,7 +18,7 @@ const MIN_ACTIVE_STICKY_SECONDS: u64 = 30;
 const CONFIG_SCHEMA_VERSION: u32 = 6;
 pub const DEFAULT_DISCORD_CLIENT_ID: &str = "1466664856261230716";
 
-/// Default large_image asset key — must be uploaded to the Developer Portal at
+/// Default large_image asset key: must be uploaded to the Developer Portal at
 /// https://discord.com/developers/applications/{client_id}/rich-presence/assets
 /// Discord Rich Presence ONLY reliably renders asset keys; external URLs are
 /// unreliable (silently dropped by Discord on many client versions).
@@ -29,7 +31,7 @@ const PREVIOUS_DEFAULT_LARGE_IMAGE_KEY: &str = "claude-code";
 /// `Pulse-Analytics`.
 pub const DEFAULT_MASCOT_ASSET_URL: &str = "https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/main/assets/branding/claude-mascot.jpg";
 
-/// Default small activity asset keys — each must exist in the Developer Portal.
+/// Default small activity asset keys: each must exist in the Developer Portal.
 /// Users who host custom assets can override via `activity_small_image_keys` in
 /// the config file or via the Settings UI.
 pub const DEFAULT_ACTIVITY_THINKING_KEY: &str = "thinking";
@@ -46,9 +48,8 @@ pub struct PresenceConfig {
     pub discord_client_id: Option<String>,
     pub plan: Option<String>,
     pub initialized: bool,
-    /// Master Rich Presence switch. Persisted since schema v6 — before that the
-    /// Pulse GUI kept it in process memory only, so turning presence off was
-    /// silently forgotten on the next launch. Mirrors Codex's `presence_enabled`.
+    /// Master Rich Presence switch. Persisted so that turning presence off
+    /// survives a restart. Mirrors Codex's `presence_enabled`.
     pub presence_enabled: bool,
     pub privacy: PrivacyConfig,
     pub display: DisplayConfig,
@@ -230,8 +231,8 @@ impl PresenceConfig {
         // Atomic (temp file + fsync + rename), matching the Codex config writer.
         // Pulse's poller re-reads this file every few seconds while the GUI
         // rewrites it on every toggle; a truncating `fs::write` lets a reader
-        // land on invalid JSON, and callers swallow that as `unwrap_or_default()`
-        // — i.e. every privacy switch silently snaps back to its default.
+        // land on invalid JSON, and callers swallow that as `unwrap_or_default()`,
+        // so every privacy switch silently snaps back to its default.
         crate::codex::util::write_json_pretty_atomic(&path, self)
             .with_context(|| format!("failed to write {}", path.display()))?;
         Ok(())
@@ -430,8 +431,8 @@ pub fn claude_home() -> PathBuf {
 /// Serializes tests that redirect `CLAUDE_HOME`.
 ///
 /// The variable is process-global, so two tests swapping it concurrently make
-/// each other read the wrong tree. It lives beside `claude_home()` — the reader
-/// they are redirecting — so every module shares one lock instead of each
+/// each other read the wrong tree. It lives beside `claude_home()`, the reader
+/// they are redirecting, so every module shares one lock instead of each
 /// growing its own.
 #[cfg(test)]
 pub fn home_env_lock() -> &'static std::sync::Mutex<()> {
@@ -477,23 +478,19 @@ pub fn credentials_path() -> PathBuf {
 }
 
 pub fn usage_cache_path() -> PathBuf {
-    crate::storage::home()
-        .join("claude")
-        .join("discord-presence-usage-cache.json")
+    crate::storage::cache_path("claude-usage.json")
 }
 
 pub fn config_path() -> PathBuf {
-    crate::storage::home()
-        .join("claude")
-        .join("discord-presence-config.json")
+    crate::storage::config_file("claude-presence.json")
 }
 
 pub fn lock_path() -> PathBuf {
-    claude_home().join("cc-discord-presence.lock")
+    crate::storage::state_file("daemon.lock")
 }
 
 pub fn instance_meta_path() -> PathBuf {
-    claude_home().join("cc-discord-presence.instance.json")
+    crate::storage::state_file("daemon-instance.json")
 }
 
 fn bundled_asset_path(relative: &str) -> Option<PathBuf> {
@@ -769,15 +766,38 @@ pub fn read_ide_workspace_folders() -> Vec<PathBuf> {
 
 /// Find the deepest (most specific) workspace folder that is an ancestor of `file_path`.
 /// Returns `None` if no workspace matches.
+///
+/// Folders are compared by path component, never by string prefix, so `/x/cc`
+/// is not an ancestor of `/x/cc-discord-presence/src`.
 pub fn find_best_workspace(file_path: &Path, workspaces: &[PathBuf]) -> Option<PathBuf> {
-    let file_key = path_key(file_path);
-    workspaces
-        .iter()
-        .find(|ws| {
-            let ws_key = path_key(ws);
-            file_key.starts_with(&ws_key)
-        })
-        .cloned()
+    let file_components = path_components(file_path);
+    let mut best: Option<(usize, &PathBuf)> = None;
+    for workspace in workspaces {
+        let components = path_components(workspace);
+        let is_ancestor = file_components.starts_with(&components);
+        if is_ancestor && best.is_none_or(|(depth, _)| components.len() > depth) {
+            best = Some((components.len(), workspace));
+        }
+    }
+    best.map(|(_, workspace)| workspace.clone())
+}
+
+fn path_components(path: &Path) -> Vec<String> {
+    #[cfg(windows)]
+    {
+        path_key(path)
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[cfg(not(windows))]
+    {
+        path.components()
+            .map(|part| part.as_os_str().to_string_lossy().into_owned())
+            .collect()
+    }
 }
 
 /// Returns true if a path looks like a drive root (e.g., `C:\`, `D:/`, `/`).
@@ -794,24 +814,7 @@ pub fn is_drive_root(path: &Path) -> bool {
 }
 
 fn is_process_alive(pid: u32) -> bool {
-    #[cfg(windows)]
-    {
-        crate::util::silent_command("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
-            .map(|out| {
-                let text = String::from_utf8_lossy(&out.stdout);
-                text.contains(&pid.to_string())
-            })
-            .unwrap_or(false)
-    }
-
-    #[cfg(not(windows))]
-    {
-        Path::new(&format!("/proc/{pid}")).exists()
-    }
+    crate::process_list::is_alive(pid)
 }
 
 #[cfg(test)]
@@ -1004,33 +1007,78 @@ mod tests {
         assert!(!is_drive_root(Path::new("/home/user")));
     }
 
+    /// A path under a fake drive on Windows and under the root elsewhere, so
+    /// one test body covers both separators.
+    fn ws_path(tail: &str) -> PathBuf {
+        let root = if cfg!(windows) { "D:" } else { "" };
+        PathBuf::from(format!("{root}/{tail}"))
+    }
+
     #[test]
     fn find_best_workspace_matches_deepest() {
         let workspaces = vec![
-            PathBuf::from("D:\\X\\Work\\Property Alpha"),
-            PathBuf::from("D:\\X\\Web Development\\MCP Servers"),
-            PathBuf::from("D:\\X"),
+            ws_path("X/Work/Property Alpha"),
+            ws_path("X/Web Development/MCP Servers"),
+            ws_path("X"),
         ];
-        let result = find_best_workspace(
-            Path::new("D:\\X\\Work\\Property Alpha\\src\\index.ts"),
-            &workspaces,
-        );
-        assert_eq!(result, Some(PathBuf::from("D:\\X\\Work\\Property Alpha")));
+        let result =
+            find_best_workspace(&ws_path("X/Work/Property Alpha/src/index.ts"), &workspaces);
+        assert_eq!(result, Some(ws_path("X/Work/Property Alpha")));
 
         let result = find_best_workspace(
-            Path::new("D:\\X\\Web Development\\MCP Servers\\cc-discord-presence\\src\\main.rs"),
+            &ws_path("X/Web Development/MCP Servers/cc-discord-presence/src/main.rs"),
             &workspaces,
+        );
+        assert_eq!(result, Some(ws_path("X/Web Development/MCP Servers")));
+
+        let result = find_best_workspace(&ws_path("X/random/file.txt"), &workspaces);
+        assert_eq!(result, Some(ws_path("X")));
+
+        let result = find_best_workspace(&ws_path("Y/other/file.txt"), &workspaces);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn find_best_workspace_does_not_match_a_sibling_with_the_same_prefix() {
+        let workspaces = vec![ws_path("x/cc")];
+        assert_eq!(
+            find_best_workspace(&ws_path("x/cc-discord-presence/src/main.rs"), &workspaces),
+            None
         );
         assert_eq!(
-            result,
-            Some(PathBuf::from("D:\\X\\Web Development\\MCP Servers"))
+            find_best_workspace(&ws_path("x/cc/src/main.rs"), &workspaces),
+            Some(ws_path("x/cc"))
         );
+    }
 
-        let result = find_best_workspace(Path::new("D:\\X\\random\\file.txt"), &workspaces);
-        assert_eq!(result, Some(PathBuf::from("D:\\X")));
+    #[test]
+    fn find_best_workspace_picks_the_deepest_nested_workspace_in_any_order() {
+        let shallow_first = vec![ws_path("x"), ws_path("x/a"), ws_path("x/a/b")];
+        let deep_first: Vec<PathBuf> = shallow_first.iter().rev().cloned().collect();
+        for workspaces in [shallow_first, deep_first] {
+            assert_eq!(
+                find_best_workspace(&ws_path("x/a/b/c.rs"), &workspaces),
+                Some(ws_path("x/a/b"))
+            );
+            assert_eq!(
+                find_best_workspace(&ws_path("x/a/c.rs"), &workspaces),
+                Some(ws_path("x/a"))
+            );
+            assert_eq!(
+                find_best_workspace(&ws_path("x/a"), &workspaces),
+                Some(ws_path("x/a"))
+            );
+        }
+    }
 
-        let result = find_best_workspace(Path::new("E:\\other\\file.txt"), &workspaces);
-        assert_eq!(result, None);
+    #[cfg(windows)]
+    #[test]
+    fn find_best_workspace_ignores_case_and_separator_style_on_windows() {
+        let workspaces = vec![PathBuf::from("D:\\X\\Work")];
+        assert_eq!(
+            find_best_workspace(Path::new("d:/x/work/src/main.rs"), &workspaces),
+            Some(PathBuf::from("D:\\X\\Work"))
+        );
     }
 
     #[cfg(windows)]

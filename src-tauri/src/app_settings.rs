@@ -38,7 +38,7 @@ impl Default for AppSettings {
 static CLOSE_TO_TRAY: AtomicBool = AtomicBool::new(true);
 
 fn state_path() -> PathBuf {
-    cc_discord_presence::storage::home().join("pulse-app-settings.json")
+    cc_discord_presence::storage::config_file("app.json")
 }
 
 /// Load persisted settings into the in-memory mirror. Call once at startup,

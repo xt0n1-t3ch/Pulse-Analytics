@@ -1,3 +1,5 @@
+//! OpenCode integration: configuration, data directory and session model types.
+
 pub mod presence;
 pub mod process;
 mod store;
@@ -42,7 +44,7 @@ impl Default for Config {
 
 impl Config {
     pub fn path() -> PathBuf {
-        crate::storage::home().join("pulse-opencode.json")
+        crate::storage::config_file("opencode.json")
     }
 
     pub fn load() -> Result<Self> {

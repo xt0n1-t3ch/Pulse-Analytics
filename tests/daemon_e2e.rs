@@ -1,3 +1,5 @@
+//! End-to-end tests of the daemon's Claude session collection over fixture transcripts.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;

@@ -1,3 +1,5 @@
+//! Pulse desktop backend: Tauri commands, polling, persistence and report generation for the GUI.
+
 pub mod access;
 pub mod accounts;
 pub mod analyzers;
@@ -9,11 +11,14 @@ pub mod db;
 /// into release builds.
 #[cfg(debug_assertions)]
 pub mod dev_bridge;
+pub mod discord_dirs;
 pub mod live;
+pub mod live_writes;
 pub mod notifications;
 pub mod opencode;
 pub mod opencode_go;
 pub mod orion;
+pub mod platform;
 pub mod report;
 pub mod report_template;
 pub mod update_check;

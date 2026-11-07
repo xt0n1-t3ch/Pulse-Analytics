@@ -1,3 +1,5 @@
+//! Codex plan detection: tier and source resolved from account and session telemetry.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
@@ -290,9 +292,7 @@ pub fn is_model_allowed_for_plan(model_id: &str, tier: DetectedPlanTier) -> bool
 }
 
 fn plan_cache_path() -> PathBuf {
-    crate::storage::home()
-        .join("codex")
-        .join("discord-presence-plan-cache.json")
+    crate::storage::cache_path("codex-plan.json")
 }
 
 fn load_plan_cache_from_path(path: &Path) -> Option<ResolvedPlan> {

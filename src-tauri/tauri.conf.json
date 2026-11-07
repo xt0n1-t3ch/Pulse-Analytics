@@ -1,10 +1,10 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicehash/tauri/refs/heads/dev/.schema/config.schema.json",
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "Pulse",
-  "version": "1.9.7",
+  "version": "2.0.0",
   "identifier": "com.xt0n1.pulse",
   "build": {
-    "beforeDevCommand": "bun --cwd frontend run dev:ui",
+    "beforeDevCommand": "bun run --cwd frontend dev:ui",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../frontend/dist"
   },
@@ -24,7 +24,8 @@
         "resizable": true,
         "decorations": false,
         "transparent": false,
-        "center": true
+        "center": true,
+        "create": false
       }
     ],
     "trayIcon": null
@@ -66,7 +67,13 @@
       "deb": {
         "depends": [
           "libwebkit2gtk-4.1-0",
-          "libgtk-3-0"
+          "libgtk-3-0",
+          "libayatana-appindicator3-1"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "libayatana-appindicator-gtk3"
         ]
       }
     }

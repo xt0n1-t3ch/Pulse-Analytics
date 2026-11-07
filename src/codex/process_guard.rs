@@ -1,3 +1,5 @@
+//! Single-instance guard for the Codex publisher: lock file, owner metadata and takeover.
+
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
@@ -35,8 +37,6 @@ pub enum RunningState {
 
 pub struct InstanceGuard {
     file: File,
-    #[allow(dead_code)]
-    lock_path: PathBuf,
     meta_path: PathBuf,
     pid: u32,
 }
@@ -116,7 +116,6 @@ pub fn acquire_single_instance() -> Result<AcquireState> {
             write_instance_metadata(&meta_path, &metadata)?;
             Ok(AcquireState::Acquired(InstanceGuard {
                 file,
-                lock_path,
                 meta_path,
                 pid: metadata.pid,
             }))

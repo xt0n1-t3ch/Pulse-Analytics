@@ -1,4 +1,4 @@
-target/
+/target/
 .build/
 src-tauri/target/
 src-tauri/target-tauri-build/
@@ -91,10 +91,20 @@ docs/handoffs/
 /design-qa/
 /design-qa.md
 
-# Maintained repository guidance and accepted historical proof.
-!/AGENTS.md
+# Accepted historical proof stays versioned.
 !/assets/evidence/
 !/assets/evidence/**
 !/docs/evidence/
 !/docs/evidence/**
+
+# Local agent state and generated development diagnostics.
+.impeccable/
+.agents/
+.svelte-check/
+bun-debug.log
+
+# The provider model guide shares its name with the ignored agent file above.
 !/docs/models/claude.md
+
+# Orion App agent worktrees.
+.orion/

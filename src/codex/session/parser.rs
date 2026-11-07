@@ -1,3 +1,5 @@
+//! Incremental JSONL parsing of Codex session files, with cursor reuse and Git branch lookup.
+
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
@@ -245,36 +247,7 @@ pub(super) fn parse_utc_timestamp(text: String) -> Option<DateTime<Utc>> {
 }
 
 pub(super) fn fetch_git_branch(project_path: &Path) -> Option<String> {
-    let output = crate::codex::util::silent_command("git")
-        .arg("-C")
-        .arg(project_path)
-        .arg("rev-parse")
-        .arg("--abbrev-ref")
-        .arg("HEAD")
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if branch == "HEAD" {
-        let output = crate::codex::util::silent_command("git")
-            .arg("-C")
-            .arg(project_path)
-            .arg("rev-parse")
-            .arg("--short")
-            .arg("HEAD")
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
-        }
-        let short = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        return (!short.is_empty()).then_some(short);
-    }
-    (!branch.is_empty()).then_some(branch)
+    crate::git_head::branch(project_path)
 }
 
 pub(super) fn str_at(value: &Value, path: &[&str]) -> Option<String> {

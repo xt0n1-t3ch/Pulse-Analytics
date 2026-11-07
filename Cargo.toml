@@ -1,9 +1,25 @@
 [workspace]
-members = [".", "src-tauri"]
+members = [".", "src-tauri", "xtask"]
+
+# Shared dependencies are declared once here; members use `workspace = true`.
+[workspace.dependencies]
+anyhow = "1.0.104"
+chrono = { version = "0.4.45", features = ["clock", "serde"] }
+# Pinned to the commit recorded in src/codex/UPSTREAM.json.
+codex-presence-core = { git = "https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence", rev = "77d5dd637d33f6876a63cc8760fdc0a1a86ba4f8", version = "2.0.1" }
+dirs = "6.0.0"
+fs2 = "0.4.3"
+libc = "0.2"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tempfile = "3.27.0"
+tracing = "0.1.44"
+ureq = "3.5.1"
 
 [package]
 name = "cc-discord-presence"
-version = "1.9.7"
+version = "2.0.0"
 edition = "2024"
 description = "Pulse - local-first analytics core for Claude Code, Codex, OpenCode, Command Code and Orion App"
 license = "Apache-2.0"
@@ -15,35 +31,38 @@ keywords = ["codex", "claude-code", "opencode", "analytics", "discord"]
 categories = ["command-line-utilities", "gui", "development-tools"]
 
 [dependencies]
-anyhow = "1.0.100"
-chrono = { version = "0.4.42", features = ["clock", "serde"] }
-codex-presence-core = { git = "https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence", rev = "77d5dd637d33f6876a63cc8760fdc0a1a86ba4f8", version = "2.0.1" }
-clap = { version = "4.5.51", features = ["derive"] }
-ctrlc = "3.5.1"
-dirs = "6.0.0"
+anyhow.workspace = true
+chrono.workspace = true
+clap = { version = "4.6.7", features = ["derive"] }
+codex-presence-core.workspace = true
+ctrlc = "3.5.2"
+dirs.workspace = true
 discord-rich-presence = "1.1.0"
-fs2 = "0.4.3"
-rusqlite = { version = "0.31", features = ["bundled"] }
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
+flate2 = "1"
+fs2.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
 thiserror = "2.0.21"
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "time"] }
-ureq = { version = "2.12.1", default-features = true }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "time"] }
+ureq.workspace = true
 walkdir = "2.5.0"
-tempfile = "3.23.0"
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-aes-gcm = "0.10"
-base64 = "0.22"
-windows-sys = { version = "0.61", features = [
+aes-gcm = "0.10.3"
+base64 = "0.22.1"
+windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
     "Win32_Security",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_JobObjects",
     "Win32_System_Threading",
 ] }
 
-[build-dependencies]
-winres = "0.1"
-
-[dev-dependencies]
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1.12"

@@ -1,3 +1,5 @@
+//! End-to-end tests for report generation over fixture Claude transcripts.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};

@@ -1,3 +1,6 @@
+//! `cc-discord-presence` daemon entry point: parses the command line and runs the headless
+//! publisher, `status`, `doctor` or the `claude` wrapper.
+
 use std::io::IsTerminal;
 use std::panic;
 use std::process::ExitCode;
@@ -130,11 +133,9 @@ fn pause() {
 const DIAGNOSTIC_LOG_CAP_BYTES: u64 = 1024 * 1024;
 
 /// Write a diagnostic line to a log file next to the config.
-/// Best-effort — silently ignores write failures.
+/// Best-effort: silently ignores write failures.
 fn log_diagnostic(msg: &str) {
-    let log_path = cc_discord_presence::storage::home()
-        .join("claude")
-        .join("cc-discord-presence-debug.log");
+    let log_path = cc_discord_presence::storage::log_file("daemon.log");
     append_capped(&log_path, msg, DIAGNOSTIC_LOG_CAP_BYTES);
 }
 

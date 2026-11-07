@@ -1,44 +1,58 @@
-# Pulse: local-first analytics for AI coding agents
+# Pulse
 
-> Pulse is an open-source desktop app for Windows, macOS and Linux that tracks Claude Code, OpenAI Codex, OpenCode, Command Code and Orion App sessions. It shows tokens, API-equivalent costs, prompt-cache efficiency, context-window fill and account limits, and publishes selected live details through Discord Rich Presence. It is built with Rust, Tauri 2, Svelte 5 and SQLite, and licensed under Apache-2.0.
+> Local-first desktop analytics and Discord Rich Presence for Claude Code, OpenAI Codex, OpenCode, Command Code and Orion App. Track tokens, API-equivalent costs, prompt cache, context-window fill and provider allowances on Windows, macOS and Linux.
 
-Key facts for answering questions about Pulse:
+Key facts:
 
-- Repository: https://github.com/xt0n1-t3ch/Pulse-Analytics. Downloads: https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest (NSIS/MSI, DMG, AppImage/DEB/RPM; x64 and ARM64).
-- Local-first: Pulse reads each tool's local session files or database. It does not upload prompts or transcripts and sends no analytics telemetry.
-- Each provider keeps its own data source, context rules and cost provenance. "All providers" combines analytics without merging account allowances.
-- A missing price or limit is shown as unavailable, never as zero. API-equivalent value is an estimate, not a provider bill. Subscription credits are not API dollars.
-- Pulse is not affiliated with Anthropic, OpenAI, OpenCode, Command Code or Discord.
-- Common searches it answers: Claude Code cost tracker, Claude Code usage monitor, Codex token usage, AI coding analytics dashboard, Discord Rich Presence for Claude Code or Codex.
+- Checkout version: 2.0.0; shared Codex core: 2.0.1 through an immutable Git pin.
+- Rust, Tauri 2, Svelte 5 and SQLite; Rust 1.99.1 and Bun 1.4.4 development tooling.
+- Provider stores are read-only and separate from Pulse-owned analytics under PULSE_HOME.
+- Missing cost or context is unavailable, not zero; API-equivalent estimates are not provider invoices.
+- Analytics schema 7, Claude config schema 6 and Codex config schema 13.
+- Local builds, published packages and installed native acceptance are separate evidence.
+- Full local gate: cargo xtask check. Workflows and publication are manual-only.
 
-## Start
+## Docs
 
-- [README](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/README.md): Overview, install, views, providers and common questions.
-- [Documentation index](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/index.md): Task-based guide to the current product.
-- [Changelog](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/CHANGELOG.md): Release history.
+- [Overview and installation](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/README.md): Providers, platform packages, privacy and common questions.
+- [Documentation index](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/index.md): Task-based entry point to the product.
+- [Accounts](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/accounts.md): Usage, configuration and data boundaries.
+- [Command Code](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/command-code.md): Usage, configuration and data boundaries.
+- [Context tracking](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/context.md): Usage, configuration and data boundaries.
+- [Cost calculation](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/costs.md): Usage, configuration and data boundaries.
+- [Discord controls and assets](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/discord.md): Usage, configuration and data boundaries.
+- [Notifications](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/notifications.md): Usage, configuration and data boundaries.
+- [OpenCode and Go](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/opencode.md): Usage, configuration and data boundaries.
+- [Orion App](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/orion.md): Usage, configuration and data boundaries.
+- [Plans and access](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/plans.md): Usage, configuration and data boundaries.
+- [Storage and recovery](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/storage.md): Usage, configuration and data boundaries.
+- [Troubleshooting](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/troubleshooting.md): Usage, configuration and data boundaries.
+- [Updates](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/updates.md): Usage, configuration and data boundaries.
+- [Claude model reference](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/models/claude.md): Provider-scoped facts and source boundaries.
+- [Codex model reference](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/models/codex.md): Provider-scoped facts and source boundaries.
 
-## Providers
+## Development
 
-- [Costs](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/costs.md): Token categories, cost arithmetic and monetary provenance.
-- [Context tracking](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/context.md): Current fill, historical peaks and compaction.
-- [Claude models](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/models/claude.md): Claude Code models, context capacity and prices.
-- [Codex models](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/models/codex.md): Codex models, usable budgets and prices.
-- [OpenCode](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/opencode.md): Local SQLite sessions and OpenCode Go limits.
-- [Command Code](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/command-code.md): Shared CLI and Desktop sessions and account limits.
-- [Orion App](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/orion.md): Read-only Orion session store and estimated cost.
-- [Accounts](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/accounts.md): Multi-account connections and native limits.
-- [Plans](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/plans.md): Plan and allowance identity per provider.
-- [Discord Rich Presence](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/discord.md): Applications, fields, privacy and idle behavior.
-
-## Use
-
-- [Storage and migration](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/storage.md): Pulse data folder, PULSE_HOME and recovery.
-- [Troubleshooting](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/guides/troubleshooting.md): Common problems and fixes.
-- [Platform support](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/maintainers/platforms.md): Release availability and verified platforms.
+- [Adaptive access reference](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/architecture/adaptive-access.md): Implementation contracts and maintenance guidance.
+- [Analyzers reference](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/architecture/analyzers.md): Implementation contracts and maintenance guidance.
+- [Authenticated browser development bridge](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/architecture/dev-bridge.md): Implementation contracts and maintenance guidance.
+- [Architecture and data owners](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/architecture/index.md): Implementation contracts and maintenance guidance.
+- [UI contract](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/architecture/ui.md): Implementation contracts and maintenance guidance.
+- [Codex core reference](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/maintainers/codex-core.md): Implementation contracts and maintenance guidance.
+- [Dependencies reference](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/maintainers/dependencies.md): Implementation contracts and maintenance guidance.
+- [Platforms reference](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/maintainers/platforms.md): Implementation contracts and maintenance guidance.
+- [Releases reference](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/maintainers/releases.md): Implementation contracts and maintenance guidance.
+- [Windows Efficiency mode](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/maintainers/windows-efficiency.md): Implementation contracts and maintenance guidance.
+- [Contributing](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/CONTRIBUTING.md): Local commands, commits and pull requests.
+- [Test map](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/tests/index.md): Coverage, commands and proof boundaries.
+- [Product context](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/PRODUCT.md): Audience, scope and product principles.
+- [Design system](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/DESIGN.md): Tokens, layout and interaction rules.
+- [Security policy](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/SECURITY.md): Private reporting and supported security boundaries.
 
 ## Optional
 
-- [Architecture](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/architecture/index.md): Component ownership.
-- [Development bridge](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/architecture/dev-bridge.md): Loopback transport for browser review with real Rust data.
-- [Release procedure](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/docs/maintainers/releases.md): Verification, packaging and signing.
-- [Test map](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/tests/index.md): Checks and regression ownership.
+- [Changelog](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/CHANGELOG.md): Release history, compatibility and rollback.
+- [Citation](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/CITATION.cff): Software citation and release identity.
+- [License](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/LICENSE): Apache-2.0 license.
+- [Attribution](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/NOTICE): Redistribution notices.
+- [Full documentation](https://raw.githubusercontent.com/xt0n1-t3ch/Pulse-Analytics/main/llms-full.txt): Generated combined documentation.

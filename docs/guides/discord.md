@@ -82,7 +82,7 @@ Look at `discord_client_id` and the active session's resolved `large_image`.
 ## Customising assets per user
 
 Users can override any activity key via the config file
-(`~/.pulse-analytics/claude/discord-presence-config.json`):
+(`~/.pulse-analytics/config/claude-presence.json`):
 
 ```jsonc
 {

@@ -18,7 +18,7 @@ The preview shows the two lines computed by Rust. Text wraps inside the card. An
 
 Pulse discovers `opencode.db` and `opencode-*.db` channel files. It respects `XDG_DATA_HOME` and `OPENCODE_DB`. Relative database paths resolve inside the OpenCode data directory. `:memory:` is ignored because it is not shared storage.
 
-Pulse settings live in `~/.pulse-analytics/pulse-opencode.json`, or under `PULSE_HOME`. Provider credentials and configuration remain unchanged. See [storage and migration](storage.md). `database_paths` accepts additional SQLite files; duplicate paths are normalized. `enabled`, `privacy_enabled`, `client_id` and `layout` control publication.
+Pulse settings live in `~/.pulse-analytics/config/opencode.json`, or under `PULSE_HOME`. Provider credentials and configuration remain unchanged. See [storage and migration](storage.md). `database_paths` accepts additional SQLite files; duplicate paths are normalized. `enabled`, `privacy_enabled`, `client_id` and `layout` control publication.
 
 The default Application ID is `1545590419763761303`; the image key is `opencode-v2`. Remote databases and OpenChamber servers on other machines are outside this local integration.
 
@@ -40,7 +40,7 @@ Diagnostics appear in Settings. Prompts and command arguments never enter the Di
 
 `ultra` is an observed harness value, not a published API effort level. OpenCode does not inherit Astra prices or limits. Read the [bundled catalog gaps](../models/codex.md#bundled-catalog-gaps).
 
-Codex-Discord-Rich-Presence owns the canonical catalog. `scripts/check-model-catalog-parity.ps1` checks byte equality with Pulse. Pulse 1.9.0 pins core 2.0.1 from the upstream v1.11.2 release; catalog edits must land upstream first and then synchronize here.
+Codex-Discord-Rich-Presence owns the canonical catalog. `cargo xtask catalog-parity` checks byte equality with Pulse. Pulse pins core 2.0.1 from the upstream v1.11.3 release; catalog edits must land upstream first and then synchronize here.
 
 `assets/branding/opencode.provenance.json` records the supplied image, checksums and previous source for rollback. The preview and Developer Portal use the same PNG. A valid payload or portal key does not replace visual verification in Discord.
 

@@ -1,10 +1,10 @@
+//! Single-instance guard for the Claude daemon: lock file, owner metadata and takeover of stray
+//! pollers.
+
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::PathBuf;
-#[cfg(not(windows))]
-use std::process::Command;
-use std::process::Stdio;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -34,8 +34,6 @@ pub enum RunningState {
 
 pub struct InstanceGuard {
     file: File,
-    #[allow(dead_code)]
-    lock_path: PathBuf,
     meta_path: PathBuf,
     pid: u32,
 }
@@ -115,7 +113,6 @@ pub fn acquire_single_instance() -> Result<AcquireState> {
             write_instance_metadata(&meta_path, &metadata)?;
             Ok(AcquireState::Acquired(InstanceGuard {
                 file,
-                lock_path,
                 meta_path,
                 pid: metadata.pid,
             }))
@@ -160,24 +157,23 @@ pub fn inspect_running_instance() -> Result<RunningState> {
 /// the analytics database and Discord presence, so a second producer writing
 /// the same store is the primary cause of "duplicate background instances".
 ///
-/// Best-effort and by exact executable name — the Pulse GUI (`Pulse.exe`) is
+/// Best-effort and by exact executable name; the Pulse GUI (`Pulse.exe`) is
 /// never a target, so this cannot terminate the caller. Failures are ignored.
 #[cfg(windows)]
 pub fn reap_stray_pollers() {
-    for name in ["cc-discord-presence.exe", "pulse-dev-bridge.exe"] {
-        let _ = crate::util::silent_command("taskkill")
-            .arg("/F")
-            .arg("/IM")
-            .arg(name)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+    for process in crate::process_list::snapshot() {
+        if ["cc-discord-presence.exe", "pulse-dev-bridge.exe"]
+            .iter()
+            .any(|name| process.name.eq_ignore_ascii_case(name))
+        {
+            crate::process_list::terminate(process.pid);
+        }
     }
 }
 
-/// No-op on non-Windows: Pulse ships as a Windows desktop app, and matching CLI
-/// pollers by name off-Windows risks colliding with the caller's own command
-/// line (the repository itself is named `cc-discord-presence`).
+/// No-op off Windows: matching pollers by name there risks hitting the
+/// caller's own command line, because the repository itself is named
+/// `cc-discord-presence`.
 #[cfg(not(windows))]
 pub fn reap_stray_pollers() {}
 
@@ -201,85 +197,38 @@ fn terminate_process(pid: u32, force: bool) -> Result<()> {
         return Ok(());
     }
 
+    // Windows has no polite stop for a windowless process; both modes end it.
     #[cfg(windows)]
     {
-        let command = if force {
-            format!(
-                "$p = Get-Process -Id {pid} -ErrorAction SilentlyContinue; if ($null -ne $p) {{ Stop-Process -Id {pid} -Force -ErrorAction Stop }}"
-            )
-        } else {
-            format!(
-                "$p = Get-Process -Id {pid} -ErrorAction SilentlyContinue; if ($null -ne $p) {{ Stop-Process -Id {pid} -ErrorAction Stop }}"
-            )
-        };
-
-        let status = crate::util::silent_command("powershell")
-            .arg("-NoProfile")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-Command")
-            .arg(command)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .context("failed to execute Stop-Process for takeover")?;
-        if !status.success() && process_exists(pid) {
-            bail!("failed to terminate running instance PID {pid} via Stop-Process");
+        let _ = force;
+        if !crate::process_list::terminate(pid) {
+            bail!("failed to terminate running instance PID {pid}");
         }
     }
 
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        let signal = if force { "-KILL" } else { "-TERM" };
-        let status = Command::new("kill")
-            .arg(signal)
-            .arg(pid.to_string())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .context("failed to execute kill for takeover")?;
-        if !status.success() && process_exists(pid) {
-            bail!("failed to terminate running instance PID {pid} via kill");
+        let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
+        // `kill` gives 0 and negative ids a process-group meaning; the lock
+        // metadata must never be able to address one.
+        let target = libc::pid_t::try_from(pid)
+            .ok()
+            .filter(|target| *target > 0)
+            .with_context(|| format!("PID {pid} is not a valid process id"))?;
+        // SAFETY: `kill` has no memory-safety preconditions and `target` is a
+        // single positive process id.
+        let rc = unsafe { libc::kill(target, signal) };
+        let error = std::io::Error::last_os_error();
+        if rc != 0 && process_exists(pid) {
+            bail!("failed to terminate running instance PID {pid} with signal {signal}: {error}");
         }
     }
 
     Ok(())
 }
 
-#[cfg(windows)]
 fn process_exists(pid: u32) -> bool {
-    let output = crate::util::silent_command("tasklist")
-        .arg("/FI")
-        .arg(format!("PID eq {pid}"))
-        .arg("/FO")
-        .arg("CSV")
-        .arg("/NH")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output();
-
-    let Ok(output) = output else {
-        return false;
-    };
-
-    if !output.status.success() {
-        return false;
-    }
-
-    let text = String::from_utf8_lossy(&output.stdout).to_lowercase();
-    !text.contains("no tasks are running")
-}
-
-#[cfg(not(windows))]
-fn process_exists(pid: u32) -> bool {
-    Command::new("kill")
-        .arg("-0")
-        .arg(pid.to_string())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    crate::process_list::is_alive(pid)
 }
 
 fn open_lock_file(path: &PathBuf) -> Result<File> {
@@ -367,12 +316,39 @@ mod tests {
         assert_eq!(loaded.exe_path.as_deref(), Some("cc-discord-presence"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn terminate_process_sends_sigterm_then_sigkill() {
+        use std::os::unix::process::ExitStatusExt;
+        for (force, expected) in [(false, libc::SIGTERM), (true, libc::SIGKILL)] {
+            let mut child = std::process::Command::new("sleep")
+                .arg("60")
+                .spawn()
+                .expect("spawn sleep");
+            terminate_process(child.id(), force).expect("terminate");
+            let status = child.wait().expect("reap child");
+            assert_eq!(status.signal(), Some(expected));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminate_process_ignores_an_id_that_is_already_gone() {
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .expect("spawn short-lived child");
+        let pid = child.id();
+        child.wait().expect("reap child");
+        terminate_process(pid, false).expect("a dead pid is not an error");
+    }
+
     #[test]
     fn inspect_reports_running_while_lock_is_held() {
         let _mutex = env_lock().lock().expect("env lock");
         let tmp = TempDir::new().expect("temp dir");
         unsafe {
-            env::set_var("CLAUDE_HOME", tmp.path());
+            env::set_var("PULSE_HOME", tmp.path());
         }
 
         let state = acquire_single_instance().expect("acquire instance");
@@ -394,7 +370,7 @@ mod tests {
         }
 
         unsafe {
-            env::remove_var("CLAUDE_HOME");
+            env::remove_var("PULSE_HOME");
         }
     }
 }

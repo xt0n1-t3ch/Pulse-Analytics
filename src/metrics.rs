@@ -1,15 +1,14 @@
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
+//! Session metrics: token totals, cost breakdowns and per-model figures from the latest session
+//! snapshots.
 
-use chrono::{DateTime, Local, Utc};
+use std::collections::HashMap;
+use std::time::Instant;
+
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tracing::warn;
 
 use crate::cost;
 use crate::session::ClaudeSessionSnapshot;
-use crate::util::{format_cost, format_tokens, human_duration};
-
-const PERSIST_INTERVAL: Duration = Duration::from_secs(10);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsSnapshot {
@@ -74,9 +73,8 @@ struct SessionRecord {
 pub struct MetricsTracker {
     daemon_started_at: DateTime<Utc>,
     started_instant: Instant,
-    /// Latest snapshot per session_id — replace-on-update, not additive.
+    /// Latest snapshot per session_id: replace-on-update, not additive.
     sessions: HashMap<String, SessionRecord>,
-    last_persist_at: Option<Instant>,
     /// Cached snapshot for TUI rendering (avoids recomputing every frame).
     cached_snapshot: Option<MetricsSnapshot>,
 }
@@ -87,7 +85,6 @@ impl MetricsTracker {
             daemon_started_at: Utc::now(),
             started_instant: Instant::now(),
             sessions: HashMap::new(),
-            last_persist_at: None,
             cached_snapshot: None,
         }
     }
@@ -121,21 +118,6 @@ impl MetricsTracker {
     /// Get the latest computed snapshot for TUI rendering.
     pub fn snapshot(&self) -> Option<&MetricsSnapshot> {
         self.cached_snapshot.as_ref()
-    }
-
-    /// Persist to disk if enough time has elapsed since last write.
-    pub fn persist_if_due(&mut self) {
-        if let Some(last) = self.last_persist_at
-            && last.elapsed() < PERSIST_INTERVAL
-        {
-            return;
-        }
-        let Some(ref snap) = self.cached_snapshot else {
-            return;
-        };
-        self.last_persist_at = Some(Instant::now());
-        persist_json(snap);
-        persist_markdown(snap);
     }
 
     fn compute_snapshot(&self, active_count: usize) -> MetricsSnapshot {
@@ -203,127 +185,6 @@ impl Default for MetricsTracker {
     fn default() -> Self {
         Self::new()
     }
-}
-
-fn persist_json(snap: &MetricsSnapshot) {
-    let path = crate::storage::home()
-        .join("claude")
-        .join("discord-presence-metrics.json");
-    let tmp = crate::storage::home()
-        .join("claude")
-        .join("discord-presence-metrics.json.tmp");
-    match serde_json::to_string_pretty(snap) {
-        Ok(data) => {
-            if let Err(e) = std::fs::write(&tmp, &data) {
-                warn!("Failed to write metrics JSON: {e}");
-                return;
-            }
-            if let Err(e) = std::fs::rename(&tmp, &path) {
-                warn!("Failed to rename metrics JSON: {e}");
-            }
-        }
-        Err(e) => warn!("Failed to serialize metrics: {e}"),
-    }
-}
-
-fn persist_markdown(snap: &MetricsSnapshot) {
-    let path = crate::storage::home()
-        .join("claude")
-        .join("discord-presence-metrics.md");
-    let tmp = crate::storage::home()
-        .join("claude")
-        .join("discord-presence-metrics.md.tmp");
-    let md = generate_markdown(snap);
-    if let Err(e) = std::fs::write(&tmp, &md) {
-        warn!("Failed to write metrics markdown: {e}");
-        return;
-    }
-    if let Err(e) = std::fs::rename(&tmp, &path) {
-        warn!("Failed to rename metrics markdown: {e}");
-    }
-}
-
-fn generate_markdown(snap: &MetricsSnapshot) -> String {
-    let now_local = Local::now().format("%b %d, %Y %I:%M %p");
-    let uptime = human_duration(Duration::from_secs(snap.uptime_seconds));
-
-    let mut md = String::new();
-    md.push_str("# Claude Code Metrics Report\n\n");
-    md.push_str(&format!(
-        "*Generated: {} | Uptime: {}*\n\n",
-        now_local, uptime
-    ));
-
-    md.push_str("## Total Spend\n\n");
-    md.push_str("| Metric | Value |\n");
-    md.push_str("|--------|-------|\n");
-    md.push_str(&format!(
-        "| Total Cost | {} |\n",
-        format_cost(snap.totals.cost_usd)
-    ));
-    md.push_str(&format!(
-        "| Total Tokens | {} |\n",
-        format_tokens(snap.totals.total_tokens)
-    ));
-    md.push_str(&format!(
-        "| Input Tokens | {} |\n",
-        format_tokens(snap.totals.input_tokens)
-    ));
-    md.push_str(&format!(
-        "| Output Tokens | {} |\n",
-        format_tokens(snap.totals.output_tokens)
-    ));
-    md.push_str(&format!(
-        "| Cache Write | {} |\n",
-        format_tokens(snap.totals.cache_write_tokens)
-    ));
-    md.push_str(&format!(
-        "| Cache Read | {} |\n",
-        format_tokens(snap.totals.cache_read_tokens)
-    ));
-    md.push('\n');
-
-    let total = snap.totals.cost_usd.max(0.0001);
-    md.push_str("## Cost Breakdown by Type\n\n");
-    md.push_str("| Type | Cost | % of Total |\n");
-    md.push_str("|------|------|------------|\n");
-    for (label, cost) in [
-        ("Input", snap.cost_breakdown.input_cost),
-        ("Output", snap.cost_breakdown.output_cost),
-        ("Cache Write", snap.cost_breakdown.cache_write_cost),
-        ("Cache Read", snap.cost_breakdown.cache_read_cost),
-    ] {
-        let pct = (cost / total) * 100.0;
-        md.push_str(&format!(
-            "| {} | {} | {:.1}% |\n",
-            label,
-            format_cost(cost),
-            pct
-        ));
-    }
-    md.push('\n');
-
-    if !snap.by_model.is_empty() {
-        md.push_str("## By Model\n\n");
-        md.push_str("| Model | Sessions | Tokens | Cost | % |\n");
-        md.push_str("|-------|----------|--------|------|---|\n");
-        for model in &snap.by_model {
-            let model_tokens = model.input_tokens + model.output_tokens;
-            let pct = (model.cost_usd / total) * 100.0;
-            md.push_str(&format!(
-                "| {} | {} | {} | {} | {:.1}% |\n",
-                model.display_name,
-                model.session_count,
-                format_tokens(model_tokens),
-                format_cost(model.cost_usd),
-                pct
-            ));
-        }
-        md.push('\n');
-    }
-
-    md.push_str(&format!("*Active sessions: {}*\n", snap.active_sessions));
-    md
 }
 
 #[cfg(test)]
@@ -525,47 +386,6 @@ mod tests {
 
         assert_eq!(snap.by_model[1].display_name, "Claude Sonnet 4.5");
         assert_eq!(snap.by_model[1].session_count, 1);
-    }
-
-    #[test]
-    fn markdown_generation() {
-        let snap = MetricsSnapshot {
-            daemon_started_at: Utc::now(),
-            snapshot_at: Utc::now(),
-            uptime_seconds: 3600,
-            totals: TokenTotals {
-                cost_usd: 1.23,
-                input_tokens: 450_000,
-                output_tokens: 125_000,
-                cache_write_tokens: 50_000,
-                cache_read_tokens: 300_000,
-                total_tokens: 575_000,
-                pure_input_tokens: 100_000,
-            },
-            cost_breakdown: CostBreakdown {
-                input_cost: 0.45,
-                output_cost: 0.63,
-                cache_write_cost: 0.06,
-                cache_read_cost: 0.02,
-            },
-            by_model: vec![ModelMetrics {
-                model_id: "claude-opus-4-6".to_string(),
-                display_name: "Claude Opus 4.6".to_string(),
-                cost_usd: 1.23,
-                input_tokens: 450_000,
-                output_tokens: 125_000,
-                cache_write_tokens: 50_000,
-                cache_read_tokens: 300_000,
-                session_count: 2,
-            }],
-            active_sessions: 1,
-        };
-        let md = generate_markdown(&snap);
-        assert!(md.contains("# Claude Code Metrics Report"));
-        assert!(md.contains("Total Cost"));
-        assert!(md.contains("$1.23"));
-        assert!(md.contains("Claude Opus 4.6"));
-        assert!(md.contains("By Model"));
     }
 
     #[test]

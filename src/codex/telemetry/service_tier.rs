@@ -1,3 +1,5 @@
+//! Codex service tier (Fast or standard) resolved from local Codex settings.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

@@ -1,7 +1,23 @@
+//! Orion App integration: session model, API-equivalent costing and the types shared by the
+//! readers.
+
+mod layout;
+mod legacy;
 pub mod presence;
+mod reader;
+#[cfg(test)]
+mod reader_tests;
+mod records;
 mod store;
+#[cfg(test)]
+mod testkit;
+mod transcript;
+mod usage;
+#[cfg(test)]
+mod usage_tests;
 
 use anyhow::Result;
+pub use layout::home;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 pub use store::{Batch, Collector};
@@ -9,27 +25,6 @@ pub use store::{Batch, Collector};
 pub const NAME: &str = "Orion App";
 pub const CLIENT_ID: &str = "1553775289274994708";
 pub const ASSET_KEY: &str = "orion";
-
-/// Orion data root: `PULSE_ORION_HOME`, then `~/.orion`, then the legacy
-/// `~/.zcode` link that Orion keeps after its data-root migration.
-pub fn home() -> PathBuf {
-    if let Some(path) = std::env::var_os("PULSE_ORION_HOME") {
-        return PathBuf::from(path);
-    }
-    let home = dirs::home_dir().unwrap_or_default();
-    let orion = home.join(".orion");
-    if orion.join("cli/db/db.sqlite").is_file() {
-        orion
-    } else if home.join(".zcode/cli/db/db.sqlite").is_file() {
-        home.join(".zcode")
-    } else {
-        orion
-    }
-}
-
-pub fn database_path(root: &std::path::Path) -> PathBuf {
-    root.join("cli").join("db").join("db.sqlite")
-}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
@@ -55,7 +50,7 @@ impl Default for Config {
 
 impl Config {
     pub fn path() -> PathBuf {
-        crate::storage::home().join("pulse-orion.json")
+        crate::storage::config_file("orion.json")
     }
 
     pub fn load() -> Result<Self> {
@@ -134,10 +129,11 @@ pub struct Session {
     pub model_name: String,
     pub effort: Option<String>,
     pub created: i64,
-    /// When the root session row last changed; the history cursor uses it.
+    /// Last write to the root session (Orion's `last_write_ms`, not the
+    /// `time_updated` column, which lags by up to 30 seconds).
     pub updated: i64,
-    /// Latest change in the root or any subagent, which is when the work
-    /// last moved.
+    /// Latest write in the root or any subagent, which is when the work
+    /// last moved. The history cursor follows it.
     pub tree_updated: i64,
     pub usage: Usage,
     /// API-equivalent session cost. `None` means no model in the session has a
@@ -151,8 +147,26 @@ pub struct Session {
     /// Output tokens per second while the model was generating, from Orion's
     /// per-request timings. `None` when Orion recorded none.
     pub output_tokens_per_sec: Option<f64>,
+    /// Fill of the context window as Orion reports it, else the latest
+    /// completed request's prompt size.
     pub context_used: Option<u64>,
+    /// Orion's window for the session's model, else Pulse's bundled value.
     pub context_window: Option<u64>,
+    /// Tokens at which Orion compacts the conversation on its own.
+    pub auto_compact_threshold: Option<u64>,
+    /// Share of prompt tokens served from cache, 0 to 1, from Orion's
+    /// `runtime/context_usage` entry.
+    pub cache_hit_rate: Option<f64>,
+    /// Median time to first token over the session's streamed requests.
+    /// Needs `telemetry/usage.sqlite`, which Orion keeps for 30 days.
+    pub ttft_ms_median: Option<f64>,
+    /// Requests that never appear in the transcript (title, compaction,
+    /// prediction, prompt enhancement). `None` when usage telemetry no longer
+    /// covers the session.
+    pub helper_requests: Option<HelperRequests>,
+    /// Subagent requests by agent type, most expensive first. `None` when
+    /// usage telemetry no longer covers the session.
+    pub subagents_by_agent: Option<Vec<AgentUsage>>,
     pub activity: String,
     pub activity_target: Option<String>,
     /// Every subagent the session ever started; history keeps this total.
@@ -211,6 +225,29 @@ pub fn preferred_session(sessions: &[Session]) -> Option<&Session> {
         .max_by_key(|session| session.last_change())
 }
 
+/// Helper requests of one session: every `model_usage` row whose
+/// `query_source` is neither `main_turn` nor `subagent`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct HelperRequests {
+    pub count: u64,
+    /// Orion's `input` convention: it includes cache read and cache write.
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// API-equivalent cost of the priced requests. `None` when no helper
+    /// request has a known rate.
+    pub cost_usd: Option<f64>,
+}
+
+/// Subagent requests of one session for one agent type.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct AgentUsage {
+    pub agent: String,
+    pub requests: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cost_usd: Option<f64>,
+}
+
 /// Cost of one usage slice split into the four billable token categories, in
 /// USD. The same split Claude sessions report.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -266,7 +303,7 @@ fn split_fast_variant(lower: &str) -> (&str, bool) {
 }
 
 /// Catalog key for an Orion model id. Orion also lists Codex-routed models by
-/// display name (`5.6-Sol`, `6.1-Sol`), so a bare id resolves as `gpt-<id>`
+/// display name (`5.6-Sol`, `6.1-Sol`, `6.1-Terra`), so a bare id resolves as `gpt-<id>`
 /// only when the catalog display name, with or without its `GPT-` prefix,
 /// matches it exactly. An ambiguous id such as `5.6-Cyber`, whose catalog
 /// entries are Cyber-Red and Cyber-Blue, stays unresolved and unpriced.
@@ -379,11 +416,19 @@ pub struct CostLedger {
 
 impl CostLedger {
     pub fn add(&mut self, model: &str, usage: &Usage) {
+        if usage.total() > 0 {
+            self.add_estimate(usage, estimate_cost(model, usage));
+        }
+    }
+
+    /// Adds a request priced earlier, so a reader that keeps the estimate of
+    /// each message does not price its history again on every poll.
+    pub fn add_estimate(&mut self, usage: &Usage, estimate: Option<Estimate>) {
         if usage.total() == 0 {
             return;
         }
         self.observed = true;
-        match estimate_cost(model, usage) {
+        match estimate {
             Some(estimate) => {
                 self.priced = true;
                 self.inexact |= !estimate.complete;
@@ -463,6 +508,20 @@ pub fn effort_label(raw: &str) -> Option<String> {
             .chain(chars.flat_map(char::to_lowercase))
             .collect()
     })
+}
+
+/// What Orion is doing for a running tool, in Pulse's activity vocabulary.
+fn tool_activity(tool: &str) -> &'static str {
+    match tool {
+        "Read" | "Glob" | "Grep" | "LSP" => "Reading files",
+        "Edit" | "Write" => "Editing files",
+        "PowerShell" | "Bash" | "Monitor" => "Running command",
+        "WebSearch" | "WebFetch" => "Researching",
+        "browser" => "Using browser",
+        "Agent" | "SendMessage" => "Delegating",
+        "AskUserQuestion" | "ExitPlanMode" => "Waiting for input",
+        _ => "Using tool",
+    }
 }
 
 /// Pulse's bundled context window for an Orion model id, used when Orion has
@@ -575,16 +634,28 @@ mod tests {
         assert_eq!(estimate_cost("", &usage), None);
     }
 
+    /// One request under every long-context threshold (272,000 prompt tokens):
+    /// 50,000 fresh input, 50,000 cache write, 100,000 cache read, 100,000 output.
+    fn one_standard_request() -> Usage {
+        Usage {
+            input: 200_000,
+            output: 100_000,
+            cache_read: 100_000,
+            cache_write: 50_000,
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn codex_catalog_models_split_categories_and_flag_unpublished_fast_rates() {
-        let usage = one_million_each();
-        // GPT-5.6 Sol: $5 input, $6.25 cache write, $0.50 cache read, $30 output.
+        let usage = one_standard_request();
+        // GPT-5.6 Sol: $4 input, $5 cache write, $0.40 cache read, $20 output.
         let sol = estimate_cost("gpt-5.6-sol", &usage).unwrap();
         assert!(sol.complete);
-        close(sol.parts.input, 5.0);
-        close(sol.parts.output, 30.0);
-        close(sol.parts.cache_write, 6.25);
-        close(sol.parts.cache_read, 0.50);
+        close(sol.parts.input, 0.20);
+        close(sol.parts.cache_write, 0.25);
+        close(sol.parts.cache_read, 0.04);
+        close(sol.parts.output, 2.0);
         // Orion lists Codex-routed models by display name; an exact display
         // match resolves, an ambiguous one does not.
         let named = estimate_cost("5.6-Sol", &usage).unwrap();
@@ -602,12 +673,26 @@ mod tests {
     }
 
     #[test]
+    fn a_request_over_272k_prompt_tokens_uses_the_long_context_rates_for_the_whole_request() {
+        // 1M of each category is one 3M-token prompt: 2x input and cache, 1.5x output.
+        let long = estimate_cost("gpt-5.6-sol", &one_million_each()).unwrap();
+        assert!(long.complete);
+        close(long.parts.input, 4.0 * 2.0);
+        close(long.parts.cache_write, 5.0 * 2.0);
+        close(long.parts.cache_read, 0.40 * 2.0);
+        close(long.parts.output, 20.0 * 1.5);
+    }
+
+    #[test]
     fn orion_gpt_6_names_resolve_to_catalog_models() {
         for (raw, key, name) in [
             ("6.1-Sol", "gpt-6.1-sol", "GPT-6.1 Sol"),
             ("GPT-6.1-Sol", "gpt-6.1-sol", "GPT-6.1 Sol"),
             ("gpt-6.1-sol", "gpt-6.1-sol", "GPT-6.1 Sol"),
             ("openai/gpt-6.1-sol", "gpt-6.1-sol", "GPT-6.1 Sol"),
+            ("6.1-Terra", "gpt-6.1-terra", "GPT-6.1 Terra"),
+            ("GPT-6.1-Terra", "gpt-6.1-terra", "GPT-6.1 Terra"),
+            ("gpt-6.1-terra", "gpt-6.1-terra", "GPT-6.1 Terra"),
             ("6-Sol", "gpt-6-sol", "GPT-6 Sol"),
             ("GPT-6-Sol", "gpt-6-sol", "GPT-6 Sol"),
             ("6-Luna", "gpt-6-luna", "GPT-6 Luna"),
@@ -623,13 +708,24 @@ mod tests {
         for raw in ["6.1-Sol-Fast", "GPT-6.1-Sol-Fast", "gpt-6.1-sol--fast"] {
             assert_eq!(display_model_name(raw), "GPT-6.1 Sol · Fast", "{raw}");
         }
+        for raw in [
+            "6.1-Terra-Fast",
+            "GPT-6.1-Terra-Fast",
+            "gpt-6.1-terra--fast",
+        ] {
+            assert_eq!(display_model_name(raw), "GPT-6.1 Terra · Fast", "{raw}");
+        }
         assert_eq!(
             display_model_name("5.6-Sol"),
             display_model_name("gpt-5.6-sol")
         );
         assert_eq!(display_model_name("6.2-Sol"), "6.2-Sol");
         assert_eq!(display_model_name("5.6-Cyber"), "5.6-Cyber");
-        for (raw, key) in [("6.1-Sol", "gpt-6.1-sol"), ("6-Luna-Fast", "gpt-6-luna")] {
+        for (raw, key) in [
+            ("6.1-Sol", "gpt-6.1-sol"),
+            ("6.1-Terra", "gpt-6.1-terra"),
+            ("6-Luna-Fast", "gpt-6-luna"),
+        ] {
             let window = bundled_context_window(raw);
             assert!(window.is_some(), "{raw}");
             assert_eq!(
@@ -680,6 +776,16 @@ mod tests {
         let luna = estimate_cost("6-Luna-Fast", &usage).unwrap();
         assert!(luna.complete);
         close(luna.parts.total(), 0.021);
+
+        // GPT-6.1 Terra: $1 input and $5 output per million, Fast at 2x.
+        for raw in ["6.1-Terra", "GPT-6.1-Terra", "gpt-6.1-terra"] {
+            let terra = estimate_cost(raw, &usage).unwrap();
+            assert!(terra.complete, "{raw}");
+            close(terra.parts.total(), 0.105);
+        }
+        let terra_fast = estimate_cost("6.1-Terra-Fast", &usage).unwrap();
+        assert!(terra_fast.complete);
+        close(terra_fast.parts.total(), 0.21);
 
         assert_eq!(estimate_cost("6.2-Sol", &usage), None);
         assert_eq!(estimate_cost("gpt-6.2-sol", &usage), None);

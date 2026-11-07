@@ -1,3 +1,5 @@
+//! Codex cost computation: model rates, pricing status and token cost breakdowns.
+
 use serde::{Deserialize, Serialize};
 
 use crate::codex::config::{ModelPricingOverride, PricingConfig};
@@ -472,14 +474,47 @@ mod tests {
     }
 
     #[test]
-    fn gpt_5_6_has_no_invented_api_context_or_fast_multiplier() {
+    fn gpt_5_6_has_a_long_context_threshold_but_no_invented_api_context_or_fast_multiplier() {
         let metadata = model_context_metadata("gpt-5.6-sol").expect("metadata");
         assert_eq!(metadata.raw_context_window, 372_000);
         assert_eq!(metadata.oauth_context_window, 353_400);
         assert_eq!(metadata.api_context_window, None);
-        assert_eq!(metadata.long_context_input_threshold, None);
+        assert_eq!(metadata.long_context_input_threshold, Some(272_000));
         assert_eq!(metadata.max_output_tokens, None);
         assert_eq!(speed_multiplier("gpt-5.6-sol", true), 1.0);
+    }
+
+    #[test]
+    fn gpt_5_6_requests_use_the_published_rates_for_every_category() {
+        // OpenAI pricing page, 2026-11-07 (Sol's $4 / $20 is promotional until 2026-11-30).
+        // 70,000 fresh + 10,000 cache write + 20,000 cached + 1,000 output, per model:
+        //   Sol   4 / 5 / 0.40 / 20:    0.28 + 0.05 + 0.008 + 0.02 = $0.358
+        //   Terra 2 / 2.5 / 0.20 / 12:  0.14 + 0.025 + 0.004 + 0.012 = $0.181
+        //   Luna  0.2 / 0.25 / 0.02 / 1.2: 0.014 + 0.0025 + 0.0004 + 0.0012 = $0.0181
+        let usage = TokenUsage {
+            input_tokens: 100_000,
+            cached_input_tokens: 20_000,
+            cache_write_tokens: Some(10_000),
+            output_tokens: 1_000,
+        };
+        for (model, expected) in [
+            ("gpt-5.6-sol", 0.358),
+            ("gpt-5.6-terra", 0.181),
+            ("gpt-5.6-luna", 0.0181),
+        ] {
+            let computed = compute_cost(
+                model,
+                usage,
+                SessionSpeed::explicit(SpeedMode::Standard, SpeedSource::ThreadSettings),
+                &PricingConfig::default(),
+            );
+            assert_eq!(computed.status, PricingStatus::Exact, "{model}");
+            assert!(
+                (computed.total_cost_usd - expected).abs() < 1e-9,
+                "{model}: {}",
+                computed.total_cost_usd
+            );
+        }
     }
 
     #[test]
@@ -586,6 +621,94 @@ mod gpt_6_family_tests {
 
         let long_fast = request("gpt-6.1-sol", 300_000, 1_000, SpeedMode::Fast);
         assert!((long_fast.total_cost_usd - 2.43).abs() < 1e-9);
+    }
+
+    fn terra_request(
+        input: u64,
+        cached: u64,
+        output: u64,
+        mode: SpeedMode,
+        prompt_input_tokens: Option<u64>,
+    ) -> CostComputation {
+        compute_cost_for_request(
+            "gpt-6.1-terra",
+            TokenUsage {
+                input_tokens: input,
+                cached_input_tokens: cached,
+                cache_write_tokens: Some(0),
+                output_tokens: output,
+            },
+            SessionSpeed::explicit(mode, SpeedSource::ThreadSettings),
+            &PricingConfig::default(),
+            prompt_input_tokens,
+        )
+    }
+
+    #[test]
+    fn gpt_6_1_terra_requests_use_standard_fast_and_long_context_rates() {
+        // Rates $1 input, $0.05 cached, $5 output per million (OpenAI pricing, 2026-11-07).
+        // Short: 50,000 fresh x 1 + 50,000 cached x 0.05 + 10,000 out x 5 = 0.05 + 0.0025 + 0.05 = $0.1025.
+        let short = terra_request(100_000, 50_000, 10_000, SpeedMode::Standard, Some(100_000));
+        assert_eq!(short.status, PricingStatus::Exact);
+        assert_eq!(short.source, PricingSource::Exact);
+        assert!((short.breakdown.input_cost_usd - 0.05).abs() < 1e-9);
+        assert!((short.breakdown.cached_input_cost_usd - 0.0025).abs() < 1e-9);
+        assert!((short.breakdown.output_cost_usd - 0.05).abs() < 1e-9);
+        assert!((short.total_cost_usd - 0.1025).abs() < 1e-9);
+
+        // Fast is 2x every category: 0.1025 x 2 = $0.205.
+        let fast = terra_request(100_000, 50_000, 10_000, SpeedMode::Fast, Some(100_000));
+        assert_eq!(fast.status, PricingStatus::Exact);
+        assert!((fast.total_cost_usd - 0.205).abs() < 1e-9);
+
+        // At the 272,000 threshold nothing is surcharged: 272,000 x 1 + 1,000 x 5 = 0.272 + 0.005 = $0.277.
+        let at_threshold = terra_request(272_000, 0, 1_000, SpeedMode::Standard, Some(272_000));
+        assert!((at_threshold.total_cost_usd - 0.277).abs() < 1e-9);
+
+        // Above it the whole request doubles input and cache and takes 1.5x output:
+        // 200,000 x 1 x 2 + 100,000 x 0.05 x 2 + 10,000 x 5 x 1.5 = 0.4 + 0.01 + 0.075 = $0.485.
+        let long = terra_request(300_000, 100_000, 10_000, SpeedMode::Standard, Some(300_000));
+        assert_eq!(long.status, PricingStatus::Exact);
+        assert!((long.breakdown.input_cost_usd - 0.4).abs() < 1e-9);
+        assert!((long.breakdown.cached_input_cost_usd - 0.01).abs() < 1e-9);
+        assert!((long.breakdown.output_cost_usd - 0.075).abs() < 1e-9);
+        assert!((long.total_cost_usd - 0.485).abs() < 1e-9);
+
+        // Long and Fast: 0.485 x 2 = $0.97.
+        let long_fast = terra_request(300_000, 100_000, 10_000, SpeedMode::Fast, Some(300_000));
+        assert_eq!(long_fast.status, PricingStatus::Exact);
+        assert!((long_fast.total_cost_usd - 0.97).abs() < 1e-9);
+    }
+
+    #[test]
+    fn cumulative_gpt_6_1_terra_input_above_the_threshold_is_a_lower_bound() {
+        // Base rates only, 200,000 x 1 + 100,000 x 0.05 + 10,000 x 5 = 0.2 + 0.005 + 0.05 = $0.255.
+        let computed = compute_cost(
+            "gpt-6.1-terra",
+            TokenUsage {
+                input_tokens: 300_000,
+                cached_input_tokens: 100_000,
+                cache_write_tokens: Some(0),
+                output_tokens: 10_000,
+            },
+            SessionSpeed::explicit(SpeedMode::Standard, SpeedSource::ThreadSettings),
+            &PricingConfig::default(),
+        );
+        assert_eq!(computed.status, PricingStatus::Partial);
+        assert!((computed.known_total_cost_usd.expect("subtotal") - 0.255).abs() < 1e-9);
+    }
+
+    #[test]
+    fn gpt_6_1_terra_metadata_keeps_codex_and_api_context_apart() {
+        let metadata = model_context_metadata("gpt-6.1-terra").expect("metadata");
+        assert_eq!(metadata.raw_context_window, 500_000);
+        assert_eq!(metadata.effective_context_percent, 95);
+        assert_eq!(metadata.oauth_context_window, 475_000);
+        assert_eq!(metadata.api_context_window, Some(1_050_000));
+        assert_eq!(metadata.long_context_input_threshold, Some(272_000));
+        assert_eq!(metadata.max_output_tokens, Some(128_000));
+        assert_eq!(speed_multiplier("gpt-6.1-terra", true), 2.0);
+        assert_eq!(speed_multiplier("gpt-6.1-terra-fast", false), 1.0);
     }
 
     #[test]

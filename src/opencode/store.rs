@@ -1,9 +1,11 @@
+//! Read-only SQLite collector for OpenCode sessions across channel databases.
+
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::{Connection, params};
 use serde_json::Value;
 
 use super::{Config, Metadata, ModelUsage, Session};
@@ -136,7 +138,7 @@ fn read_database_cached(
     now: i64,
     hydrated: &mut HashMap<(PathBuf, String), Session>,
 ) -> Result<(Vec<Session>, (i64, String))> {
-    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let connection = crate::foreign_sqlite::open_read_only(path)?;
     connection.busy_timeout(Duration::from_millis(150))?;
     let cols = columns(&connection, "session")?;
     anyhow::ensure!(

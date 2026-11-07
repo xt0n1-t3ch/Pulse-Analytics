@@ -1,3 +1,5 @@
+//! Build script: embeds the Windows test manifest and runs `tauri-build`.
+
 fn configure_test_manifest() {
     // Cargo's Windows lib-test harness does not receive `rustc-link-arg-tests`
     // from a build script, so a literal test-only link flag cannot protect

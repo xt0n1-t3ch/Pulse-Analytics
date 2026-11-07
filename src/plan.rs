@@ -1,3 +1,5 @@
+//! Claude subscription plan catalog and key lookups.
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClaudePlan {
     pub key: &'static str,

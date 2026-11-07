@@ -19,8 +19,6 @@ pub fn read_claude_session_key() -> Option<String> {
     return None;
 }
 
-// ── Windows implementation ────────────────────────────────────────────────
-
 #[cfg(windows)]
 mod imp {
     use aes_gcm::{
@@ -33,7 +31,7 @@ mod imp {
     use tracing::debug;
 
     /// Chromium browser data directories relative to `%LOCALAPPDATA%`.
-    /// Edge and Brave are tried first — they lack Chrome 127+ App-Bound Encryption.
+    /// Edge and Brave are tried first because they lack Chrome 127+ App-Bound Encryption.
     const BROWSER_DIRS: &[&str] = &[
         r"Microsoft\Edge\User Data",
         r"BraveSoftware\Brave-Browser\User Data",
@@ -45,8 +43,6 @@ mod imp {
         r"Default\Network\Cookies", // Chrome/Edge 96+
         r"Default\Cookies",         // older versions
     ];
-
-    // ── Windows DPAPI FFI ─────────────────────────────────────────────────
 
     #[repr(C)]
     struct DataBlob {
@@ -102,8 +98,6 @@ mod imp {
         }
     }
 
-    // ── Chrome AES key retrieval ──────────────────────────────────────────
-
     fn get_chrome_aes_key(browser_dir: &Path) -> Option<Vec<u8>> {
         let local_state_path = browser_dir.join("Local State");
         let raw = std::fs::read_to_string(&local_state_path).ok()?;
@@ -127,8 +121,6 @@ mod imp {
         Some(key)
     }
 
-    // ── Cookie value decryption ───────────────────────────────────────────
-
     fn decrypt_cookie_value(aes_key: &[u8], encrypted: &[u8]) -> Option<String> {
         // Modern format: b"v10" | 12-byte nonce | ciphertext+tag (AES-256-GCM)
         // v11 uses the same layout with App-Bound key (we can still try to decrypt).
@@ -147,7 +139,7 @@ mod imp {
             return None;
         }
 
-        // Legacy unencrypted value (very old Chromium) — raw UTF-8.
+        // Legacy unencrypted value (very old Chromium), raw UTF-8.
         if !encrypted.is_empty() {
             return String::from_utf8(encrypted.to_vec()).ok();
         }
@@ -155,10 +147,9 @@ mod imp {
         None
     }
 
-    // ── SQLite cookie reading ─────────────────────────────────────────────
-
     fn read_session_key_from_db(cookies_path: &Path, aes_key: &[u8]) -> Option<String> {
-        let conn = open_cookies_db(cookies_path)?;
+        let opened = open_cookies_db(cookies_path)?;
+        let conn = &opened.connection;
 
         for host in [".claude.ai", "claude.ai"] {
             let result = conn.query_row(
@@ -177,31 +168,44 @@ mod imp {
         None
     }
 
-    fn open_cookies_db(path: &Path) -> Option<Connection> {
-        // WAL mode allows concurrent readers even while the browser is running.
-        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        if let Ok(conn) = Connection::open_with_flags(path, flags) {
-            return Some(conn);
-        }
-
-        // Fallback: copy the DB + WAL/SHM files to a temp location and read from there.
-        let tmp_dir = std::env::temp_dir().join("cc_dp_chrome");
-        let _ = std::fs::create_dir_all(&tmp_dir);
-        let tmp_db = tmp_dir.join("Cookies");
-
-        std::fs::copy(path, &tmp_db).ok()?;
-        for suffix in ["-wal", "-shm"] {
-            let src =
-                path.with_file_name(format!("{}{}", path.file_name()?.to_string_lossy(), suffix));
-            if src.exists() {
-                let _ = std::fs::copy(&src, tmp_dir.join(format!("Cookies{suffix}")));
-            }
-        }
-
-        Connection::open_with_flags(&tmp_db, OpenFlags::SQLITE_OPEN_READ_ONLY).ok()
+    /// Fields drop in order, so the connection closes before the copy folder goes.
+    struct CookiesDb {
+        connection: Connection,
+        _copy: Option<tempfile::TempDir>,
     }
 
-    // ── Entry point ───────────────────────────────────────────────────────
+    fn open_cookies_db(path: &Path) -> Option<CookiesDb> {
+        if let Ok(connection) = crate::foreign_sqlite::open_read_only(path) {
+            return Some(CookiesDb {
+                connection,
+                _copy: None,
+            });
+        }
+
+        // A running browser holds the file exclusively on Windows. Read a
+        // private copy in Pulse's cache folder, removed as soon as this read ends.
+        let cache = crate::storage::cache_path("");
+        std::fs::create_dir_all(&cache).ok()?;
+        let copy = tempfile::Builder::new()
+            .prefix("cookies-")
+            .tempdir_in(cache)
+            .ok()?;
+        let name = path.file_name()?.to_string_lossy().into_owned();
+        std::fs::copy(path, copy.path().join(&name)).ok()?;
+        for suffix in ["-wal", "-shm"] {
+            let source = path.with_file_name(format!("{name}{suffix}"));
+            if source.exists() {
+                let _ = std::fs::copy(&source, copy.path().join(format!("{name}{suffix}")));
+            }
+        }
+        let connection =
+            Connection::open_with_flags(copy.path().join(&name), OpenFlags::SQLITE_OPEN_READ_ONLY)
+                .ok()?;
+        Some(CookiesDb {
+            connection,
+            _copy: Some(copy),
+        })
+    }
 
     pub fn read_claude_session_key() -> Option<String> {
         let local_appdata = match std::env::var("LOCALAPPDATA") {

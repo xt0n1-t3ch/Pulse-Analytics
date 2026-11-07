@@ -1,4 +1,4 @@
-//! Inflection-point detector — surfaces days where the user's effective
+//! Inflection-point detector: surfaces days where the user's effective
 //! cost-per-token or cost-per-session shifted by ≥2× versus the prior rolling
 //! baseline. These points are the "something broke / something changed" flags.
 

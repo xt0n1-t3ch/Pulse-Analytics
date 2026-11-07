@@ -1,3 +1,5 @@
+//! Per-session accumulation of activity, tool calls and rate-limit updates from Codex events.
+
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -1,3 +1,5 @@
+//! Integration tests for access routes: local history never changes provider authentication proof.
+
 use cc_discord_presence::usage::{
     UsageData, UsageLimit, UsageLimitModel, UsageLimitScope, UsageWindow,
 };

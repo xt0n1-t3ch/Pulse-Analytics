@@ -9,6 +9,14 @@ Pulse uses an ultra-dark operational shell with a true-black canvas. The canonic
 - Provider identity is scoped in `frontend/src/lib/provider.ts`: Claude is coral and Codex is blue. Provider color does not become the application accent.
 - Empty data is neutral. A zero or missing reading must not look successful or dangerous unless the backend supplies that meaning.
 
+## Corner contract
+
+Rounded shapes use macOS Tahoe's continuous corners: `corner-shape: squircle` on every element, set once in `frontend/src/styles/global.css`, with the radius tokens `--radius-xs` to `--radius-xl` (7, 11, 15, 21 and 28 px). Components use the tokens, never loose pixel values. Circles (`50%`) and capsules (`--radius-full`) declare `corner-shape: round`, and the Discord preview keeps Discord's round corners. A nested shape takes the token one step below its container, so corners stay concentric.
+
+WebView2 supports `corner-shape`. WebKitGTK 2.54 has it behind the `CSSCornerShapeEnabled` feature, which Pulse turns on when it creates the window (`src-tauri/src/platform.rs`). Where the engine lacks it (macOS WebKit has not been checked), corners fall back to circular arcs one step smaller (5 to 20 px), which read about as round.
+
+The window itself stays opaque on every platform. A transparent window is unsafe on Linux: with the NVIDIA DMA-BUF workaround, WebKitGTK 2.54 paints only the regions that change and the desktop shows through the rest ([CapSoftware/Cap#2624](https://github.com/CapSoftware/Cap/issues/2624)), and without it NVIDIA crashes or ghosts ([tauri-apps/tauri#14924](https://github.com/tauri-apps/tauri/issues/14924)). Windows 11 rounds the frameless window itself because its shadow stays on (Tauri's default); Linux and macOS draw the window edge the window manager gives it.
+
 ## Information hierarchy
 
 - Every primary view has one concise title and one control group. Kicker/description copy appears only when it adds information rather than repeating navigation.
@@ -38,7 +46,7 @@ Pulse uses an ultra-dark operational shell with a true-black canvas. The canonic
 
 - Home remains in the entry chunk so the operational workspace paints without
   a route waterfall.
-- Sessions, Context, Costs, Reports, Discord, and Settings load on demand and
+- Sessions, Costs, Reports, Discord, Accounts and Settings load on demand and
   expose a compact live region while their chunk is resolving.
 - Route requests are generation-guarded: a slower prior import cannot replace
   the view selected most recently.
@@ -51,8 +59,9 @@ Pulse uses an ultra-dark operational shell with a true-black canvas. The canonic
 ## Focused validators
 
 ```bash
-npm --prefix frontend run test -- tests/unit/view-router.test.ts tests/components/DesignSystem.test.ts tests/components/Dashboard.test.ts tests/components/Discord.test.ts tests/components/UpdateBanner.test.ts
-PULSE_VISUAL_URL=http://127.0.0.1:1420 node tests/visual/verify-responsive.mjs
-cargo test --test codex_account_usage --jobs 2
-npm --prefix frontend run check
+bun run test
+cargo nextest run --workspace
+bun run typecheck
 ```
+
+For browser review, start `bun run dev` and inspect the real Rust-backed interface. Check light/dark themes, keyboard focus, narrow layouts and error states. Browser review does not prove native installation or Discord rendering.

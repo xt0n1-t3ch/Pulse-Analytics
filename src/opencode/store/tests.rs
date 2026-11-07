@@ -1,3 +1,5 @@
+//! Tests for the OpenCode store over fixture databases of both schema versions.
+
 use super::*;
 use serde_json::json;
 

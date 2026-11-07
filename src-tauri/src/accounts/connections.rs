@@ -1,3 +1,6 @@
+//! Account connection flows: runs a provider's login helper as an owned child process and
+//! tracks its status and sign-in URL per account.
+
 use super::{
     AccountSnapshot, ConnectAccountRequest,
     store::{self, AccountRecord},
@@ -122,9 +125,7 @@ pub(super) fn forget_secret(record: &AccountRecord) -> Result<()> {
     if record.origin != "managed" {
         return Ok(());
     }
-    let expected = cc_discord_presence::storage::home()
-        .join("accounts")
-        .join(&record.id);
+    let expected = cc_discord_presence::storage::accounts_dir().join(&record.id);
     if record.source_path != expected {
         bail!("Account profile ownership does not match");
     }
@@ -167,9 +168,7 @@ pub(super) fn connect(request: ConnectAccountRequest) -> Result<String> {
         .map(|record| Ok(record.id.clone()))
         .unwrap_or_else(store::new_id)?;
     cancel(&id)?;
-    let path = cc_discord_presence::storage::home()
-        .join("accounts")
-        .join(&id);
+    let path = cc_discord_presence::storage::accounts_dir().join(&id);
     if existing
         .as_ref()
         .is_some_and(|record| record.source_path != path)

@@ -1,0 +1,16 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ESNext", "DOM", "DOM.Iterable"],
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "paths": {
+            "@/*": ["./frontend/src/*"]
+        }
+    },
+    "include": ["frontend/src/**/*.ts", "tests/**/*.ts"],
+    "exclude": ["tests/fixtures"]
+}

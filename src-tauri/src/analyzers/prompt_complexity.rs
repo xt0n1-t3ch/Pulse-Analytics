@@ -1,3 +1,6 @@
+//! Prompt complexity analyzer: scores how complex and specific prompts were, with a short
+//! preview of each.
+
 use std::collections::HashMap;
 
 use serde::Serialize;

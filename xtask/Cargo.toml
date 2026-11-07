@@ -1,0 +1,16 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2024"
+description = "Pulse repository automation: checks, release assets, changelog, llms.txt and GitHub metadata"
+license = "Apache-2.0"
+repository = "https://github.com/xt0n1-t3ch/Pulse-Analytics"
+publish = false
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+toml = "0.9"

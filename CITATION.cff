@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use or build on Pulse, please cite this repository."
+type: software
+title: "Pulse"
+abstract: "Local-first desktop analytics and Discord Rich Presence for Claude Code, OpenAI Codex, OpenCode, Command Code and Orion App. Tracks tokens, API-equivalent costs, prompt cache, context-window fill and provider allowances on Windows, macOS and Linux."
+authors:
+  - alias: "xt0n1-t3ch"
+    website: "https://github.com/xt0n1-t3ch"
+repository-code: "https://github.com/xt0n1-t3ch/Pulse-Analytics"
+license: Apache-2.0
+version: "2.0.0"
+date-released: "2026-10-17"
+keywords:
+  - claude-code
+  - codex
+  - opencode
+  - command-code
+  - orion-app
+  - ai-tools
+  - token-usage
+  - cost-tracking
+  - prompt-cache
+  - context-window
+  - local-first
+  - discord-rich-presence
+  - rust
+  - tauri
+  - svelte

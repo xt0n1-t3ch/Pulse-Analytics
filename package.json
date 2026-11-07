@@ -1,25 +1,27 @@
 {
-  "name": "pulse",
-  "version": "1.9.7",
-  "private": true,
-  "description": "Local-first analytics for Claude Code, OpenAI Codex, OpenCode, Command Code and Orion App, with Discord Rich Presence.",
-  "scripts": {
-    "dev": "npm --prefix frontend run dev",
-    "dev:tauri": "cargo tauri dev",
-    "build": "npm --prefix frontend run build && cargo tauri build",
-    "build:frontend": "npm --prefix frontend run build",
-    "check": "npm --prefix frontend run check",
-    "test": "npm --prefix frontend run test && cargo test --workspace",
-    "test:frontend": "npm --prefix frontend run test",
-    "test:rust": "cargo test --workspace",
-    "lint:rust": "cargo clippy --workspace --all-targets -- -D warnings",
-    "fmt:rust": "cargo fmt --all",
-    "fmt:rust:check": "cargo fmt --all -- --check",
-    "verify": "npm run fmt:rust:check && npm run check && npm run lint:rust && npm run test",
-    "build:portable": "npm --prefix frontend run build && cargo tauri build --no-bundle"
-  },
-  "packageManager": "npm@11.10.1",
-  "engines": {
-    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
-  }
+    "name": "pulse",
+    "version": "2.0.0",
+    "private": true,
+    "description": "Local-first analytics for Claude Code, OpenAI Codex, OpenCode, Command Code and Orion App, with Discord Rich Presence.",
+    "scripts": {
+        "dev": "bun run --cwd frontend dev",
+        "dev:tauri": "tauri dev",
+        "build": "bun run build:frontend && tauri build",
+        "build:frontend": "bun run --cwd frontend build",
+        "build:portable": "bun run build:frontend && tauri build --no-bundle",
+        "typecheck": "bun check --no-script && svelte-check --workspace frontend --tsconfig ./tsconfig.json",
+        "lint": "oxlint frontend/src tests/components tests/unit tests/integration tests/setup.ts tests/bun-setup.ts",
+        "fmt": "bun fmt --no-script frontend tests/components tests/unit tests/integration tests/setup.ts tests/bun-setup.ts package.json tsconfig.json .oxlintrc.json && cargo fmt --all",
+        "fmt:check": "bun fmt --no-script --check frontend tests/components tests/unit tests/integration tests/setup.ts tests/bun-setup.ts package.json tsconfig.json .oxlintrc.json && cargo fmt --all -- --check",
+        "test": "bun test --conditions=browser --parallel=1",
+        "test:rust": "cargo nextest run --workspace",
+        "verify": "cargo xtask check"
+    },
+    "packageManager": "bun@1.4.4",
+    "engines": {
+        "bun": ">=1.4.4"
+    },
+    "workspaces": [
+        "frontend"
+    ]
 }

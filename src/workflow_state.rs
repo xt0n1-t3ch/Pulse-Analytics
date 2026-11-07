@@ -1,3 +1,5 @@
+//! Detects background workflows of a Claude session from its run directory.
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};

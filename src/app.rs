@@ -1,3 +1,5 @@
+//! Headless daemon runtime plus the `status` and `doctor` commands.
+
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
@@ -22,7 +24,7 @@ use crate::util::{format_time_until, format_token_triplet};
 
 #[derive(Debug, Clone)]
 pub enum AppMode {
-    /// Headless daemon — runs Discord Rich Presence in the background. Primary
+    /// Headless daemon: runs Discord Rich Presence in the background. Primary
     /// entry for users who launch the GUI (Pulse) separately, or for CLI users
     /// who want the daemon only without the analytics window.
     SmartForeground,
@@ -185,12 +187,11 @@ pub fn doctor(config: &PresenceConfig) -> Result<u8> {
     }
 }
 
-/// Headless daemon loop — polls session state, updates Discord Rich Presence,
+/// Headless daemon loop: polls session state, updates Discord Rich Presence,
 /// tracks metrics, and sleeps until the next poll interval. Runs until the
 /// stop signal (SIGINT / Ctrl+C) is raised.
 ///
-/// This is the GUI-era replacement for the old `run_foreground_tui` — all
-/// visual analytics live in the Pulse GUI now; the CLI only pumps Discord.
+/// All visual analytics live in the Pulse GUI; the daemon only publishes to Discord.
 fn run_daemon(mut config: PresenceConfig, runtime: RuntimeSettings) -> Result<()> {
     let stop = install_stop_signal()?;
     let mut git_cache = GitBranchCache::new(Duration::from_secs(30));
@@ -243,7 +244,10 @@ fn run_daemon(mut config: PresenceConfig, runtime: RuntimeSettings) -> Result<()
 
 /// Collect sessions, merge statusline, update metrics, fetch usage, and update Discord.
 /// Returns `(sessions, cached_usage)` for callers that need them.
-#[allow(clippy::too_many_arguments)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one cycle borrows every long-lived cache the daemon owns"
+)]
 fn tick_session_cycle(
     projects_roots: &[PathBuf],
     runtime: &RuntimeSettings,
@@ -278,7 +282,6 @@ fn tick_session_cycle(
     }
 
     metrics_tracker.update(&sessions);
-    metrics_tracker.persist_if_due();
 
     let active = preferred_active_session(&sessions);
     let effective_limits = latest_limits_source(&sessions).map(|source| &source.limits);

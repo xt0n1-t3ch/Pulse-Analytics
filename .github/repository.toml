@@ -1,0 +1,27 @@
+# Applied by `cargo xtask meta --apply` and compared by `cargo xtask meta --check`.
+# It also names the repository for the changelog links and the llms.txt URLs.
+repository = "xt0n1-t3ch/Pulse-Analytics"
+description = "Local-first desktop analytics for AI coding agents: Claude Code, OpenAI Codex, OpenCode, Command Code and Orion App. Tracks tokens, API-equivalent costs, prompt cache, context-window fill and plan limits, and shows your live session on Discord Rich Presence. Windows, macOS and Linux; Rust, Tauri 2 and Svelte 5."
+homepage = "https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest"
+topics = [
+  "claude-code",
+  "codex",
+  "codex-cli",
+  "opencode",
+  "command-code",
+  "claude",
+  "anthropic",
+  "openai",
+  "ai-tools",
+  "token-usage",
+  "cost-tracking",
+  "usage-monitor",
+  "context-window",
+  "analytics",
+  "local-first",
+  "discord-rich-presence",
+  "discord",
+  "tauri",
+  "rust",
+  "svelte",
+]

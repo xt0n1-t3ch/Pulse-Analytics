@@ -1,54 +1,47 @@
-#!/bin/bash
-# Stop cc-discord-presence daemon (Rust v2)
-# The binary uses file locks, so we just need to find and terminate the process.
+#!/usr/bin/env bash
+# Stops the cc-discord-presence daemon on Linux and macOS (Windows: stop.ps1).
+#
+# The daemon records its pid in an instance file, so that pid is tried first.
+# The fallback matches the exact process name with `pgrep -x`, never the
+# command line: the repository folder shares the daemon's name, and a command
+# line match would also stop editors and shells that merely mention it.
+set -u
 
-CLAUDE_DIR="$HOME/.claude"
-
-# Detect platform
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-IS_WINDOWS=false
-case "$OS" in
-    mingw*|msys*|cygwin*) IS_WINDOWS=true ;;
-esac
-
-# Read PID from instance metadata (Rust v2 writes this file)
+NAME="cc-discord-presence"
+# Linux truncates process names to 15 characters in `comm`.
+SHORT_NAME="${NAME:0:15}"
+CLAUDE_DIR="${CLAUDE_HOME:-$HOME/.claude}"
 META_FILE="$CLAUDE_DIR/cc-discord-presence.instance.json"
 
+is_daemon() {
+  local comm
+  comm="$(ps -p "$1" -o comm= 2>/dev/null | sed 's|.*/||')"
+  [ "$comm" = "$NAME" ] || [ "$comm" = "$SHORT_NAME" ]
+}
+
 kill_by_metadata() {
-    if [[ ! -f "$META_FILE" ]]; then
-        return 1
-    fi
-
-    local pid
-    pid=$(grep -o '"pid":[[:space:]]*[0-9]*' "$META_FILE" 2>/dev/null | grep -o '[0-9]*')
-    if [[ -z "$pid" ]]; then
-        return 1
-    fi
-
-    if $IS_WINDOWS; then
-        taskkill //F //PID "$pid" >/dev/null 2>&1 && return 0
-    else
-        kill "$pid" 2>/dev/null && return 0
-    fi
-    return 1
+  [ -f "$META_FILE" ] || return 1
+  local pid
+  pid="$(grep -o '"pid":[[:space:]]*[0-9]*' "$META_FILE" 2>/dev/null | grep -o '[0-9]*' | head -n1)"
+  [ -n "$pid" ] || return 1
+  # The recorded pid can belong to another program after a crash.
+  is_daemon "$pid" || return 1
+  kill "$pid" 2>/dev/null
 }
 
 kill_by_name() {
-    if $IS_WINDOWS; then
-        taskkill //F //IM "cc-discord-presence*.exe" >/dev/null 2>&1 || true
-    else
-        pkill -f cc-discord-presence 2>/dev/null || true
-    fi
+  local pids stopped=1 pid
+  pids="$( (pgrep -x "$NAME"; pgrep -x "$SHORT_NAME") 2>/dev/null | sort -un)"
+  for pid in $pids; do
+    kill "$pid" 2>/dev/null && stopped=0
+  done
+  return "$stopped"
 }
 
 if kill_by_metadata; then
-    echo "cc-discord-presence stopped"
+  echo "$NAME stopped"
+elif kill_by_name; then
+  echo "$NAME stopped (found by process name)"
 else
-    kill_by_name
-    echo "cc-discord-presence stopped (fallback)"
+  echo "$NAME is not running"
 fi
-
-# Clean up legacy v1 files
-rm -f "$CLAUDE_DIR/discord-presence.pid" 2>/dev/null
-rm -f "$CLAUDE_DIR/discord-presence.refcount" 2>/dev/null
-rm -rf "$CLAUDE_DIR/discord-presence-sessions" 2>/dev/null

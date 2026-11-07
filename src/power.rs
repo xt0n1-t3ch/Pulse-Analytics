@@ -1,3 +1,6 @@
+//! Windows efficiency mode for background processes, on by default and switched off through an
+//! environment variable.
+
 pub fn requested(value: Option<&str>) -> bool {
     !value.is_some_and(|value| {
         matches!(

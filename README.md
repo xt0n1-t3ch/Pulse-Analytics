@@ -1,4 +1,3 @@
-<!-- Landing page: help coding-tool users inspect Pulse, install it and find the relevant guide. -->
 <div align="center">
 
 <h1>
@@ -16,10 +15,12 @@
   <a href="src-tauri/Cargo.toml"><img src="https://img.shields.io/badge/built_with-Tauri_2-171717?style=flat-square&amp;labelColor=303030" alt="Built with Tauri 2"></a>
 </p>
 
-<p><a href="#install"><img src="assets/icons/download.svg" alt="" width="20" height="20" align="center"> Download</a> &middot; <a href="#preview"><img src="assets/icons/image.svg" alt="" width="20" height="20" align="center"> Preview</a> &middot; <a href="#whats-new"><img src="assets/icons/sparkles.svg" alt="" width="20" height="20" align="center"> What's new</a> &middot; <a href="#use-pulse"><img src="assets/icons/terminal.svg" alt="" width="20" height="20" align="center"> Use Pulse</a> &middot; <a href="docs/index.md"><img src="assets/icons/map.svg" alt="" width="20" height="20" align="center"> Documentation</a></p>
+<p><a href="#installation"><img src="assets/icons/download.svg" alt="" width="20" height="20" align="center"> Download</a> &middot; <a href="#preview"><img src="assets/icons/image.svg" alt="" width="20" height="20" align="center"> Preview</a> &middot; <a href="CHANGELOG.md"><img src="assets/icons/sparkles.svg" alt="" width="20" height="20" align="center"> What's new</a> &middot; <a href="#supported-providers"><img src="assets/icons/terminal.svg" alt="" width="20" height="20" align="center"> Use Pulse</a> &middot; <a href="docs/index.md"><img src="assets/icons/map.svg" alt="" width="20" height="20" align="center"> Documentation</a></p>
 
 
 </div>
+
+## Overview
 
 | Live activity | Provider limits | Discord presence |
 | --- | --- | --- |
@@ -31,7 +32,7 @@ Live activity, session history and account limits stay separate. Missing prices 
 
 <h2 id="preview"><img src="assets/icons/image.svg" alt="" width="28" height="28" align="center">&nbsp; Preview</h2>
 
-See provider limits and active sessions in the current Home view. Select the screenshot to inspect the original capture.
+See provider limits and active sessions in a historical Home view. Select the screenshot to inspect the original capture.
 
 <p align="center">
 <a href="assets/evidence/pulse-home-v1.8.2-2026-09-07.png"><img src="assets/evidence/pulse-home-v1.8.2-2026-09-07.png" alt="Pulse 1.8.2 Home in dark mode: separate Claude, Codex and OpenCode account limits above two active coding sessions" width="960"></a>
@@ -50,115 +51,21 @@ These repository captures show earlier Claude and Codex presence layouts. They a
 
 </details>
 
-<a id="whats-new-in-v180"></a>
-<a id="whats-new-in-v181"></a>
+## Features
 
-<h2 id="whats-new"><img src="assets/icons/sparkles.svg" alt="" width="28" height="28" align="center">&nbsp; What's new</h2>
+- **Live workspace:** project, model, reasoning effort, activity and context-window fill, separate from cumulative session usage.
+- **Session history and costs:** searchable history, token categories, prompt-cache efficiency, API-equivalent estimates and provider-reported value with explicit coverage.
+- **Provider limits and Accounts:** independent connections and native allowance windows. Removing a Pulse link never signs your coding client out.
+- **Reports:** provider-supported analysis, local exports and sensitive excerpts hidden until you reveal them.
+- **Discord Rich Presence:** choose one broadcaster, privacy controls, presets, field order and a backend-owned preview.
+- **Desktop controls:** dark and light themes, close-to-tray, durable notifications with read/unread and Undo, and Windows Efficiency mode.
 
-Pulse v1.9.7 is available for Windows, macOS and Linux, on both x64 and ARM64.
+See the [changelog](CHANGELOG.md) for released changes and planned work under Unreleased. The published release is Pulse 1.9.7. The checkout is Pulse 2.0.0, unreleased: Claude Haiku 5.5, GPT-6.1 Terra, Linux support, a footprint limited to `~/.pulse-analytics` and Tahoe-style corners. Unreleased work is not a published update.
 
-<h3 id="new-in-v197">New in v1.9.7</h3>
 
-- **GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna.** Codex and Orion App sessions on these models are recognized, named and priced from the OpenAI model cards, with their Fast and long-context rates.
-- **Lighter in the background.** Pulse reads the Codex account quota only when a Codex view, session or broadcast needs it, reuses one probe folder instead of creating a new temporary folder on every read, and closes every Codex and Claude process it starts.
-- **Tighter window security.** The Pulse window has a Content Security Policy and no file-system access. Live updates, tray notification state and the native window theme now follow the app again.
+<a id="use-pulse"></a>
 
-See the [1.9.7 changelog](CHANGELOG.md#197---2026-10-17).
-
-<h3 id="new-in-v196">New in v1.9.6</h3>
-
-- **Orion App support.** Pulse now tracks [Orion App](docs/guides/orion.md) sessions from Orion's local session store. See the model and reasoning level, the live tool activity, tokens, context fill and subagents, and the session cost with its input, output and cache breakdown.
-- **Orion App on Discord.** Orion App broadcasts under its own name and artwork, showing only the subagents still working, and "Idling..." with an idle timer when no session is active. Reasoning levels read Low, Medium, High, Extra High and Max.
-- **Claude Sonnet 5.5.** Sessions on Anthropic's new Sonnet are recognized, named and priced at the official $2/$10 rates with the full 1M context.
-
-See the [1.9.6 changelog](CHANGELOG.md#196---2026-09-29).
-
-<h3 id="new-in-v195">New in v1.9.5</h3>
-- **Your current Claude plan.** After you upgrade or downgrade, Pulse shows the new plan, for example Max 20x instead of Max 5x. It now reads the plan Claude Code keeps with your account profile, which Claude Code updates, rather than the one saved when you last logged in.
-- **Correct prices.** Sonnet 5 stays at $2/$10, because Anthropic cancelled the planned increase. Fable 5.1 and Mythos 5.1 cache reads cost $0.25 per million instead of $1.
-- **Fix your saved history.** In **Settings > Claude history correction**, Pulse checks saved sessions against their transcripts and shows what would change. After you confirm, it backs up the database and corrects the sessions that earlier versions overcounted.
-- **Cleaner data.** Pulse keeps its session checkpoints in its own folder and removes outdated ones. Usage figures from one Claude account are never shown for another, and the first screen after an update no longer shows the previous version's numbers.
-
-See the [1.9.5 changelog](CHANGELOG.md#195---2026-09-22).
-
-<h3 id="new-in-v194">New in v1.9.4</h3>
-
-Claude session costs are now accurate. Claude Code writes a separate transcript line for each part of a response, and every line repeats the same token usage. Earlier versions added each line, so tokens and costs could come out two or three times too high. Pulse now counts each response once.
-
-Pulse also re-reads your active Claude sessions once after an update. That way, new prices apply to the whole session, not only to messages sent after the update. Costs saved for sessions that already ended are not rewritten. See the [1.9.4 changelog](CHANGELOG.md#194---2026-09-22).
-
-<h3 id="new-in-v193">New in v1.9.3</h3>
-
-Pulse now supports Claude Opus 5.5. Sessions use Anthropic's published rates: $4 per million input tokens, $20 per million output tokens and $0.20 per million cache reads. Fast mode costs $8/$40, and the full 1M context window has no long-context surcharge. Earlier versions priced Opus 5.5 like Opus 5, so estimates came out too high. Pulse and Discord now show the model as "Opus 5.5 (1M)".
-
-Your database, settings and Discord configuration carry over from 1.9.2 unchanged. See the [1.9.3 changelog](CHANGELOG.md#193---2026-09-22).
-
-<h3 id="new-in-v192">New in v1.9.2</h3>
-
-Command Code stays visible in Discord while it is idle. See the [1.9.2 changelog](CHANGELOG.md#192---2026-09-20).
-
-<h3 id="highlights-of-v19">Highlights of the 1.9 line</h3>
-
-- Link several accounts per provider in [Accounts](docs/guides/accounts.md) and see each account's allowances, credits and banked resets. Removing a link never signs your coding client out.
-- Track [Command Code](docs/guides/command-code.md) sessions from the CLI and the desktop app together, with the costs Command Code reports and one Discord identity.
-- See Codex session costs add up event by event. Discord shows the known amount, and Pulse shows the full cost coverage.
-- Track OpenCode sessions from its local database, including sessions that mix models and the costs the provider reports.
-- Check OpenCode Go limits for the five-hour, weekly and monthly windows, separately from other providers.
-- Recognize GPT-6 Astra sessions with their context and Standard/Fast pricing. When a price is missing, Pulse shows that instead of guessing.
-- Customize OpenCode's Discord presence: put the model first, keep your own field order and show costs to two decimals. Finished sessions stop broadcasting.
-- Review the last seven days of activity per provider on the dashboard, in a dark or light theme.
-- Mark notifications as read or unread, and undo a clear even after you restart the app.
-- Keep your data in `~/.pulse-analytics`, or choose another folder with `PULSE_HOME`. Data from older versions is copied over and never overwritten.
-- On Windows, Pulse lowers its background priority with Efficiency mode and EcoQoS.
-
-The [changelog](CHANGELOG.md) has the full release history.
-
-<h2 id="install"><img src="assets/icons/download.svg" alt="" width="28" height="28" align="center">&nbsp; Install</h2>
-
-Choose an installer for your operating system and architecture from [GitHub Releases](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest).
-
-| Platform | v1.9.7 downloads | Installer formats |
-| --- | --- | --- |
-| Windows | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-windows-x64-Pulse_1.9.7_x64-setup.exe) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-windows-arm64-Pulse_1.9.7_arm64-setup.exe) | `.exe` (NSIS), `.msi` |
-| macOS | [Intel](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-macos-x64-Pulse_1.9.7_x64.dmg) · [Apple Silicon](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-macos-arm64-Pulse_1.9.7_aarch64.dmg) | `.dmg`, app archive |
-| Linux | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-linux-x64-Pulse_1.9.7_amd64.AppImage) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-linux-arm64-Pulse_1.9.7_aarch64.AppImage) | `.deb`, `.rpm`, `.AppImage` |
-
-macOS GitHub packages are not Apple-signed or notarized. macOS may block first launch. Updater signatures are separate from Apple signing.
-
-The immutable [v1.9.7 release](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.9.7) contains all six targets. The links above select NSIS, DMG or AppImage; MSI, DEB and RPM alternatives are on the release page. Native build/test checks passed; installed-GUI acceptance is recorded per operating system. See [platform verification](docs/maintainers/platforms.md).
-
-Every complete release must include `SHA256SUMS.txt`, Windows software bills of materials and `latest.json` with signed updater payloads for all six targets. Do not install an asset for a different architecture to work around a missing download.
-
-<details>
-<summary>Windows installation</summary>
-
-Download the matching `.exe` or `.msi`, compare its SHA-256 hash with `SHA256SUMS.txt`, then run the installer. Pulse uses Microsoft Edge WebView2. Windows Efficiency mode is specific to Windows.
-
-Asset names include the platform and architecture, such as `pulse-windows-x64-Pulse_1.8.2_x64-setup.exe`. Each Windows architecture has its own SPDX file.
-
-</details>
-
-<details>
-<summary>macOS installation</summary>
-
-Download the Intel or Apple Silicon `.dmg`, verify its checksum and drag Pulse to Applications. The configured minimum is macOS 11.0.
-
-These GitHub packages have no Apple Developer ID signature or notarization. Keep system security controls enabled; the native build checks do not establish Gatekeeper acceptance.
-
-</details>
-
-<details>
-<summary>Linux installation</summary>
-
-Verify the checksum and install the package for your distribution and architecture. Debian-based systems use `.deb`; RPM-based systems use `.rpm`. AppImage is the standalone packaging option, not a promise of compatibility with every distribution.
-
-The release builds use Ubuntu 22.04. GTK 3, WebKitGTK 4.1 and an AppIndicator-compatible desktop are required for the corresponding native features. Tray behavior depends on the desktop environment.
-
-</details>
-
-See [platform support and verification](docs/maintainers/platforms.md) for the release gate, runtime checks and known limits. Manual-only releases without `latest.json` cannot supply in-app updates.
-
-<h2 id="use-pulse"><img src="assets/icons/terminal.svg" alt="" width="28" height="28" align="center">&nbsp; Use Pulse</h2>
+## Supported providers
 
 Start with your existing coding tools:
 
@@ -174,6 +81,7 @@ Start with your existing coding tools:
 | Costs | Provider-billed spend and API-equivalent value, with their provenance |
 | Reports | Provider-supported analysis and exports |
 | Discord | Broadcast application, presets, field order and the backend-owned preview |
+| Accounts | Independent provider connections and native allowances |
 | Settings | Provider, plan display, appearance, window behavior and data controls |
 
 Choosing a provider changes its workspace context. **All providers** combines analytics without changing the last broadcast application. The **Broadcast from** control in Discord makes publication ownership explicit.
@@ -209,7 +117,7 @@ See the [Codex model catalog](docs/models/codex.md), [context tracking](docs/gui
 <details>
 <summary id="opencode-and-go">OpenCode and Go</summary>
 
-Pulse reads `opencode.db` and channel databases from OpenCode's local data directory. It supports both message-table schemas and respects `XDG_DATA_HOME` and `OPENCODE_DB`. Additional databases can be set in `~/.pulse-analytics/pulse-opencode.json`.
+Pulse reads `opencode.db` and channel databases from OpenCode's local data directory. It supports both message-table schemas and respects `XDG_DATA_HOME` and `OPENCODE_DB`. Additional databases can be set in `~/.pulse-analytics/config/opencode.json`.
 
 When an existing OpenCode Go credential is available, Pulse requests its account usage from the Go API. Pulse does not copy that credential into its own settings or logs. The monthly window uses the provider's reset date rather than an invented fixed duration.
 
@@ -264,9 +172,91 @@ See [Windows Efficiency mode](docs/maintainers/windows-efficiency.md) for behavi
 
 </details>
 
+## Requirements
+
+Use the package for your operating system and architecture. Pulse targets Windows, macOS and Linux, with x64 and ARM64 release packages. Availability of an asset is separate from installed-window acceptance; see [platform verification](docs/maintainers/platforms.md).
+
+- **Windows:** Microsoft Edge WebView2.
+- **macOS:** macOS 11.0 or later as configured by the application. GitHub packages are not Apple Developer ID signed or notarized.
+- **Linux:** GTK 3 and WebKitGTK 4.1. Install `libayatana-appindicator` for the system tray. Tray availability varies by desktop environment.
+- **Providers:** existing local Claude Code, Codex, OpenCode, Command Code or Orion App data. Supported credentials and a successful provider check are required for allowance cards, not for local history.
+- **Discord:** a running desktop client for Rich Presence; analytics do not require Discord.
+
+
+## Installation
+
+<a id="install"></a>
+
+Choose an installer for your operating system and architecture from [GitHub Releases](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest).
+
+| Platform | v1.9.7 downloads | Installer formats |
+| --- | --- | --- |
+| Windows | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-windows-x64-Pulse_1.9.7_x64-setup.exe) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-windows-arm64-Pulse_1.9.7_arm64-setup.exe) | `.exe` (NSIS), `.msi` |
+| macOS | [Intel](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-macos-x64-Pulse_1.9.7_x64.dmg) · [Apple Silicon](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-macos-arm64-Pulse_1.9.7_aarch64.dmg) | `.dmg`, app archive |
+| Linux | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-linux-x64-Pulse_1.9.7_amd64.AppImage) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v1.9.7/pulse-linux-arm64-Pulse_1.9.7_aarch64.AppImage) | `.deb`, `.rpm`, `.AppImage` |
+
+macOS GitHub packages are not Apple-signed or notarized. macOS may block first launch. Updater signatures are separate from Apple signing.
+
+The [v1.9.7 release](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.9.7) contains all six targets. The links above select NSIS, DMG or AppImage; MSI, DEB and RPM alternatives are on the release page. Native build/test checks and installed-GUI acceptance are recorded separately per operating system. See [platform verification](docs/maintainers/platforms.md).
+
+Every complete release must include `SHA256SUMS.txt`, Windows software bills of materials and `latest.json` with signed updater payloads for all six targets. Do not install an asset for a different architecture to work around a missing download.
+
+<details>
+<summary>Windows installation</summary>
+
+Download the matching `.exe` or `.msi`, compare its SHA-256 hash with `SHA256SUMS.txt`, then run the installer. Pulse uses Microsoft Edge WebView2. Windows Efficiency mode is specific to Windows.
+
+Asset names include the platform and architecture, such as `pulse-windows-x64-Pulse_1.9.7_x64-setup.exe`. Each Windows architecture has its own SPDX file.
+
+</details>
+
+<details>
+<summary>macOS installation</summary>
+
+Download the Intel or Apple Silicon `.dmg`, verify its checksum and drag Pulse to Applications. The configured minimum is macOS 11.0.
+
+These GitHub packages have no Apple Developer ID signature or notarization. Keep system security controls enabled; the native build checks do not establish Gatekeeper acceptance.
+
+</details>
+
+<details>
+<summary>Linux installation</summary>
+
+Verify the checksum and install the package for your distribution and architecture. Debian-based systems use `.deb`; RPM-based systems use `.rpm`. AppImage is the standalone packaging option, not a promise of compatibility with every distribution.
+
+### Arch Linux and CachyOS
+
+The repository provides a [PKGBUILD](packaging/aur/pulse-analytics-bin/PKGBUILD) that repackages the release `.deb`. It is not a published AUR listing. Review the recipe, then run from your repository checkout:
+
+```bash
+cd packaging/aur/pulse-analytics-bin
+makepkg -si
+```
+
+The package depends on `webkit2gtk-4.1`, `gtk3` and `libayatana-appindicator`. Update it through the package manager, not the in-app updater.
+
+### Other Linux distributions
+
+Use the release `.deb`, `.rpm` or `.AppImage` matching your architecture and verify `SHA256SUMS.txt`. Install the AppIndicator library for tray integration. AppImage updates remain available when launched as an AppImage; package-manager installations use their package manager.
+
+</details>
+
+## Updating
+
+Use the signed in-app updater only when it is available for your installation, or download the matching package from [Releases](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest). On Linux, package-manager installs (pacman/AUR, DEB and RPM) must update through the package manager; AppImage uses the in-app updater. See [updates](docs/guides/updates.md).
+
+Back up the executable, configuration and database through SQLite Backup before replacing an installation. Pulse 2.0.0 uses analytics schema 7, Claude config schema 6 and Codex config schema 13. Returning to Pulse 1.8.2 requires its pre-schema-7 database backup; preserve the newer database separately. Orion App settings live in `config/orion.json`. See [storage and recovery](docs/guides/storage.md).
+
+## Removal
+
+Quit Pulse, including its tray process, then uninstall it with the operating system's uninstaller or the package manager that installed it. For AppImage, remove only the downloaded application file. Provider clients, transcripts and credentials are independent and must not be removed with Pulse.
+
+Pulse-owned history and settings remain under `~/.pulse-analytics` or your `PULSE_HOME`. Keep a consistent backup before choosing to remove that data. Uninstalling Pulse is not a provider sign-out.
+
+
 <h2 id="your-data-and-network-access"><img src="assets/icons/shield.svg" alt="" width="28" height="28" align="center">&nbsp; Your data and network access</h2>
 
-Pulse stores its own data in `~/.pulse-analytics/`, or under `PULSE_HOME`. Provider credentials and source records stay in their original directories. The first startup copies legacy history and settings without deleting or overwriting them. See [storage and recovery](docs/guides/storage.md).
+Pulse writes only inside `~/.pulse-analytics/` (or `PULSE_HOME`), in `config/`, `data/`, `accounts/`, `cache/`, `state/`, `logs/` and `webview/`. Agent folders such as `~/.claude` and `~/.codex` are read, never written, and no program runs in the background. The first startup moves older layouts into these folders and removes the Pulse files earlier releases left in `~/.claude`. See [storage and recovery](docs/guides/storage.md).
 
 Network use is limited to the configured provider quota checks, release/update checks and the Discord presence fields you enable. Project, branch and activity controls determine what the presence exposes. Keep private prompts, credentials and local reports out of public issues.
 
@@ -276,7 +266,65 @@ On Windows, WSL session discovery is off by default. Enable it only when you nee
 $env:CC_PRESENCE_INCLUDE_WSL = "1"
 ```
 
-<h2 id="common-questions"><img src="assets/icons/info.svg" alt="" width="28" height="28" align="center">&nbsp; Common questions</h2>
+## Project structure
+
+```text
+Pulse-Analytics/
+├── src/                 Core library, provider collectors and Claude daemon
+├── src-tauri/           Tauri desktop host, SQLite and native commands
+├── frontend/            Svelte 5 interface
+├── xtask/               Rust checks, documentation and release tooling
+├── packaging/           Distribution packaging, including the Arch recipe
+├── tests/               Unit, integration, component and contract tests
+├── docs/                Guides, model references and implementation contracts
+├── assets/              Branding and accepted historical evidence
+└── .github/             Manual workflows and repository metadata
+```
+
+
+## Development
+
+Install Rust 1.99.1, Bun 1.4.4 and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/). Linux development uses clang and mold; Windows uses rust-lld. Install cargo-nextest for Rust tests. Run all commands from the repository root:
+
+```bash
+git clone https://github.com/xt0n1-t3ch/Pulse-Analytics.git
+cd Pulse-Analytics
+bun install
+cargo xtask check
+bun run build:portable
+```
+
+| Purpose | Command |
+| --- | --- |
+| Install JavaScript dependencies | `bun install` |
+| Browser development with real Rust data | `bun run dev` |
+| Native development window | `bun run dev:tauri` |
+| Installers for this OS | `bun run build` |
+| Portable application | `bun run build:portable` |
+| Type check (bun check and svelte-check) | `bun run typecheck` |
+| Lint (oxlint) | `bun run lint` |
+| Format / check format | `bun run fmt` / `bun run fmt:check` |
+| JavaScript tests | `bun run test` |
+| Rust tests | `cargo nextest run --workspace` |
+| Release-script tests | `cargo nextest run -p xtask` |
+| Full local gate | `cargo xtask check` (also `bun run verify`) |
+| Generate / check llms files | `cargo xtask llms` / `cargo xtask llms --check` |
+| Check changelog / extract release notes | `cargo xtask changelog check` / `cargo xtask changelog notes <version>` |
+| Check / apply GitHub description and topics | `cargo xtask meta --check` / `cargo xtask meta --apply` |
+| Codex catalog parity | `cargo xtask catalog-parity` |
+| Release build and assets | Manual release workflow: `cargo xtask release-assets`, `cargo xtask platform-assets` |
+| Claude daemon diagnostics | `cargo run -p cc-discord-presence -- status` / `cargo run -p cc-discord-presence -- doctor` |
+
+The portable build embeds its frontend through Tauri; a raw Cargo GUI build may still point at the development URL. The authenticated loopback [development bridge](docs/architecture/dev-bridge.md) renders real Rust data and is not required by an installed application.
+
+Pulse follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). Start with the [documentation index](docs/index.md), [test map](tests/index.md), [llms.txt](llms.txt) and [contributing guide](CONTRIBUTING.md). The [release procedure](docs/maintainers/releases.md) keeps checks, publication and native runtime acceptance separate. Report security issues through [private advisories](https://github.com/xt0n1-t3ch/Pulse-Analytics/security/advisories/new).
+
+
+## FAQ
+
+<a id="common-questions"></a>
+
+Common questions about Pulse.
 
 ### Is Pulse a Claude Code cost tracker or a Codex dashboard?
 
@@ -294,40 +342,25 @@ Enabled provider quota checks, update checks and Discord presence use the networ
 
 ### Are the cost estimates my actual bill?
 
-Not always. Pulse separates provider-reported cost from API-equivalent estimates. Model prices can change, and documented runtime pricing gaps remain. See [cost provenance](docs/guides/costs.md) before using estimates for a budget.
+Not always. Pulse separates provider-reported value from API-equivalent estimates. Prices can change; unknown cost remains unavailable. See [cost provenance](docs/guides/costs.md) before using estimates for a budget.
 
-<h2 id="build-from-source"><img src="assets/icons/terminal.svg" alt="" width="28" height="28" align="center">&nbsp; Build from source</h2>
+### Is the Arch package on the AUR?
 
-Install Rust, Node.js 22.12+ (22.x), 24.x, or 26+, the Tauri CLI and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/). Then run:
+Not yet. The repository carries a PKGBUILD for local `makepkg -si` installation. Do not assume an AUR package exists.
 
-```powershell
-git clone https://github.com/xt0n1-t3ch/Pulse-Analytics.git
-cd Pulse-Analytics
-npm --prefix frontend ci
-npm run verify
-npm run build:portable
-```
+### Why is the Linux tray missing?
 
-`build:portable` compiles the frontend and runs `cargo tauri build --no-bundle`. The Tauri CLI enables `tauri/custom-protocol`, so the executable contains its UI. Do not promote a raw Cargo GUI build that still points at the development URL.
+Install `libayatana-appindicator` and check whether your desktop supports AppIndicator trays. Missing tray support must not be confused with missing session data. See [troubleshooting](docs/guides/troubleshooting.md).
 
-Use `npm run build` for installers. Use `npm run dev` for the authenticated, loopback-only browser development bridge. The development bridge is not required by the installed application.
+### Does All providers change my Discord broadcaster?
 
-<h2 id="compatibility-and-recovery"><img src="assets/icons/info.svg" alt="" width="28" height="28" align="center">&nbsp; Compatibility and recovery</h2>
+No. Combined analytics preserve the broadcaster selected in Discord. Accounts connections are also independent of both selections.
 
-Pulse v1.8.2 uses Claude config schema 6, Codex config schema 13 and analytics schema 6. The analytics migration adds OpenCode metadata without discarding previous sessions.
+### Is the headless daemon a Codex CLI?
 
-Pulse v1.9.5 to v1.9.7 keep Claude config schema 6 and Codex config schema 13, and migrates analytics to schema 7 by adding Accounts and Command Code data. Existing sessions are preserved. Pulse v1.8.2 cannot open analytics schema 7: back up the database before you install 1.9.x, and keep the schema-7 database separately if you return to 1.8.2. Pulse v1.9.6 adds Orion App without a schema change; its settings live in `pulse-orion.json`.
+No. `cc-discord-presence` is the Claude daemon. The standalone [Codex Discord Rich Presence](https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence) project has its own terminal interface and releases; Pulse consumes its shared core 2.0.1 through an immutable Git pin.
 
-Back up the executable, configuration and database through SQLite Backup before replacing an installation. Pulse 1.7.9 cannot open analytics schema 6: rollback requires the schema-5 backup, while the newer database should be preserved separately.
 
-Pulse consumes `codex-presence-core` 2.0.1 through an immutable Git pin recorded in [UPSTREAM.json](src/codex/UPSTREAM.json), promoted from the upstream v1.11.3 release. The standalone [Codex Discord Rich Presence](https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence) runtime has its own releases and terminal interface.
-
-See the [dependency audit scope](docs/maintainers/dependencies.md) for inherited Tauri advisories and platform boundaries.
-
-<h2 id="contribute-and-report-problems"><img src="assets/icons/git-pull-request.svg" alt="" width="28" height="28" align="center">&nbsp; Contribute and report problems</h2>
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md), the [test map](tests/index.md), [release procedure](docs/maintainers/releases.md) and [Code of Conduct](CODE_OF_CONDUCT.md). Report security issues privately through [GitHub Security Advisories](https://github.com/xt0n1-t3ch/Pulse-Analytics/security/advisories/new).
-
-<h2 id="license"><img src="assets/icons/scale.svg" alt="" width="28" height="28" align="center">&nbsp; License</h2>
+## License
 
 [Apache-2.0](LICENSE), copyright 2026 xt0n1-t3ch. Redistributed and derivative versions must preserve the license, copyright notice and [NOTICE](NOTICE) attribution.

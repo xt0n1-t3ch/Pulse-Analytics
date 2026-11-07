@@ -31,7 +31,7 @@ During the previous 1.8.2 release, GitHub emitted an upstream runner notice that
 
 After an explicitly authorized annotated tag exists on the remote, dispatch Release with `publish_release=false`, the default. It runs the native matrix and retains verification artifacts under the repository retention policy. It does not create a GitHub release, and its unsigned packages are not updater candidates.
 
-Local regression checks run with `cargo test --locked --test release_scripts`. They are also part of `npm run verify`. These fixture and workflow checks do not execute Linux or macOS binaries on Windows.
+Local regression checks run with `cargo nextest run -p xtask`. They are also part of `cargo xtask check`. These fixture and workflow checks do not execute Linux or macOS binaries on another operating system.
 
 ## Public release gate
 
@@ -42,6 +42,56 @@ Configure `TAURI_SIGNING_PRIVATE_KEY` without printing its value; add `TAURI_SIG
 The macOS artifacts are GitHub downloads, not App Store submissions. They have no Apple Developer ID signature or notarization. The workflow checks the packaged executable architecture. macOS may block first launch. Do not claim Gatekeeper acceptance or notarization. Updater signatures prove the update payload, not an Apple-approved publisher. Windows downloads may also trigger SmartScreen when publisher signing or reputation is unavailable.
 
 Only the complete release can become latest. `scripts/release-local.ps1 -WindowsOnlyRecovery` is an explicitly limited Windows x64 recovery path. It always uses `--latest=false` and cannot repair an immutable release.
+
+## Linux requirements and behavior
+
+State on 2026-11-07. The six-platform workflow builds and tests the Linux packages on Ubuntu runners. The Arch package and the behavior below were written for CachyOS (KDE Plasma, Wayland, NVIDIA open driver) and are verified by the acceptance table that follows, not by the workflow.
+
+| Need | Arch and CachyOS | Debian and Ubuntu | Fedora |
+| --- | --- | --- | --- |
+| WebKitGTK 4.1 | `webkit2gtk-4.1` | `libwebkit2gtk-4.1-0` | `webkit2gtk4.1` |
+| GTK 3 | `gtk3` | `libgtk-3-0` | `gtk3` |
+| System tray | `libayatana-appindicator` | `libayatana-appindicator3-1` | `libayatana-appindicator-gtk3` |
+| Icons | `hicolor-icon-theme` | `hicolor-icon-theme` | `hicolor-icon-theme` |
+| Discord presence | A running Discord, Vesktop or Legcord client on the same user session | same | same |
+
+The `.deb` and `.rpm` declare the tray library. The Arch recipe declares every library above. Building from source on Linux also needs the Tauri prerequisites and, for fast development builds, `clang` and `mold` (see `.cargo/config.toml`).
+
+### Install paths and updates
+
+| Install | How it is made | Who updates it |
+| --- | --- | --- |
+| Arch and CachyOS | `packaging/aur/pulse-analytics-bin/PKGBUILD` repackages the release `.deb` for x86_64 and aarch64 | pacman, after the recipe's `pkgver` and checksums are bumped. There is no AUR listing yet |
+| Debian, Ubuntu | release `.deb` | the package manager |
+| Fedora, openSUSE | release `.rpm` | the package manager |
+| Any distribution | release `.AppImage`, installed by `scripts/install.sh` with a menu entry | Pulse, in place, when it was started from that AppImage |
+
+`update_check::update_channel` allows in-app updates on Linux only when `APPIMAGE` is set and, if `APPDIR` is set, the running executable lives inside it. Every other Linux install reports `managed_by_package_manager`, and Pulse does not register the updater plugin. The plugin treats any Linux install that is not a deb, rpm or AppImage as an AppImage and would overwrite the packaged binary. Windows and macOS keep in-app updates.
+
+The v1.9.7 binary predates this check and the check ships with the next release. `/usr/bin/pulse` is root-owned, so an in-app update started by a regular user should fail with a permission error instead of replacing it (inferred, not run).
+
+### Runtime behavior
+
+- **Tray.** Before building the tray, Pulse tries to load `libayatana-appindicator3.so.1` and then `libappindicator3.so.1`. When neither loads, the tray library would panic, so Pulse skips the tray, makes closing the window quit the app and logs one warning.
+- **NVIDIA.** At the start of `main`, Pulse sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` when the variable is unset and `/proc/driver/nvidia/version` exists. Without it, WebKitGTK can show a blank window. A value you set, including `0`, is kept.
+- **Discord data.** Banner and signed-in-user lookups read the configuration folder from `dirs::config_dir()` (`XDG_CONFIG_HOME`), plus Flatpak (`~/.var/app/<id>/config`), Snap, Vesktop (`vesktop/sessionData`) and Legcord. The Discord IPC socket search belongs to the `discord-rich-presence` crate.
+- **Processes.** OpenCode and the Codex desktop app are found by scanning `/proc/<pid>/comm` and `cmdline` on Linux and `ps -axo comm=` on macOS. Liveness checks use `kill(pid, 0)`; `EPERM` counts as alive. Children started by Pulse receive SIGTERM when Pulse dies (`PR_SET_PDEATHSIG`, Linux).
+- **Efficiency mode and sounds** stay Windows-only; they are no-ops elsewhere.
+
+### CachyOS acceptance
+
+Run on the installed package, not on a development build, with ports 1420 and 1421 stopped. The lead records the date, package version and result.
+
+| Check | Result |
+| --- | --- |
+| `makepkg -si` builds and installs the recipe on x86_64 | pending |
+| The window opens and renders on KDE Wayland with the NVIDIA open driver | pending |
+| Closing the window with `libayatana-appindicator` installed hides to the tray and the tray restores it | pending |
+| Closing the window without the library quits cleanly and logs one warning | pending |
+| Provider sessions, costs and reports load from real local data | pending |
+| Discord shows the live session and the signed-in user | pending |
+| The update banner offers the release page, not an in-app install | pending |
+| `pacman -R pulse-analytics-bin` removes the files and leaves `~/.pulse-analytics` | pending |
 
 ## Native runtime acceptance
 
@@ -60,7 +110,7 @@ Record the OS version, architecture, tag commit, installer SHA-256, result and k
 
 - Windows uses WebView2. EcoQoS and Efficiency mode apply only to Windows.
 - macOS has a configured minimum of 11.0. The current Claude subscription reader reads `.credentials.json`; it does not read Keychain-only credentials. Local transcript analytics do not require that quota credential.
-- Linux uses GTK 3 and WebKitGTK 4.1. Tray availability depends on AppIndicator support and the desktop environment. AppImage does not guarantee compatibility with every Linux distribution.
+- Linux uses GTK 3 and WebKitGTK 4.1. Tray availability depends on an AppIndicator library and the desktop environment; see [Linux requirements and behavior](#linux-requirements-and-behavior). AppImage does not guarantee compatibility with every Linux distribution.
 - Provider sign-in, quota access and cost coverage are separate from operating-system support. An installed client or configured credential is not proof of authenticated quota access.
 
 ## Sources

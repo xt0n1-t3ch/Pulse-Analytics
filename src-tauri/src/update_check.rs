@@ -1,3 +1,11 @@
+//! Update check: asks the GitHub releases API for the latest Pulse release and classifies it for
+//! the current install channel.
+
+use std::ffi::OsStr;
+use std::path::Path;
+use std::time::Duration;
+
+use cc_discord_presence::http;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
@@ -35,6 +43,58 @@ pub struct AppUpdateInfo {
     /// Semver jump between the running build and the release, so the UI can
     /// signal how significant the update is without re-parsing versions.
     pub severity: UpdateSeverity,
+    /// True when a package manager owns this install (pacman, apt, dnf), so
+    /// Pulse must not replace its own files. The UI offers the release page
+    /// instead of an in-app install.
+    pub managed_by_package_manager: bool,
+}
+
+/// How an install receives updates.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateChannel {
+    /// Pulse downloads and installs signed releases itself.
+    InApp,
+    /// The system package manager updates Pulse.
+    PackageManager,
+}
+
+/// Decides the update channel from the OS, the `APPIMAGE` and `APPDIR`
+/// variables and the running executable.
+///
+/// `tauri-plugin-updater` treats a Linux install that is not a deb, rpm or
+/// AppImage as an AppImage and overwrites the running binary, which would
+/// bypass pacman, apt and dnf. In-app updates therefore stay on only for a real
+/// AppImage. An inherited `APPIMAGE` (Pulse started from another AppImage) must
+/// not count: the AppImage runtime also sets `APPDIR` to the mount that holds
+/// the executable, so an executable outside it is not that AppImage.
+pub fn update_channel(
+    os: &str,
+    appimage: Option<&OsStr>,
+    appdir: Option<&OsStr>,
+    exe: Option<&Path>,
+) -> UpdateChannel {
+    if os != "linux" {
+        return UpdateChannel::InApp;
+    }
+    if appimage.is_none_or(OsStr::is_empty) {
+        return UpdateChannel::PackageManager;
+    }
+    match appdir.filter(|dir| !dir.is_empty()) {
+        None => UpdateChannel::InApp,
+        Some(dir) if exe.is_some_and(|exe| exe.starts_with(dir)) => UpdateChannel::InApp,
+        Some(_) => UpdateChannel::PackageManager,
+    }
+}
+
+/// The update channel of the running process.
+pub fn current_update_channel() -> UpdateChannel {
+    update_channel(
+        std::env::consts::OS,
+        std::env::var_os("APPIMAGE").as_deref(),
+        std::env::var_os("APPDIR").as_deref(),
+        std::env::current_exe().ok().as_deref(),
+    )
 }
 
 /// How large a version jump a release represents.
@@ -78,6 +138,12 @@ pub async fn check_app_update() -> Result<AppUpdateInfo, String> {
         .map_err(|err| format!("update check task failed: {err}"))?
 }
 
+/// The update channel without a network call, so the UI knows it offline.
+#[tauri::command]
+pub fn get_update_channel() -> UpdateChannel {
+    current_update_channel()
+}
+
 #[tauri::command]
 pub fn open_app_release_page(url: Option<String>) -> Result<(), String> {
     let target = url.unwrap_or_else(|| REPO_RELEASES_URL.to_string());
@@ -89,21 +155,30 @@ pub fn open_app_release_page(url: Option<String>) -> Result<(), String> {
 
 fn check_latest_release() -> Result<AppUpdateInfo, String> {
     let current_version = env!("CARGO_PKG_VERSION").to_string();
-    let response = ureq::get(LATEST_RELEASE_API_URL)
-        .set("Accept", "application/vnd.github+json")
-        .set("User-Agent", USER_AGENT)
-        .timeout(std::time::Duration::from_secs(8))
+    let response = http::agent(Duration::from_secs(8), http::DEFAULT_REDIRECTS)
+        .get(LATEST_RELEASE_API_URL)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", USER_AGENT)
         .call()
         .map_err(|err| format!("GitHub release lookup failed: {err}"))?;
 
     let release: GithubRelease = response
-        .into_json()
+        .into_body()
+        .read_json()
         .map_err(|err| format!("GitHub release response was invalid: {err}"))?;
 
-    Ok(update_info_from_release(&current_version, release))
+    Ok(update_info_from_release(
+        &current_version,
+        release,
+        current_update_channel() == UpdateChannel::PackageManager,
+    ))
 }
 
-fn update_info_from_release(current_version: &str, release: GithubRelease) -> AppUpdateInfo {
+fn update_info_from_release(
+    current_version: &str,
+    release: GithubRelease,
+    managed_by_package_manager: bool,
+) -> AppUpdateInfo {
     let latest_version = normalize_version(&release.tag_name);
     let update_available = !release.draft
         && !release.prerelease
@@ -136,6 +211,7 @@ fn update_info_from_release(current_version: &str, release: GithubRelease) -> Ap
             })
             .collect(),
         severity,
+        managed_by_package_manager,
     }
 }
 
@@ -241,7 +317,7 @@ mod tests {
 
     #[test]
     fn release_newer_than_current_marks_update_available() {
-        let info = update_info_from_release("1.2.0", release("v1.3.0"));
+        let info = update_info_from_release("1.2.0", release("v1.3.0"), false);
         assert!(info.update_available);
         assert_eq!(info.current_version, "1.2.0");
         assert_eq!(info.latest_version.as_deref(), Some("1.3.0"));
@@ -250,12 +326,12 @@ mod tests {
 
     #[test]
     fn same_or_prerelease_tags_do_not_mark_update_available() {
-        let same = update_info_from_release("1.2.0", release("v1.2.0"));
+        let same = update_info_from_release("1.2.0", release("v1.2.0"), false);
         assert!(!same.update_available);
 
         let mut prerelease = release("v1.3.0-beta.1");
         prerelease.prerelease = true;
-        let info = update_info_from_release("1.2.0", prerelease);
+        let info = update_info_from_release("1.2.0", prerelease, false);
         assert!(!info.update_available);
     }
 
@@ -289,7 +365,7 @@ mod tests {
         assert!(!is_allowed_release_url(
             "http://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.9.1"
         ));
-        let info = update_info_from_release("1.8.2", release("v1.9.1"));
+        let info = update_info_from_release("1.8.2", release("v1.9.1"), false);
         assert!(is_allowed_release_url(&info.release_url));
     }
 
@@ -304,13 +380,13 @@ mod tests {
 
     #[test]
     fn severity_is_none_when_no_update_is_available() {
-        let same = update_info_from_release("1.2.0", release("v1.2.0"));
+        let same = update_info_from_release("1.2.0", release("v1.2.0"), false);
         assert_eq!(same.severity, UpdateSeverity::None);
     }
 
     #[test]
     fn severity_is_reported_for_an_available_update() {
-        let info = update_info_from_release("1.2.0", release("v1.3.0"));
+        let info = update_info_from_release("1.2.0", release("v1.3.0"), false);
         assert_eq!(info.severity, UpdateSeverity::Minor);
     }
 
@@ -339,5 +415,103 @@ mod tests {
         // Checksums and signatures are not installers.
         assert_eq!(platform_for_asset("checksums.txt"), None);
         assert_eq!(platform_for_asset("Pulse.exe.sig"), None);
+    }
+
+    fn os(value: &str) -> Option<&OsStr> {
+        Some(OsStr::new(value))
+    }
+
+    #[test]
+    fn windows_and_macos_always_update_in_app() {
+        for platform in ["windows", "macos"] {
+            assert_eq!(
+                update_channel(platform, None, None, Some(Path::new("/usr/bin/pulse"))),
+                UpdateChannel::InApp
+            );
+        }
+    }
+
+    #[test]
+    fn linux_without_appimage_is_managed_by_the_package_manager() {
+        let exe = Some(Path::new("/usr/bin/pulse"));
+        assert_eq!(
+            update_channel("linux", None, None, exe),
+            UpdateChannel::PackageManager
+        );
+        assert_eq!(
+            update_channel("linux", os(""), None, exe),
+            UpdateChannel::PackageManager
+        );
+    }
+
+    #[test]
+    fn linux_appimage_updates_in_app() {
+        let appimage = os("/home/tony/Apps/Pulse.AppImage");
+        assert_eq!(
+            update_channel("linux", appimage, None, None),
+            UpdateChannel::InApp
+        );
+        assert_eq!(
+            update_channel(
+                "linux",
+                appimage,
+                os("/tmp/.mount_PulseAbc123"),
+                Some(Path::new("/tmp/.mount_PulseAbc123/usr/bin/pulse")),
+            ),
+            UpdateChannel::InApp
+        );
+    }
+
+    #[test]
+    fn inherited_appimage_variable_does_not_enable_in_app_updates() {
+        assert_eq!(
+            update_channel(
+                "linux",
+                os("/home/tony/Apps/Other.AppImage"),
+                os("/tmp/.mount_OtherXyz"),
+                Some(Path::new("/usr/bin/pulse")),
+            ),
+            UpdateChannel::PackageManager
+        );
+        // The mount name is a prefix of a sibling folder, not an ancestor.
+        assert_eq!(
+            update_channel(
+                "linux",
+                os("/home/tony/Apps/Pulse.AppImage"),
+                os("/tmp/.mount_Pulse"),
+                Some(Path::new("/tmp/.mount_Pulse2/usr/bin/pulse")),
+            ),
+            UpdateChannel::PackageManager
+        );
+        assert_eq!(
+            update_channel(
+                "linux",
+                os("/home/tony/Apps/Pulse.AppImage"),
+                os("/tmp/.mount_Pulse"),
+                None,
+            ),
+            UpdateChannel::PackageManager
+        );
+    }
+
+    #[test]
+    fn release_info_reports_package_manager_ownership() {
+        let managed = update_info_from_release("1.2.0", release("v1.3.0"), true);
+        assert!(managed.managed_by_package_manager);
+        assert!(managed.update_available);
+        let unmanaged = update_info_from_release("1.2.0", release("v1.3.0"), false);
+        assert!(!unmanaged.managed_by_package_manager);
+    }
+
+    #[test]
+    fn update_channel_serializes_as_the_frontend_strings() {
+        assert_eq!(
+            serde_json::to_value(UpdateChannel::PackageManager).unwrap(),
+            "package_manager"
+        );
+        assert_eq!(
+            serde_json::to_value(UpdateChannel::InApp).unwrap(),
+            "in_app"
+        );
     }
 }

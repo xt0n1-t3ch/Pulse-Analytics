@@ -1,3 +1,5 @@
+//! Read-only collector for Command Code CLI and Desktop JSONL sessions, with reported costs.
+
 use super::{Config, Session};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -325,9 +327,7 @@ fn activity(message: &Value) -> String {
 }
 fn desktop_index(path: &Path) -> HashMap<String, (String, String)> {
     let mut result = HashMap::new();
-    let Ok(conn) =
-        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-    else {
+    let Ok(conn) = crate::foreign_sqlite::open_read_only(path) else {
         return result;
     };
     let _ = conn.busy_timeout(Duration::from_millis(100));

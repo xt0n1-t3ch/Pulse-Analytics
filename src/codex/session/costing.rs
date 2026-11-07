@@ -1,3 +1,5 @@
+//! Per-session cost tracking from cumulative Codex token usage samples.
+
 use std::collections::HashSet;
 
 use chrono::{DateTime, Utc};
