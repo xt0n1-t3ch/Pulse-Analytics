@@ -76,6 +76,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: ${{ env.BUN_VERSION }}
+          # Releases build from the checked-out tag; no cache is read or written.
+          no-cache: true
 
       - name: Validate annotated release target
         id: release_target
@@ -182,6 +184,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: ${{ env.BUN_VERSION }}
+          # Releases build from the checked-out tag; no cache is read or written.
+          no-cache: true
 
       # Installs the pinned Tauri CLI that tauri-action runs through `bunx tauri`.
       - name: Install JavaScript dependencies
