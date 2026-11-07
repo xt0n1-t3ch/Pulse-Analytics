@@ -1,3 +1,5 @@
+//! Codex integration: model catalog, costs, session parsing, telemetry and Discord presence.
+
 pub mod account_usage;
 pub mod config;
 pub mod cost;
@@ -12,7 +14,10 @@ pub mod telemetry {
 }
 pub mod util;
 
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "never called: it only pins the vendored sanitizer signatures at compile time"
+)]
 fn preserve_vendored_presence_sanitizer_contract() {
     let _ = session::sanitize_domain_target as fn(&str, usize) -> Option<String>;
     let _ = session::sanitize_file_target as fn(&str, usize) -> String;

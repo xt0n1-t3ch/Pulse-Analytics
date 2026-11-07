@@ -1,3 +1,6 @@
+//! Command Code adapter: maps Command Code sessions onto the shared session and access-route
+//! types.
+
 use crate::access::{
     AccessAvailability, AccessFreshness, AccessProof, AccessProvenance, AccessRouteSnapshot,
     AccessSource, AccessSourceKind, AccessWindow, AuthMethod,

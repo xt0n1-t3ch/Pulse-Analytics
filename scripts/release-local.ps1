@@ -7,7 +7,8 @@
   Builds the frontend and Tauri installers, generates and validates the Windows
   SPDX SBOM, selects only installers matching the exact package version, writes
   SHA256SUMS.txt, uploads a draft, verifies the downloaded bytes, and only then
-  makes the GitHub release public.
+  makes the GitHub release public. Every check and asset step is a `cargo xtask`
+  command, so this script holds only the Windows-specific orchestration.
 
 .PARAMETER WindowsOnlyRecovery
   Explicitly acknowledge a Windows x64-only recovery release. This lane never
@@ -157,15 +158,15 @@ try {
     throw "Release tag $Tag returned an invalid commit: $tagCommit"
   }
   Assert-RemoteAnnotatedTag -ReleaseTag $Tag -ExpectedCommit $tagCommit
-  & (Join-Path $PSScriptRoot "check-release-contract.ps1") -Tag $Tag -ExpectedCommit $tagCommit
+  cargo xtask release-contract --tag $Tag --expected-commit $tagCommit
   if ($LASTEXITCODE -ne 0) { throw "Release contract validation failed" }
-  & (Join-Path $PSScriptRoot "check-codex-rich-presence-upstream.ps1") -Root $root
+  cargo xtask upstream check
   if ($LASTEXITCODE -ne 0) { throw "Codex presence core contract validation failed" }
 
   if (-not $SkipBuild) {
     $buildStartedAt = [DateTime]::UtcNow.AddSeconds(-2)
     Write-Host "Building exact-version installers..." -ForegroundColor Cyan
-    npm run build
+    bun run build
     $buildExitCode = $LASTEXITCODE
     foreach ($installer in @($nsis, $msi)) {
       if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
@@ -186,33 +187,19 @@ try {
     }
   }
 
-  & (Join-Path $PSScriptRoot "new-windows-sbom.ps1") `
-    -ArtifactPath $nsis `
-    -OutputPath $sbom `
-    -PackageName pulse `
-    -PackageVersion $version
+  cargo xtask sbom new --artifact $nsis --output $sbom --package-name pulse --package-version $version
   if ($LASTEXITCODE -ne 0) { throw "Windows SBOM generation failed" }
-  & (Join-Path $PSScriptRoot "check-windows-sbom.ps1") `
-    -ArtifactPath $nsis `
-    -SbomPath $sbom `
-    -PackageName pulse `
-    -PackageVersion $version
+  cargo xtask sbom check --artifact $nsis --sbom $sbom --package-name pulse --package-version $version
   if ($LASTEXITCODE -ne 0) { throw "Windows SBOM validation failed" }
 
-  & (Join-Path $PSScriptRoot "prepare-local-release-assets.ps1") `
-    -BundleDirectory $bundle `
-    -OutputDirectory $output `
-    -Tag $Tag
+  cargo xtask local-release-assets --bundle $bundle --output $output --tag $Tag
   if ($LASTEXITCODE -ne 0) { throw "Local release asset preparation failed" }
 
   $assets = @(Get-ChildItem -LiteralPath $output -File | Sort-Object Name)
   if ($assets.Count -ne 4) {
     throw "Expected exactly four local release assets, found $($assets.Count)"
   }
-  $python = Get-Command python.exe -ErrorAction SilentlyContinue
-  if ($null -eq $python) { $python = Get-Command python -ErrorAction SilentlyContinue }
-  if ($null -eq $python) { throw "Python is required to extract the release changelog section" }
-  $notesOutput = @(& $python.Source (Join-Path $PSScriptRoot "extract-changelog-section.py") $version (Join-Path $root "CHANGELOG.md") 2>&1)
+  $notesOutput = @(cargo xtask changelog notes $version 2>&1)
   if ($LASTEXITCODE -ne 0) { throw "Release note extraction failed: $($notesOutput -join ' ')" }
   $notes = ($notesOutput -join "`n").Trim()
   if ([string]::IsNullOrWhiteSpace($notes)) { throw "Release notes are empty for $version" }

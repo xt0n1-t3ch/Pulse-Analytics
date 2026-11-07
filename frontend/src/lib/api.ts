@@ -18,7 +18,10 @@ export function hasTauriIpc(): boolean {
     return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
-export async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+export async function invoke<T>(
+    command: string,
+    args?: Record<string, unknown>,
+): Promise<T> {
     if (hasTauriIpc() || !import.meta.env.DEV) {
         return tauriInvoke<T>(command, args);
     }
@@ -29,7 +32,9 @@ export async function invoke<T>(command: string, args?: Record<string, unknown>)
     });
     if (!res.ok) {
         const reason = await res.text();
-        throw new Error(`real dev backend rejected ${command}: ${res.status} ${reason}`.trim());
+        throw new Error(
+            `real dev backend rejected ${command}: ${res.status} ${reason}`.trim(),
+        );
     }
     return (await res.json()) as T;
 }
@@ -96,8 +101,43 @@ export interface SubagentDetail {
     activity: string;
 }
 
+/** Orion App helper requests (titles, summaries) that run outside the
+ * conversation. `input_tokens` follows Orion's convention and includes cache
+ * reads and writes. */
+export interface OrionHelperRequests {
+    count: number;
+    input_tokens: number;
+    output_tokens: number;
+    /** API-equivalent estimate; null when no helper request has a known rate. */
+    cost_usd: number | null;
+}
+
+/** Subagent requests of one Orion session for one agent type. */
+export interface OrionAgentUsage {
+    agent: string;
+    requests: number;
+    input_tokens: number;
+    output_tokens: number;
+    cost_usd: number | null;
+}
+
+/** Orion App usage telemetry (`OrionTelemetry` in `src-tauri/src/orion.rs`).
+ * Every field is null when Orion did not record it; null is unavailable, never
+ * zero. */
+export interface OrionTelemetry {
+    auto_compact_threshold_tokens: number | null;
+    /** Share of prompt tokens served from cache, 0 to 1. */
+    cache_hit_rate: number | null;
+    ttft_ms_median: number | null;
+    output_tokens_per_second: number | null;
+    helper_requests: OrionHelperRequests | null;
+    subagents_by_agent: OrionAgentUsage[] | null;
+}
+
 export interface SessionInfo {
     opencode?: OpenCodeMetadata | null;
+    /** Present only on Orion App sessions. */
+    orion?: OrionTelemetry | null;
     session_id: string;
     session_name: string | null;
     project: string;
@@ -181,16 +221,21 @@ export interface QuotaScope {
 }
 
 export interface UsageSource {
-    lane: "codex_subscription" | "open_ai_api" | "claude_subscription" | "anthropic_api" | "unknown";
+    lane:
+        | "codex_subscription"
+        | "open_ai_api"
+        | "claude_subscription"
+        | "anthropic_api"
+        | "unknown";
     stream_id: string;
     signals: string[];
 }
 
 export interface UsageSnapshot {
-    /** v1.6 compatibility fields retained by the backend. */
+    /** Compatibility fields retained by the backend. */
     provider: string;
     source: string;
-    /** Structured v1.7 source identity. */
+    /** Structured source identity. */
     usage_source: UsageSource;
     scopes: QuotaScope[];
     credits: CreditBalance | null;
@@ -301,7 +346,7 @@ export interface DiscordSettings {
     desktop_design: "codex_app" | "chatgpt_app" | null;
     supports_desktop_design: boolean;
     supports_field_order: boolean;
-    /** False for Claude — "Credits available" reads a Codex account balance that
+    /** False for Claude: "Credits available" reads a Codex account balance that
      *  has no Claude equivalent, so the backend pins the flag off. */
     supports_credits: boolean;
     field_order: string[];
@@ -355,7 +400,9 @@ export function getDiscordUser(): Promise<DiscordUserInfo | null> {
     return invoke("get_discord_user");
 }
 
-export function discordDisplayPrefsArgs(prefs: DiscordDisplayPrefs): Record<string, boolean> {
+export function discordDisplayPrefsArgs(
+    prefs: DiscordDisplayPrefs,
+): Record<string, boolean> {
     return {
         showProject: prefs.show_project,
         showBranch: prefs.show_branch,
@@ -370,7 +417,9 @@ export function discordDisplayPrefsArgs(prefs: DiscordDisplayPrefs): Record<stri
     };
 }
 
-export function setDiscordFieldOrder(order: string[]): Promise<DiscordSettings> {
+export function setDiscordFieldOrder(
+    order: string[],
+): Promise<DiscordSettings> {
     return invoke("set_discord_field_order", { order });
 }
 
@@ -378,7 +427,9 @@ export function setDiscordEnabled(enabled: boolean): Promise<DiscordSettings> {
     return invoke("set_discord_enabled", { enabled });
 }
 
-export function setDiscordDisplayPrefs(prefs: DiscordDisplayPrefs): Promise<DiscordSettings> {
+export function setDiscordDisplayPrefs(
+    prefs: DiscordDisplayPrefs,
+): Promise<DiscordSettings> {
     return invoke("set_discord_display_prefs", discordDisplayPrefsArgs(prefs));
 }
 
@@ -420,10 +471,16 @@ export function getTraceOverview(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<TraceOverview> {
-    return invoke("get_trace_overview", { days: days ?? null, provider: provider ?? null });
+    return invoke("get_trace_overview", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
-export function setPlanOverride(plan: string, provider?: "codex" | "claude"): Promise<void> {
+export function setPlanOverride(
+    plan: string,
+    provider?: "codex" | "claude",
+): Promise<void> {
     return invoke("set_plan_override", { plan, provider: provider ?? null });
 }
 
@@ -595,17 +652,26 @@ export function searchSessions(
     limit?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<HistoricalSession[]> {
-    return invoke("search_sessions", { query, limit: limit ?? null, provider: provider ?? null });
+    return invoke("search_sessions", {
+        query,
+        limit: limit ?? null,
+        provider: provider ?? null,
+    });
 }
 
 export function getDailyStats(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<DailyStat[]> {
-    return invokeRead("get_daily_stats", { days: days ?? null, provider: provider ?? null });
+    return invokeRead("get_daily_stats", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
-export function getAnalyticsSummary(provider?: AnalyticsProviderScope): Promise<AnalyticsSummary> {
+export function getAnalyticsSummary(
+    provider?: AnalyticsProviderScope,
+): Promise<AnalyticsSummary> {
     return invokeRead("get_analytics_summary", { provider: provider ?? null });
 }
 
@@ -675,21 +741,30 @@ export function getSessionsContextUsage(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<SessionContextUsage[]> {
-    return invoke("get_sessions_context_usage", { days: days ?? null, provider: provider ?? null });
+    return invoke("get_sessions_context_usage", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
 export function getProjectStats(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<ProjectStat[]> {
-    return invoke("get_project_stats", { days: days ?? null, provider: provider ?? null });
+    return invoke("get_project_stats", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
 export function getHourlyActivity(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<HourlyActivity[]> {
-    return invokeRead("get_hourly_activity", { days: days ?? null, provider: provider ?? null });
+    return invokeRead("get_hourly_activity", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
 export function getTopSessions(
@@ -704,7 +779,9 @@ export function getTopSessions(
     });
 }
 
-export function getCostForecast(provider?: AnalyticsProviderScope): Promise<CostForecast> {
+export function getCostForecast(
+    provider?: AnalyticsProviderScope,
+): Promise<CostForecast> {
     return invokeRead("get_cost_forecast", { provider: provider ?? null });
 }
 
@@ -759,10 +836,14 @@ export function getCostsBundle(
     provider?: AnalyticsProviderScope,
     observationIdentity?: string,
 ): Promise<CostsBundle> {
-    return invokeRead("get_costs_bundle", {
-        project: project ?? null,
-        provider: provider ?? null,
-    }, observationIdentity);
+    return invokeRead(
+        "get_costs_bundle",
+        {
+            project: project ?? null,
+            provider: provider ?? null,
+        },
+        observationIdentity,
+    );
 }
 
 export function getCostTotals(
@@ -771,33 +852,52 @@ export function getCostTotals(
     provider?: AnalyticsProviderScope,
     observationIdentity?: string,
 ): Promise<CostTotals> {
-    return invokeRead("get_cost_totals", {
-        days: days ?? null,
-        project: project ?? null,
-        provider: provider ?? null,
-    }, observationIdentity);
+    return invokeRead(
+        "get_cost_totals",
+        {
+            days: days ?? null,
+            project: project ?? null,
+            provider: provider ?? null,
+        },
+        observationIdentity,
+    );
 }
 
-export function getBudgetStatus(provider?: AnalyticsProviderScope): Promise<BudgetStatus> {
+export function getBudgetStatus(
+    provider?: AnalyticsProviderScope,
+): Promise<BudgetStatus> {
     return invokeRead("get_budget_status", { provider: provider ?? null });
 }
 
-export function setBudget(monthlyBudget: number, alertThresholdPct?: number): Promise<void> {
-    return invoke("set_budget", { monthlyBudget, alertThresholdPct: alertThresholdPct ?? null });
+export function setBudget(
+    monthlyBudget: number,
+    alertThresholdPct?: number,
+): Promise<void> {
+    return invoke("set_budget", {
+        monthlyBudget,
+        alertThresholdPct: alertThresholdPct ?? null,
+    });
 }
 
 export function getModelDistribution(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<ModelStat[]> {
-    return invoke("get_model_distribution_v2", { days: days ?? null, provider: provider ?? null });
+    return invoke("get_model_distribution_v2", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
-export function exportAllData(provider?: AnalyticsProviderScope): Promise<Record<string, unknown>> {
+export function exportAllData(
+    provider?: AnalyticsProviderScope,
+): Promise<Record<string, unknown>> {
     return invoke("export_all_data", { provider: provider ?? null });
 }
 
-export function clearHistory(provider?: AnalyticsProviderScope): Promise<number> {
+export function clearHistory(
+    provider?: AnalyticsProviderScope,
+): Promise<number> {
     return invoke("clear_history", { provider: provider ?? null });
 }
 
@@ -849,7 +949,6 @@ export function generateMarkdownReport(
         provider: provider ?? null,
     });
 }
-
 
 export type Severity = "critical" | "warning" | "info" | "positive";
 
@@ -917,28 +1016,40 @@ export function getCacheHealth(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<CacheHealthReport> {
-    return invoke("get_cache_health", { days: days ?? null, provider: provider ?? null });
+    return invoke("get_cache_health", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
 export function getInflectionPoints(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<InflectionPoint[]> {
-    return invoke("get_inflection_points", { days: days ?? null, provider: provider ?? null });
+    return invoke("get_inflection_points", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
 export function getModelRouting(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<ModelRoutingReport | null> {
-    return invoke("get_model_routing", { days: days ?? null, provider: provider ?? null });
+    return invoke("get_model_routing", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
 export function getRecommendations(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<Recommendation[]> {
-    return invoke("get_recommendations", { days: days ?? null, provider: provider ?? null });
+    return invoke("get_recommendations", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
 export function copyFixPrompt(
@@ -952,7 +1063,6 @@ export function copyFixPrompt(
         provider: provider ?? null,
     });
 }
-
 
 export interface ToolUsageEntry {
     name: string;
@@ -1013,23 +1123,31 @@ export function getToolFrequency(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<ToolFrequencyReport> {
-    return invoke("get_tool_frequency", { days: days ?? null, provider: provider ?? null });
+    return invoke("get_tool_frequency", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
 export function getPromptComplexity(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<PromptComplexityReport> {
-    return invoke("get_prompt_complexity", { days: days ?? null, provider: provider ?? null });
+    return invoke("get_prompt_complexity", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
 
 export function getSessionHealth(
     days?: number,
     provider?: AnalyticsProviderScope,
 ): Promise<SessionHealthReport> {
-    return invoke("get_session_health", { days: days ?? null, provider: provider ?? null });
+    return invoke("get_session_health", {
+        days: days ?? null,
+        provider: provider ?? null,
+    });
 }
-
 
 export interface ReportsBundle {
     provider: string;
@@ -1112,8 +1230,8 @@ export function getSessionsByHourRange(
     });
 }
 
-/// Ask the background poller to drop its usage cache and hit the API on the
-/// next tick (~5s cycle). Returns immediately; stores re-poll picks up fresh data.
+/** Asks the background poller to drop its usage cache and query the API on
+ * its next tick. Returns immediately; the stores pick up the fresh data. */
 export function refreshUsage(): Promise<void> {
     return invoke("refresh_usage");
 }
@@ -1181,10 +1299,20 @@ export interface AppUpdateInfo {
     checked_at: string;
     assets: AppUpdateAsset[];
     severity: UpdateSeverity;
+    /** A system package manager owns this install. The updater plugin is not
+     * registered then, so the UI must never call it. */
+    managed_by_package_manager: boolean;
 }
 
 export function checkAppUpdate(): Promise<AppUpdateInfo> {
     return invoke("check_app_update");
+}
+
+/** Who updates this install; known without a network call. */
+export type UpdateChannel = "in_app" | "package_manager";
+
+export function getUpdateChannel(): Promise<UpdateChannel> {
+    return invoke("get_update_channel");
 }
 
 export function openAppReleasePage(url?: string | null): Promise<void> {
@@ -1199,7 +1327,16 @@ export interface OpenCodeMetadata {
     surface: string;
     context_source: string | null;
     source_database: string;
-    models: { provider_id: string; model_id: string; input: number; output: number; reasoning: number; cache_read: number; cache_write: number; cost: number | null }[];
+    models: {
+        provider_id: string;
+        model_id: string;
+        input: number;
+        output: number;
+        reasoning: number;
+        cache_read: number;
+        cache_write: number;
+        cost: number | null;
+    }[];
 }
 
 export function markNotificationUnread(id: number): Promise<boolean> {
@@ -1208,7 +1345,10 @@ export function markNotificationUnread(id: number): Promise<boolean> {
 export function markAllNotificationsUnread(): Promise<number> {
     return invoke("mark_all_notifications_unread");
 }
-export function dismissAllNotifications(): Promise<{ count: number; undo_token: string }> {
+export function dismissAllNotifications(): Promise<{
+    count: number;
+    undo_token: string;
+}> {
     return invoke("dismiss_all_notifications");
 }
 export function restoreNotifications(token: string): Promise<number> {

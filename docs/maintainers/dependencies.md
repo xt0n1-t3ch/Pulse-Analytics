@@ -1,6 +1,6 @@
 # Dependency audit scope
 
-The 2026-10-17 workspace scan (cargo-audit 0.22.2, advisory database of 2026-10-16, 624 crates) reports three vulnerability-class entries, all in `zip 4.6.1`, and 9 warning-class advisories. `scripts/audit-rust.ps1` runs `cargo audit --deny warnings` with the reviewed exceptions in `scripts/rustsec-accepted-warnings.json`, which expire on `review_after` (2026-11-17) and then fail the release preflight until renewed. The ten GTK3 notices (RUSTSEC-2024-0411 to 0420) no longer appear in the graph and were removed from the exceptions on 2026-09-27.
+The 2026-10-17 workspace scan (cargo-audit 0.22.2, advisory database of 2026-10-16, 624 crates) reports three vulnerability-class entries, all in `zip 4.6.1`, and 9 warning-class advisories. `cargo xtask audit` runs `cargo audit --deny warnings` with the reviewed exceptions in `scripts/rustsec-accepted-warnings.json`, which expire on `review_after` (2026-11-17) and then fail the release preflight until renewed. The ten GTK3 notices (RUSTSEC-2024-0411 to 0420) no longer appear in the graph and were removed from the exceptions on 2026-09-27.
 
 The warnings and the `zip` entries are inherited from the existing Tauri dependency graph.
 
@@ -27,7 +27,8 @@ GTK/GLib warnings concern the non-Windows Tauri platform graph. Other maintenanc
 
 ## Reproduce
 
-```powershell
+```sh
+cargo xtask audit
 cargo audit --json
 cargo tree -p pulse --target x86_64-pc-windows-msvc --edges normal
 cargo tree --workspace --target all -i rand@0.7.3

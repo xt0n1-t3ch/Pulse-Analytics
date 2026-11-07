@@ -7,24 +7,30 @@ use std::sync::Mutex;
 
 static HOME_ENV_LOCK: Mutex<()> = Mutex::new(());
 
-fn isolated_homes(tag: &str) -> (std::sync::MutexGuard<'static, ()>, std::path::PathBuf) {
+/// Pulse, Claude and Codex homes in one scratch folder removed on drop.
+struct IsolatedHomes {
+    _guard: std::sync::MutexGuard<'static, ()>,
+    root: tempfile::TempDir,
+}
+
+fn isolated_homes() -> IsolatedHomes {
     let guard = HOME_ENV_LOCK
         .lock()
         .unwrap_or_else(|error| error.into_inner());
-    let root = std::env::temp_dir().join(format!(
-        "pulse-snapshot-degradation-{tag}-{}",
-        std::process::id()
-    ));
-    let claude_home = root.join("claude");
-    let codex_home = root.join("codex");
+    let root = tempfile::tempdir().expect("fixture root");
+    let claude_home = root.path().join("claude-home");
+    let codex_home = root.path().join("codex-home");
     std::fs::create_dir_all(&claude_home).expect("Claude fixture home");
     std::fs::create_dir_all(&codex_home).expect("Codex fixture home");
     unsafe {
         std::env::set_var("CLAUDE_HOME", &claude_home);
         std::env::set_var("CODEX_HOME", &codex_home);
-        std::env::set_var("PULSE_HOME", &root);
+        std::env::set_var("PULSE_HOME", root.path().join("pulse"));
     }
-    (guard, claude_home)
+    IsolatedHomes {
+        _guard: guard,
+        root,
+    }
 }
 
 fn assert_core_payload(snapshot: &Value) {
@@ -40,9 +46,10 @@ fn assert_core_payload(snapshot: &Value) {
 
 #[test]
 fn malformed_discord_config_degrades_settings_and_preview_without_dropping_analytics() {
-    let (_guard, claude_home) = isolated_homes("malformed");
+    let homes = isolated_homes();
     pulse::commands::set_active_provider("claude".to_string()).expect("select Claude");
-    let config_path = claude_home.join("discord-presence-config.json");
+    let config_path = homes.root.path().join("pulse/config/claude-presence.json");
+    std::fs::create_dir_all(config_path.parent().expect("config folder")).expect("config folder");
     std::fs::write(&config_path, b"{ malformed json").expect("write malformed config");
 
     let direct_error = pulse::commands::get_discord_settings()

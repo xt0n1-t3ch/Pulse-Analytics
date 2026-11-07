@@ -4,9 +4,11 @@
 
 Compare the context Codex exposes with the maximum documented by the OpenAI API. Use this reference to interpret Pulse, not to assume that every account or client has the same limits.
 
-**Verified:** September 5, 2026 · **Local inventory:** Codex 0.153.3 · **Pulse:** 1.8.1
+**Verified:** November 7, 2026 (API pricing, GPT-5.6 rates, GPT-6.1 Terra) and September 5, 2026 (local inventory) · **Local inventory:** Codex 0.153.3 · **Pulse:** 2.0.0
 
-[Context limits](#context-limits) · [Reasoning](#reasoning-and-speed) · [API pricing](#current-api-pricing) · [GPT-6 Sol and Luna](#gpt-61-sol-gpt-6-sol-and-gpt-6-luna) · [Catalog gaps](#bundled-catalog-gaps) · [Verification](#verify-your-installation)
+The bundled catalog covers the GPT-6 and GPT-6.1 line (Astra, Sol, Terra, Luna), GPT-5.6 Sol, Terra and Luna, the GPT-5.6 Cyber models and the older GPT-5 family.
+
+[Context limits](#context-limits) · [Reasoning](#reasoning-and-speed) · [API pricing](#current-api-pricing) · [GPT-6 Sol and Luna](#gpt-61-sol-gpt-6-sol-and-gpt-6-luna) · [GPT-6.1 Terra](#gpt-61-terra) · [Catalog gaps](#bundled-catalog-gaps) · [Verification](#verify-your-installation)
 
 > **Astra in this Codex inventory: 272,000 raw → 258,400 usable.**
 > Its API documents 1,050,000 total tokens, up to 922,000 input and 128,000 output. The API maximum is not the default Codex budget.
@@ -27,13 +29,14 @@ These are the visible models in the [sanitized local snapshot](data/codex-contex
 | `gpt-5.4-mini` | 272,000 | 258,400 |
 | `gpt-5.3-codex-spark` | 128,000 | 121,600 |
 
-The 95% factor belongs to this inventory. Do not apply it to every model, API endpoint or observed session value. A local rollout, selected profile or explicit configuration can change the active limit.
+GPT-6.1 Terra is not in this inventory; its bundled fallback is in [its own section](#gpt-61-terra). The 95% factor belongs to this inventory. Do not apply it to every model, API endpoint or observed session value. A local rollout, selected profile or explicit configuration can change the active limit.
 
 ### API: documented maximum capacity
 
 | Official model reference | Total context | Maximum input | Maximum output |
 | --- | ---: | ---: | ---: |
 | [GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra) | 1,050,000 | 922,000 | 128,000 |
+| [GPT-6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra) | 1,050,000 | 922,000 | 128,000 |
 | [GPT-5.6 Sol](https://developers.openai.com/api/docs/models/gpt-5.6-sol) | 1,050,000 | 922,000 | 128,000 |
 | [GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra) | 1,050,000 | 922,000 | 128,000 |
 | [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna) | 1,050,000 | 922,000 | 128,000 |
@@ -64,6 +67,7 @@ Used context is not the same as cumulative session tokens. See [Context tracking
 | Astra | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low`, `medium`, `high`, `xhigh`, `max` |
 | Sol / Terra | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
 | Luna | `low`, `medium`, `high`, `xhigh`, `max` | `none`, `low`, `medium`, `high`, `xhigh`, `max` |
+| GPT-6.1 Terra | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | Not verified in this refresh |
 | GPT-5.5 / GPT-5.4 Mini | `low`, `medium`, `high`, `xhigh` | `none`, `low`, `medium`, `high`, `xhigh` |
 | Spark | `low`, `medium`, `high`, `xhigh` | Not verified |
 
@@ -73,16 +77,16 @@ Speed is a separate field. Selecting Fast does not change the model identity, ef
 
 ## Current API pricing
 
-USD per million tokens, direct OpenAI API, short-context Standard requests. These are documentation facts, not a claim that the current Pulse binary uses them.
+USD per million tokens, direct OpenAI API, short-context Standard requests, opened November 7, 2026. The bundled catalog carries the same base rates for these models.
 
 | Model | Input | Cache write | Cache read | Output |
 | --- | ---: | ---: | ---: | ---: |
-| Astra | $10.00 | $12.50 | $1.00 | $50.00 |
-| Sol | $4.00 | $5.00 | $0.40 | $20.00 |
-| Terra | $2.00 | $2.50 | $0.20 | $12.00 |
-| Luna | $0.20 | $0.25 | $0.02 | $1.20 |
+| GPT-6 Astra | $10.00 | $12.50 | $1.00 | $50.00 |
+| GPT-5.6 Sol | $4.00 | $5.00 | $0.40 | $20.00 |
+| GPT-5.6 Terra | $2.00 | $2.50 | $0.20 | $12.00 |
+| GPT-5.6 Luna | $0.20 | $0.25 | $0.02 | $1.20 |
 
-For these four models, the current pricing table lists long-context rates at 2× input/cache and 1.5× output. The model cards place the threshold above 272,000 input tokens. Fast is 2× the applicable Standard rates; Batch/Flex are 50%. Astra Fast is unavailable with EU data residency. Sol's promotional pricing lasts at least through November 21, 2026; that wording is not a guaranteed expiry date. [Official API pricing](https://developers.openai.com/api/docs/pricing).
+For these four models, the current pricing table lists long-context rates at 2× input/cache and 1.5× output. The model cards place the threshold above 272,000 input tokens. Fast is 2× the applicable Standard rates; Batch/Flex are 50%. Astra Fast is unavailable with EU data residency. GPT-5.6 Sol's $4 / $20 is a promotional price that the pricing page lists until November 30, 2026. [Official API pricing](https://developers.openai.com/api/docs/pricing). GPT-6.1 Sol, GPT-6 Sol, GPT-6 Luna and GPT-6.1 Terra have their own tables below.
 
 For GPT-5.6 and later, prompt caching starts at 1,024 visible input tokens. Writes cost 1.25× uncached input; reads cost 0.1×. The default and only supported minimum TTL is `30m`, measured after the latest write or reuse. Earlier families have different eligibility and retention rules. [Prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching).
 
@@ -96,7 +100,7 @@ For GPT-5.6 and later, prompt caching starts at 1,024 visible input tokens. Writ
 | [`gpt-6-sol`](https://developers.openai.com/api/docs/models/gpt-6-sol) | 872,000 at 100% | 872,000 | 1,050,000 / 922,000 / 128,000 | `low` … `max`, `ultra` |
 | [`gpt-6-luna`](https://developers.openai.com/api/docs/models/gpt-6-luna) | 872,000 at 100% | 872,000 | 1,050,000 / 922,000 / 128,000 | `low` … `max` |
 
-The GPT-6 Sol and Luna fallbacks come from a local Codex inventory written on October 3, 2026. The 500,000-token GPT-6.1 Sol default comes from secondary sources, not an OpenAI page: an orcarouter.ai blog post citing OpenAI's Thibault Sottiaux reports that Codex raised it from 272,000 on October 12, 2026. `ultra` is a Codex harness value, not a published API effort.
+The GPT-6 Sol and Luna fallbacks come from a local Codex inventory written on October 3, 2026. The 500,000-token GPT-6.1 Sol default comes from secondary sources, not an OpenAI page: an orcarouter.ai blog post citing OpenAI's Thibault Sottiaux reports that Codex raised it from 272,000 on October 12, 2026. The [Codex models page](https://learn.chatgpt.com/docs/models), opened on November 7, 2026, also lists 500,000 as the Codex default and describes it as delivered by the server. `ultra` is a Codex harness value, not a published API effort.
 
 USD per million tokens, direct OpenAI API, Standard requests up to 272,000 input tokens:
 
@@ -121,21 +125,51 @@ Known gaps:
 - The local inventory on the verification machine reports `client_version` `0.0.0` and `fetched_at` year 2000, which suggests a tool other than the current Codex client wrote it. It still lists `gpt-6.1-sol` at 272,000 / 95%. Because Pulse prefers observed session context, then the local inventory, then the bundled catalog, that stale entry wins over the bundled 500,000 until the inventory is refreshed or a session reports its own window. See the [sanitized supplement](data/codex-context-snapshot.json).
 - The same inventory lists `gpt-6-astra` at 872,000 / 100%. The bundled Astra fallback is unchanged at 1,050,000 (see the table below).
 
+## GPT-6.1 Terra
+
+**Verified:** November 7, 2026 against the [official model card](https://developers.openai.com/api/docs/models/gpt-6.1-terra) and the [API pricing page](https://developers.openai.com/api/docs/pricing). The Codex values come from `codex-rs/models-manager/models.json` in openai/codex at commit `126a0ee92e` (October 26, 2026, "Add GPT-6.1 Terra to model catalogs"). Terra was released on October 26, 2026.
+
+| Model ID | Bundled Codex fallback | Usable | API total / max input / max output | Codex effort values |
+| --- | ---: | ---: | --- | --- |
+| `gpt-6.1-terra` | 500,000 at 95% | 475,000 | 1,050,000 / 922,000 / 128,000 | `low` … `max`, `ultra` |
+
+The Codex catalog also lists a 872,000-token maximum for Terra. Pulse does not use it: the fallback is the default `context_window` of 500,000 times the default 95% factor. A local `models_cache.json` entry or an observed session window still outranks the bundled value.
+
+USD per million tokens, direct OpenAI API, Standard requests up to 272,000 input tokens:
+
+| Model | Input | Cache write (30 min) | Cache read | Output |
+| --- | ---: | ---: | ---: | ---: |
+| GPT-6.1 Terra | $1.00 | $1.25 | $0.05 | $5.00 |
+
+Fast is 2× every Standard rate. A request above 272,000 input tokens costs 2× for input, cache write and cache read and 1.5× for output, for the whole request. The pricing page also lists a 12-hour cache write at $2.50; the catalog models only the 30-minute write. Worked examples, all Standard unless noted:
+
+| Request | Arithmetic | Cost |
+| --- | --- | ---: |
+| 100,000 input (50,000 cached), 10,000 output | 50,000 × $1 + 50,000 × $0.05 + 10,000 × $5 (per million) | $0.1025 |
+| Same request in Fast | $0.1025 × 2 | $0.205 |
+| 300,000 input (100,000 cached), 10,000 output | 200,000 × $1 × 2 + 100,000 × $0.05 × 2 + 10,000 × $5 × 1.5 (per million) | $0.485 |
+| Same request in Fast | $0.485 × 2 | $0.97 |
+
+Pulse prices live Codex and Orion App requests one at a time, so the surcharge applies exactly when a request's input is above 272,000. A cumulative session total above that threshold cannot show which requests crossed it, so Pulse reports a lower bound (`partial`) instead of an exact cost. Orion App passes the bare ID `gpt-6.1-terra`; an ID absent from the catalog, such as `gpt-6-terra`, stays unpriced.
+
+Known gaps:
+
+- Public API effort values for Terra were not verified in this refresh. `ultra` is a Codex harness value.
+- Ultrafast is not modeled.
+- There is no `~/.codex` on the verification machine, so no local inventory value for Terra was compared and the [sanitized snapshot](data/codex-context-snapshot.json) has no Terra row.
+
 ## Bundled catalog gaps
 
-The [bundled JSON](../../src/codex/model_catalog.json) owns Pulse's fallback metadata and base rates. This documentation refresh does not change it, the shared core pin, configuration or stored analytics.
+The [bundled JSON](../../src/codex/model_catalog.json) owns Pulse's fallback metadata and base rates. It is a byte-identical copy of the canonical catalog in [Codex-Discord-Rich-Presence](https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence), refreshed on November 7, 2026.
 
 | Area | Current bundled behavior | Verified difference |
 | --- | --- | --- |
 | Astra fallback context | 1,050,000 raw at 100% | API-sized fallback; this local Codex inventory is 272,000 at 95% |
 | GPT-5.6 fallback context | 372,000 raw / 353,400 usable | Local inventory now reports 272,000 / 258,400 |
-| GPT-5.6 API context metadata | Missing | Current API cards publish 1,050,000 total / 922,000 input / 128,000 output |
-| Sol base input/output | $5 / $30 | Current published rates: $4 / $20 |
-| Terra base input/output | $2.50 / $15 | Current published rates: $2 / $12 |
-| Luna base input/output | $1 / $6 | Current published rates: $0.20 / $1.20 |
+| GPT-5.6 API context metadata | Missing | Current API cards publish 1,050,000 total / 922,000 input / 128,000 output and a 272,000 long-context threshold |
 | GPT-5.6 Fast multiplier | Unavailable | API pricing now publishes 2×; subscription credits remain separate |
 
-The GPT-5.6 cache prices also differ. A complete runtime correction must update all token categories and preserve price dates. A fresh local model inventory corrects context fallback, not pricing. `exact` means complete according to the resolved rates; it does not prove that those rates are still current or that an API estimate equals a bill.
+Resolved on November 7, 2026: the GPT-5.6 Sol, Terra and Luna base rates (all four token categories) now equal the published table above, and GPT-6.1 Terra is in the catalog. GPT-5.6 Sol's $4 / $20 is promotional until November 30, 2026, so the bundled Sol rates need a new check after that date. A fresh local model inventory corrects context fallback, not pricing. `exact` means complete according to the resolved rates; it does not prove that those rates are still current or that an API estimate equals a bill.
 
 Older and restricted IDs remain recognizable in the bundled catalog. Recognition is not proof that they appear in the current picker or that the account can invoke them. Preserve unknown prices, credit conversions and access states as unavailable.
 
@@ -146,10 +180,10 @@ Older and restricted IDs remain recognizable in the bundled catalog. Recognition
 3. Compare the active session's observed context with that inventory. Record whether a number is raw, usable or only a bundled fallback.
 4. Check relevant profile overrides. `model_context_window` sets context capacity; `model_auto_compact_token_limit` controls compaction, not API entitlement. A larger configured number is not proof that a request is accepted. [Codex configuration reference](https://developers.openai.com/codex/config-reference).
 5. Recheck the exact official model card and pricing tier. Preserve the verification date and any time-limited rate.
-6. For an authorized runtime catalog change, update the canonical owner first and run `scripts/check-model-catalog-parity.ps1`. Follow the [core integration contract](../maintainers/codex-core.md); do not silently change the pinned core.
+6. For an authorized runtime catalog change, update the canonical owner first and run `cargo xtask catalog-parity`. Follow the [core integration contract](../maintainers/codex-core.md); do not silently change the pinned core.
 
 The snapshot documents exposed capacity. No maximum-size API request or account-wide availability test was run for this documentation refresh.
 
-## Unreleased session-cost behavior
+## Session-cost behavior
 
-Per-event model/speed attribution and cache-write accounting now preserve useful session subtotals. Astra's observed request-level long-context multipliers were checked against its official model card on 2026-09-20. This focused correction does not refresh the older GPT-5.6 base-rate rows above. The immutable shared-core release pin stays unchanged; compositor validation uses an explicit local override.
+Per-event model and speed attribution and cache-write accounting preserve useful session subtotals. Astra's observed request-level long-context multipliers were checked against its official model card on 2026-09-20.

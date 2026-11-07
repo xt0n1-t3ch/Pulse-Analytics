@@ -1,3 +1,6 @@
+//! Residual Codex runtime loop from the standalone daemon; not an active Pulse integration entry
+//! point.
+
 use std::env;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -630,6 +633,7 @@ fn maybe_relaunch_in_terminal() -> Result<bool> {
         return Ok(relaunch_linux_like(&exe.display().to_string(), &args));
     }
 
+    // Reached only on targets with no relaunch implementation.
     #[allow(unreachable_code)]
     Ok(false)
 }

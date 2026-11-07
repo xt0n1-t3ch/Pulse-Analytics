@@ -1,4 +1,4 @@
-//! Model Routing analyzer — quantifies how the user's spend splits across
+//! Model Routing analyzer: quantifies how the user's spend splits across
 //! Opus / Sonnet / Haiku and estimates savings from rerouting cheap tasks.
 
 use serde::Serialize;
@@ -172,6 +172,9 @@ mod tests {
         assert_eq!(classify("claude-sonnet-5-5-20261001"), "sonnet");
         assert_eq!(classify("claude-sonnet-5-5[1m]"), "sonnet");
         assert_eq!(classify("claude-haiku-4-5"), "haiku");
+        assert_eq!(classify("claude-haiku-5-5"), "haiku");
+        assert_eq!(classify("claude-haiku-5-5-20261101"), "haiku");
+        assert_eq!(classify("claude-haiku-5-5[1m]"), "haiku");
         assert_eq!(classify("mystery-model"), "other");
     }
 

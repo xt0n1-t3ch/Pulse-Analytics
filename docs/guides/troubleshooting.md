@@ -16,7 +16,7 @@ It prints the resolved paths and a pass/warn line for each dependency:
 
 ```
 cc-discord-presence doctor
-config_path: C:\Users\you\.pulse-analytics\claude\discord-presence-config.json
+config_path: C:\Users\you\.pulse-analytics\config\claude-presence.json
 statusline_path: C:\Users\you\.claude\discord-presence-data.json
 credentials_path: C:\Users\you\.claude\.credentials.json
 projects_paths: C:\Users\you\.claude\projects  (+ any WSL distro paths)
@@ -71,7 +71,7 @@ double-clicking it in Explorer (not from a terminal), it appends a few
 diagnostic lines to:
 
 ```
-~/.claude/cc-discord-presence-debug.log
+~/.pulse-analytics/logs/daemon.log
 ```
 
 This only captures launch/exit/panic context for the "window closes
@@ -89,10 +89,9 @@ The GUI refreshes every 5 seconds; the daemon interval is configurable.
 | Claude Code session transcripts | `~/.claude/projects/**/*.jsonl` (+ WSL distro paths on Windows) | Authoritative per-turn tokens, cost, model, activity, reasoning effort, fast-mode speed |
 | Statusline handoff | `~/.claude/discord-presence-data.json` | Claude Code's own billed `total_cost_usd` + token counts; wins the headline cost when present |
 | Anthropic OAuth credentials | `~/.claude/.credentials.json` | Bearer token for the usage API (5h / 7d / extra-usage limits) |
-| Usage cache | `~/.pulse-analytics/claude/discord-presence-usage-cache.json` | 5-min cache of the usage-API response (shared rate limit with Claude Code) |
-| Config | `~/.pulse-analytics/claude/discord-presence-config.json` | Discord client id, privacy toggles, asset keys, plan |
-| Daemon metrics output | `~/.pulse-analytics/claude/discord-presence-metrics.{json,md}` | Written by the daemon every 10s for the GUI / external readers |
-| Analytics database | `~/.pulse-analytics/pulse-analytics.db` | The Pulse GUI's SQLite store (WAL); historical sessions + daily stats |
+| Usage cache | `~/.pulse-analytics/cache/claude-usage.json` | 5-min cache of the usage-API response (shared rate limit with Claude Code) |
+| Config | `~/.pulse-analytics/config/claude-presence.json` | Discord client id, privacy toggles, asset keys, plan |
+| Analytics database | `~/.pulse-analytics/data/pulse-analytics.db` | The Pulse GUI's SQLite store (WAL); historical sessions + daily stats |
 
 Two precedence rules matter when numbers look off:
 
@@ -227,8 +226,8 @@ then falls back to `effortLevel` in `~/.claude/settings.json`, if present.
 `pulse-analytics.db` is the GUI's store, opened in WAL mode behind a single
 in-process mutex. `database is locked` / `SQLITE_BUSY` shows up when:
 
-- **Two Pulse GUI instances** are open against the same `~/.claude`. The daemon
-  uses a single-instance lock (`~/.claude/cc-discord-presence.lock`) and takes
+- **Two Pulse GUI instances** are open against the same `PULSE_HOME`. The daemon
+  uses a single-instance lock (`~/.pulse-analytics/state/daemon.lock`) and takes
   over a stale instance, but two GUI windows can still contend. Close the extra
   one.
 - **An external reader holds a write lock** (a DB browser with the file open in
@@ -252,16 +251,35 @@ or fails to create, confirm the **WebView2 Runtime** is installed (Pulse needs
 it), update the GPU driver, or force software rendering. Nothing in the GUI
 requires the GPU; the daemon is headless and never touches it.
 
+### Linux: closing the window quits Pulse instead of hiding it
+
+Close-to-tray needs `libayatana-appindicator3.so.1` or `libappindicator3.so.1`. When neither loads, Pulse skips the tray and quits on close, and logs one warning (`no appindicator library found`). Install the library and start Pulse again: `libayatana-appindicator` on Arch and CachyOS, `libayatana-appindicator3-1` on Debian and Ubuntu, `libayatana-appindicator-gtk3` on Fedora. GNOME also needs an AppIndicator shell extension to show the icon. Your close-to-tray setting is not changed.
+
+### Linux: blank window on NVIDIA
+
+WebKitGTK's DMA-BUF renderer can leave the window empty with the NVIDIA driver. Pulse sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` at startup when the variable is unset and `/proc/driver/nvidia/version` exists. If the window is still blank, start Pulse from a terminal to read the WebKit messages, and try `WEBKIT_DISABLE_COMPOSITING_MODE=1 pulse`. A value you export, including `WEBKIT_DISABLE_DMABUF_RENDERER=0`, is respected.
+
+### Linux: Wayland
+
+Pulse uses its own title bar. If dragging, resizing or snapping misbehaves on Wayland, run with `GDK_BACKEND=x11 pulse` to compare, and report which compositor shows the problem. The tray icon needs a StatusNotifier host, which KDE Plasma provides.
+
+### Linux: no update button
+
+Arch, `.deb` and `.rpm` installs are updated by the package manager, so the banner offers **Open release** only. An AppImage updates in place. See [updates.md](updates.md#package-manager-installs-and-appimage).
+
+### Linux: Discord banner or user missing
+
+Pulse reads Discord's profile data from `$XDG_CONFIG_HOME` (default `~/.config`) for Discord, Canary and PTB, from Flatpak (`~/.var/app/com.discordapp.Discord/config/discord`), Snap, Vesktop (`vesktop/sessionData`) and Legcord. Start the client once so those folders exist. The live connection itself does not depend on them.
+
 ## Reset checklist
 
 When state looks corrupt, with **all Pulse processes closed**:
 
-1. Back up `~/.pulse-analytics/pulse-analytics.db` if you want the history.
-2. Delete the derived/cache files — they all rebuild:
-   `discord-presence-usage-cache.json`, `discord-presence-metrics.{json,md}`,
-   and `pulse-analytics.db` (+ its `-wal` / `-shm`).
-3. Keep `discord-presence-config.json` (your settings) and `.credentials.json`
-   (managed by Claude Code).
+1. Back up `~/.pulse-analytics/data/pulse-analytics.db` if you want the history.
+2. Delete the `cache/` folder and, to rebuild history from the transcripts,
+   `data/pulse-analytics.db` with its `-wal` and `-shm` files. Both rebuild.
+3. Keep `config/` (your settings). Claude Code's `.credentials.json` is never
+   touched by Pulse.
 4. Relaunch and run `cc-discord-presence doctor`.
 
 ## Related docs

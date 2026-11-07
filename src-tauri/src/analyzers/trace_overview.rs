@@ -1,3 +1,5 @@
+//! Trace overview analyzer: summarizes tool calls and their shares for one provider's sessions.
+
 use std::collections::HashMap;
 
 use serde::Serialize;

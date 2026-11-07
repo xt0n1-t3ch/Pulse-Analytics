@@ -1,64 +1,69 @@
 [Pulse](../README.md) / Documentation
 
-# ![](../assets/icons/map.svg) Pulse documentation
+# Pulse documentation
 
-Local analytics and Discord Rich Presence for **Claude Code, Codex, OpenCode, Command Code and Orion App**. Find a task, understand its data, then follow the relevant implementation or release contract.
+Local-first analytics and Discord Rich Presence for Claude Code, OpenAI Codex, OpenCode, Command Code and Orion App. Start with a task, then follow its data and implementation owners.
 
-**Published: Pulse v1.9.7** · **Previous release: v1.9.6** · **Docs refreshed October 17, 2026**
+**State on 2026-11-07:** the checkout version is 2.0.0 and shared Codex core is 2.0.1. Planned changes stay under [Unreleased](../CHANGELOG.md#unreleased); documentation is not proof of publication or installed native behavior. Analytics uses schema 7, Claude configuration schema 6 and Codex configuration schema 13.
 
-[Start here](#start-here) · [Models and analytics](#models-and-analytics) · [Build and maintain](#build-and-maintain) · [Version](#version)
+[Start here](#start-here) · [Models and analytics](#models-and-analytics) · [How it works](#how-it-works) · [Maintain it](#maintain-it) · [Rules](#rules)
 
 ## Start here
 
-| I want to… | Read |
+| I want to... | Read |
 | --- | --- |
-| Install Pulse or check my operating system | [Install](../README.md#install) · [Platform support](maintainers/platforms.md) |
-| Connect Claude, Codex, OpenCode, Command Code or Orion App | [Use Pulse](../README.md#use-pulse) · [Plans and access](guides/plans.md) |
-| Manage multiple provider accounts | [Accounts](guides/accounts.md) |
-| Connect Command Code CLI and Desktop | [Command Code](guides/command-code.md) |
-| Connect Orion App | [Orion App](guides/orion.md) |
-| Configure OpenCode sessions and Go limits | [OpenCode and Astra](guides/opencode.md) |
-| Choose what Discord shows | [Discord controls](../README.md#discord-controls) · [Assets and application IDs](guides/discord.md) |
-| Understand notifications or updates | [Notifications](guides/notifications.md) · [Update checks](guides/updates.md) |
+| Install Pulse on Windows, macOS or Linux | [Installation](../README.md#installation) · [Platform support](maintainers/platforms.md) |
+| Use existing provider sessions | [Supported providers](../README.md#supported-providers) · [Plans and access](guides/plans.md) |
+| Manage multiple accounts without changing agent logins | [Accounts](guides/accounts.md) |
+| Read Command Code CLI and Desktop sessions | [Command Code](guides/command-code.md) |
+| Read Orion App's current or legacy store | [Orion App](guides/orion.md) |
+| Configure OpenCode sessions and Go limits | [OpenCode](guides/opencode.md) |
+| Choose what Discord shows | [Discord assets and controls](guides/discord.md) |
+| Understand notifications or updates | [Notifications](guides/notifications.md) · [Updates](guides/updates.md) |
 | Diagnose missing data | [Troubleshooting](guides/troubleshooting.md) |
-| Locate or recover local data | [Storage and migration](guides/storage.md) |
+| Locate, back up or recover local data | [Storage and migration](guides/storage.md) |
 
 ## Models and analytics
 
-| Guide | What it answers |
+| I want to... | Read |
 | --- | --- |
-| [Claude models & context](models/claude.md) | Fable/Mythos 5.1, Opus 5.5, Opus 5, Sonnet 5 and Haiku: API limits, Claude Code windows, prices and implementation gaps |
-| [Codex models & context](models/codex.md) | Astra, Sol, Terra and Luna: local Codex capacity, usable budget, API limits, effort and current pricing |
-| [Context tracking](guides/context.md) | Current fill, session totals, compaction and source precedence |
-| [Cost calculation](guides/costs.md) | Provider-specific token math, price provenance and unknown values |
-| [Analysis and recommendations](architecture/analyzers.md) | Cache health, session analysis and supported recommendations |
+| Check Claude model identity, context and rates | [Claude reference](models/claude.md) |
+| Separate Codex capacity from API limits | [Codex reference](models/codex.md) · [Dated context snapshot](models/data/codex-context-snapshot.json) |
+| Understand current context fill and compaction | [Context tracking](guides/context.md) |
+| Understand token arithmetic and cost provenance | [Costs](guides/costs.md) |
+| Understand provider-supported recommendations | [Analyzers](architecture/analyzers.md) |
 
-> **Model reference is not runtime proof.** The Claude and Codex guides separate today's official limits from the local inventory and the bundled catalog. They also list known pricing and context gaps in the implementation.
+Official API specifications, observed client context and bundled fallback values are different sources. A missing price or context value remains unavailable, not zero. An API-equivalent estimate is not a provider invoice.
 
-## Build and maintain
+## How it works
 
-| Area | Reference |
+| I want to... | Read |
 | --- | --- |
-| Architecture | [Component map](architecture/index.md) · [Provider access](architecture/adaptive-access.md) |
-| Local development | [Contributing](../CONTRIBUTING.md) · [Authenticated development bridge](architecture/dev-bridge.md) |
-| UI and platform behavior | [Design system](architecture/ui.md) · [Windows Efficiency mode](maintainers/windows-efficiency.md) |
-| Codex integration | [Shared core and vendoring](maintainers/codex-core.md) · [Model catalog](models/codex.md) |
-| Quality and security | [Test map](../tests/index.md) · [Dependency audit](maintainers/dependencies.md) |
-| Releases | [Release procedure](maintainers/releases.md) · [Six-platform acceptance](maintainers/platforms.md) |
+| Find a component or data owner | [Architecture](architecture/index.md) |
+| Understand provider proof and freshness | [Adaptive access](architecture/adaptive-access.md) |
+| Develop in a browser with real Rust state | [Authenticated development bridge](architecture/dev-bridge.md) |
+| Understand UI tokens and interaction rules | [UI contract](architecture/ui.md) · [Design system](../DESIGN.md) |
+| Understand product scope and audience | [Product context](../PRODUCT.md) |
+| Review accepted historical visual evidence | [Preview receipt](evidence/preview-v1.8.2-2026-09-07.md) · [Historical visual QA](evidence/visual-qa-v1.7.0.md) |
 
-The immutable v1.9.7 release includes all six platform/architecture targets, checksums and signed updater payloads. Native package checks passed; installed-GUI acceptance is recorded separately per operating system. See [current platform status](maintainers/platforms.md#current-release-status).
+## Maintain it
 
-Version **v1.9.7** adds GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna, reads the Codex account quota only when it is needed and hardens the window's security policy. **v1.9.6** added the Orion App provider with its own Discord identity. **v1.9.5** showed the current Claude plan after an upgrade, corrected Sonnet 5 and Fable 5.1 prices and added an opt-in Claude history correction. **v1.9.4** corrected Claude token counting and **v1.9.3** added Claude Opus 5.5, on top of the 1.9 line: Accounts, the Command Code provider, native allowances and promoted Codex per-event cost. It is published through the six-platform Release workflow with signed updater artifacts. GitHub macOS packages carry no Apple Developer ID signature or notarization.
+| I want to... | Read |
+| --- | --- |
+| Contribute and run the local gate | [Contributing](../CONTRIBUTING.md) · [Test map](../tests/index.md) |
+| Maintain the shared Codex boundary | [Core integration](maintainers/codex-core.md) · [Upstream manifest](../src/codex/UPSTREAM.json) |
+| Review dependencies and security exceptions | [Dependency audit](maintainers/dependencies.md) |
+| Prepare a release without publishing by accident | [Release procedure](maintainers/releases.md) · [Platform acceptance](maintainers/platforms.md) |
+| Understand Windows scheduling behavior | [Windows Efficiency mode](maintainers/windows-efficiency.md) |
+| Check version and schema history | [Changelog](../CHANGELOG.md) · [Release contract](../scripts/release-contract.json) |
 
-## Version
+## Rules
 
-- Latest published app: **v1.9.7**
-- Version owners in this checkout: **v1.9.7**
-- Shared core: **2.0.1**, immutable v1.11.3 pin
-- Schema: **Claude config v6 / Codex config v13 / Pulse analytics DB v6 in 1.8.2; v7 in 1.9.1**
-- Version owners: [release contract](../scripts/release-contract.json) and [upstream manifest](../src/codex/UPSTREAM.json).
-- Windows WSL discovery is opt-in through `CC_PRESENCE_INCLUDE_WSL=1`.
+| I want to... | Read |
+| --- | --- |
+| Report a vulnerability privately | [Security policy](../SECURITY.md) |
+| Understand community expectations | [Code of Conduct](../CODE_OF_CONDUCT.md) |
+| Reuse or cite Pulse | [License](../LICENSE) · [Attribution](../NOTICE) · [Citation](../CITATION.cff) |
+| Read the generated documentation map | [llms.txt](../llms.txt) · [Generator source](llms.toml) |
 
-## History and project links
-
-[Changelog](../CHANGELOG.md) · [License](../LICENSE) · [Report an issue](https://github.com/xt0n1-t3ch/Pulse-Analytics/issues)
+GitHub macOS packages are not Apple Developer ID signed or notarized. Build checks, provider authentication, Discord acknowledgement, visual rendering and installed-window acceptance are separate evidence. Windows WSL discovery remains opt-in with `CC_PRESENCE_INCLUDE_WSL=1`.

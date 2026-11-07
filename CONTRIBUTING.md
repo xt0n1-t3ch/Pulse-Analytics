@@ -1,98 +1,65 @@
 # Contributing to Pulse
 
-Pulse is an open-source project under the Apache License 2.0. Contributions of any size are welcome, from typo fixes to new analyzers. Thank you for helping make it better.
+Contributions to local-first analytics and Discord Rich Presence are welcome. Read the [documentation index](docs/index.md), [product context](PRODUCT.md), [design contract](DESIGN.md) and [Code of Conduct](CODE_OF_CONDUCT.md).
 
-## Code of conduct
+## Report a problem
 
-Be respectful, assume good intent, keep discussions on-topic. Personal attacks, harassment, and discriminatory language are not tolerated. See the full [Code of Conduct](CODE_OF_CONDUCT.md). Maintainers reserve the right to remove off-topic or abusive content from issues, pull requests, and discussions.
+Open an [issue](https://github.com/xt0n1-t3ch/Pulse-Analytics/issues) with the Pulse version, operating system and architecture, affected provider, reproduction steps, expected behavior and redacted diagnostics. Name Claude Code, Codex, OpenCode, Command Code or Orion App explicitly; they have independent data sources. Keep prompts, account identifiers, credentials and local reports private. Report vulnerabilities through the [security policy](SECURITY.md).
 
-## Reporting bugs
+For features, explain the user problem before proposing a solution. Keep one concern per issue or pull request.
 
-Open an issue at [github.com/xt0n1-t3ch/Pulse-Analytics/issues](https://github.com/xt0n1-t3ch/Pulse-Analytics/issues) and include:
+## Development
 
-- Pulse version (visible in Settings).
-- Operating system and version.
-- Which provider you use (Claude Code, Codex, or both).
-- Steps to reproduce.
-- Expected vs actual behavior.
-- Relevant log lines (run with `RUST_LOG=debug` — see [docs/troubleshooting.md](docs/guides/troubleshooting.md)).
+Install Rust 1.99.1, Bun 1.4.4, cargo-nextest and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/). Linux development uses clang and mold; Windows uses rust-lld. Run from the repository root:
 
-Reproduction steps are the single biggest factor in turnaround time. The issue templates guide you through the fields.
+```bash
+bun install
+bun run dev
+```
 
-## Suggesting features
+The browser launcher uses the authenticated [Rust bridge](docs/architecture/dev-bridge.md) and real backend state. Fixtures are test-only. Use an isolated `PULSE_HOME` and a consistent database backup for data changes; never modify provider source records or logins.
 
-Open an issue with the feature template. Describe the user problem first, the proposed solution second. Mock-ups or screenshots help. Keep one feature per issue.
+| Purpose | Command |
+| --- | --- |
+| Native development window | `bun run dev:tauri` |
+| Type check | `bun run typecheck` |
+| Lint | `bun run lint` |
+| Format / check format | `bun run fmt` / `bun run fmt:check` |
+| JavaScript tests | `bun run test` |
+| Rust tests | `cargo nextest run --workspace` |
+| Release tooling tests | `cargo nextest run -p xtask` |
+| Full local gate | `cargo xtask check` (also `bun run verify`) |
+| Portable build / installers | `bun run build:portable` / `bun run build` |
+| Generate / check llms files | `cargo xtask llms` / `cargo xtask llms --check` |
+| Changelog validation | `cargo xtask changelog check` |
+| Extract release notes | `cargo xtask changelog notes <version>` |
+| Codex catalog parity | `cargo xtask catalog-parity` |
+| Check repository metadata | `cargo xtask meta --check` |
+
+The [test map](tests/index.md) explains each proof boundary. Add the cheapest regression test that exercises changed behavior, with expected values from the source contract rather than the implementation under test. Mocked tests do not prove account authentication, Discord IPC or an installed WebView.
 
 ## Pull requests
 
-1. Fork the repository and create a topic branch off `main` (e.g. `feat/linux-tray`).
-2. Keep the change focused. One PR, one concern.
-3. Run the quality gates locally (see below). CI runs the same gates and must pass before review.
-4. Open the PR against `main`. Link the relevant issue and fill in the PR template.
-5. Address review feedback by pushing additional commits to the same branch; the maintainer squashes on merge.
+1. Create a topic branch from `main` in your fork.
+2. Keep the change focused and preserve existing work.
+3. Update tests and documentation for changed contracts.
+4. Run focused tests, then the local gate. Record commands and results.
+5. Open against `main`, explaining compatibility, risk and rollback for data or native changes.
 
-## Commit conventions
+Workflows are manual-only. A push or pull request does not automatically run validation or authorize publication.
 
-Conventional Commits are enforced and feed the changelog and release notes ([cliff.toml](cliff.toml)):
+## Commits and versions
 
-| Prefix | Use for |
-|---|---|
-| `feat:` | A new user-visible capability. |
-| `fix:` | A bug fix. |
-| `perf:` | A measurable performance improvement. |
-| `refactor:` | A code change that does not alter behavior. |
-| `docs:` | Documentation only. |
-| `test:` | Tests only. |
-| `chore:` | Build, tooling, or housekeeping. |
+Use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/): `feat:` for capabilities, `fix:` for corrections, `perf:` for performance, `docs:` for documentation, `refactor:` for internal restructuring and `test:` for coverage. Identify breaking changes with `!` and a `BREAKING CHANGE:` footer.
 
-Keep the subject line under 72 characters, lowercase, imperative. Use the body for context, not a restatement of the diff.
+Pulse follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) and [Keep a Changelog 2.0.0](https://keepachangelog.com/en/2.0.0/). Write user-visible changes under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md), using Added, Changed, Deprecated, Removed, Fixed or Security. [git-cliff](cliff.toml) drafts Unreleased text only; maintainers curate summaries and compatibility notes.
 
-## Coding standards
+## Releases and security
 
-- Match the existing patterns of the file you are editing.
-- Centralize constants, paths, and shared types rather than duplicating across crates.
-- Prefer explicit error handling over `unwrap()` outside of tests.
-- Reserve comments for external constraints (license headers, upstream-bug workarounds with links, lint suppressions). Names and types carry the rest.
-- Rust passes `cargo fmt --check` and `cargo clippy --workspace --all-targets -- -D warnings`.
-- TypeScript / Svelte passes `svelte-check` with zero errors and zero warnings.
+Follow the [release procedure](docs/maintainers/releases.md) and [platform gate](docs/maintainers/platforms.md). Version owners, checksums, updater signatures and native runtime evidence must agree. Local builds are not releases; published tags and assets are immutable. Metadata application, commits, tags, dispatch and publication are explicit maintainer operations.
 
-## Dev setup
-
-Prerequisites: Rust (stable, pinned by [rust-toolchain.toml](rust-toolchain.toml)), Node.js 22.12+ (22.x), 24.x, or 26+, and the platform Tauri dependencies — see the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/).
-
-```bash
-# frontend dev server
-cd frontend && npm install && npm run dev
-
-# in another terminal: the Tauri app (connects to the dev server)
-cd src-tauri && cargo tauri dev
-```
-
-## Testing
-
-Add or update tests alongside any behavior change. Tests are centralized: frontend specs live under `tests/{unit,integration,components}` (Vitest, config in [frontend/vitest.config.ts](frontend/vitest.config.ts)); Rust integration tests live under `tests/` and `src-tauri/tests/`; Rust unit tests stay inline as `#[cfg(test)]`. See [tests/index.md](tests/index.md).
-
-The full validator chain — all must pass with zero warnings:
-
-```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-npm --prefix frontend run check
-npm --prefix frontend run test
-npm --prefix frontend run build
-```
-
-## Release process
-
-Releases are tag-driven. Maintainers bump `version` together in `Cargo.toml`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `frontend/package.json`, `frontend/package-lock.json`, the root `package.json`, and `scripts/release-contract.json`; add a `CHANGELOG.md` section; commit `chore(release): vX.Y.Z`; then push an annotated `vX.Y.Z` tag only after explicit promotion approval.
-
-The canonical `codex-presence-core` dependency must be a Git dependency pinned with a full 40-character `rev`, never a release-time `path` dependency or moving tag/branch. Its version and SHA must match the canonical manifest exactly. The Release workflow rejects drift, validates config and database migrations, builds Windows/macOS/Linux bundles, validates the Windows SPDX SBOM, generates SHA-256 checksums, composes curated release notes, and publishes an immutable release.
-
-Before promotion, attach Dark/Light native screenshots, real Discord proof where affected, schema-migration results, and measured performance. Local development stops before tag, push, PR, or release creation until the maintainer approves.
-
-Pre-release tags (`vX.Y.Z-rc.N`) follow the same flow and are marked as pre-release.
+Keep private agent instructions and tooling state untracked. Do not contribute credentials, desktop settings, home-folder copies or private captures. Match existing source patterns, centralize shared facts and handle errors explicitly.
 
 ## License
 
-By submitting a contribution, you agree that it will be licensed under the project's Apache License 2.0. See [`LICENSE`](LICENSE) and the attribution policy in [`NOTICE`](NOTICE).
+Contributions are distributed under [Apache-2.0](LICENSE). Preserve copyright notices and [NOTICE](NOTICE) attribution.

@@ -1,3 +1,5 @@
+//! OpenCode Discord presence lines and publisher.
+
 use std::time::{Duration, Instant};
 
 use codex_presence_core::{PresenceFieldId, PresenceLines, PresenceValues, compose_presence};

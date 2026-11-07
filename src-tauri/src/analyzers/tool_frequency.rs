@@ -1,3 +1,5 @@
+//! Tool frequency analyzer: counts calls per tool and reports each tool's share.
+
 use std::collections::HashMap;
 
 use serde::Serialize;

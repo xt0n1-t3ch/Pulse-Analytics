@@ -1,3 +1,6 @@
+//! Codex account usage: runs the app-server probe, caches readings and locates the Codex
+//! executable.
+
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};

@@ -82,27 +82,11 @@ that combines providers.
 
 ## Runner boundaries
 
-Use `scripts/e2e/run-pulse.ps1` for a bounded probe or native Playwright run. It stages temporary
-`PULSE_HOME`, `CLAUDE_HOME`, `CODEX_HOME`, SQLite path, provider config, and fixture copy, and
-restores environment variables on exit.
+`bun run test` owns mocked component and IPC contracts. `cargo nextest run --workspace` owns backend behavior. Fixtures remain synthetic inputs, never provider authentication proof.
 
-- **Browser** starts the repo Vite dev server on an owned loopback port and
-  probes `/`. It proves static/browser startup only; Vitest remains the owner
-  of mocked component and IPC tests.
-- **Tauri** requires the repo-owned
-  `target/debug/pulse.exe`, adds a temporary WebView2 CDP port and isolated
-  `WEBVIEW2_USER_DATA_FOLDER`, then probes `/json/version`. Pass
-  `-RunPlaywright` to run the Tauri spec through `chromium.connectOverCDP` while
-  the owned process remains alive. A missing binary or CDP endpoint is a clear
-  blocker; the runner never inspects or stops an installed `pulse.exe`.
-- **Discord** is opt-in with `PULSE_DISCORD_LIVE=1`. Discord must already be
-  running, and `-DiscordProofPath` (or `PULSE_DISCORD_PROOF`) must contain raw
-  `SET_ACTIVITY` plus a clear-activity event. The runner writes a validated
-  proof artifact and never starts, restarts, or stops Discord.
+`bun run dev` starts the authenticated loopback Rust bridge and Vite. Browser review proves rendering against real backend state, not native WebView behavior. Use `bun run dev:tauri` for a native development window and `bun run build:portable` for an embedded UI. Installed-runtime acceptance requires the actual packaged window with development ports stopped.
 
-All spawned processes are recorded with PID, creation time, executable path,
-and command line. Cleanup acts only when that identity still matches. No
-global process-name kill is used.
+The Windows-only browser E2E harness has been removed. Native account checks and Discord acknowledgement require separate explicit live proof. Never stop Discord or unrelated agents for an automated fixture run. Cleanup must target only exact owned executable/PID identities.
 
 ## Cost exactness boundary
 
@@ -112,4 +96,4 @@ price. `true_zero.json` carries `cost: 0`, `cost_available: true`, and
 `cost_basis: "exact"`; `unavailable.json` carries a transport zero with
 `cost_available: false` and `cost_basis: "unavailable"`. Consumers must keep
 those states distinct and must not emit a Discord cost field for the unavailable
-case. The contract probe validates both vectors on every runner invocation.
+case. Tests must validate both vectors without promoting a transport zero to known cost.

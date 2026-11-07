@@ -1,7 +1,11 @@
+//! OpenCode Go allowance probe: reads usage windows from `/zen/go/v1/usage` with the local key
+//! and publishes the latest route.
+
 use std::io::Read;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use cc_discord_presence::http;
 use chrono::{DateTime, Utc};
 use codex_presence_core::QuotaWindow;
 use serde_json::Value;
@@ -81,21 +85,19 @@ fn fetch_usage() -> AccessRouteSnapshot {
     let Some(key) = key.filter(|key| !key.is_empty() && !key.contains(['\r', '\n'])) else {
         return AccessRouteSnapshot::unavailable(source(), "OpenCode Go API key is not configured");
     };
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(4))
-        .redirects(0)
-        .build();
+    let agent = http::agent(Duration::from_secs(4), 0);
     let response = agent
         .get(USAGE_URL)
-        .set("User-Agent", concat!("Pulse/", env!("CARGO_PKG_VERSION")))
-        .set("Accept", "application/json")
-        .set("Content-Type", "application/json")
-        .set("Authorization", &format!("Bearer {key}"))
+        .header("User-Agent", concat!("Pulse/", env!("CARGO_PKG_VERSION")))
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {key}"))
         .call();
     match response {
         Ok(response) => {
             let mut bytes = Vec::new();
             if response
+                .into_body()
                 .into_reader()
                 .take(65_537)
                 .read_to_end(&mut bytes)
@@ -118,7 +120,7 @@ fn fetch_usage() -> AccessRouteSnapshot {
                 ),
             }
         }
-        Err(ureq::Error::Status(status, _)) => AccessRouteSnapshot::unavailable(
+        Err(ureq::Error::StatusCode(status)) => AccessRouteSnapshot::unavailable(
             source(),
             format!("OpenCode Go usage returned HTTP {status}"),
         ),

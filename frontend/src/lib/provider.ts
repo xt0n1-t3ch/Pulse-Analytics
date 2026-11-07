@@ -6,16 +6,27 @@ import {
     type ProviderCopyInfo,
 } from "./api";
 
-export type Provider = "claude" | "codex" | "opencode" | "commandcode" | "orion";
+export type Provider =
+    "claude" | "codex" | "opencode" | "commandcode" | "orion";
 
-export const PROVIDER_IDS: readonly Provider[] = ["claude", "codex", "opencode", "commandcode", "orion"];
+export const PROVIDER_IDS: readonly Provider[] = [
+    "claude",
+    "codex",
+    "opencode",
+    "commandcode",
+    "orion",
+];
 
 export function parseProvider(value: unknown): Provider | null {
-    return PROVIDER_IDS.includes(value as Provider) ? (value as Provider) : null;
+    return PROVIDER_IDS.includes(value as Provider)
+        ? (value as Provider)
+        : null;
 }
 
 /** Providers without account quotas or plan overrides in Pulse. */
-export function isLocalOnlyProvider(value: string): value is "opencode" | "commandcode" | "orion" {
+export function isLocalOnlyProvider(
+    value: string,
+): value is "opencode" | "commandcode" | "orion" {
     return value === "opencode" || value === "commandcode" || value === "orion";
 }
 
@@ -47,22 +58,46 @@ export interface ProviderProfile {
 
 const BASE: Record<Provider, ProviderProfile> = {
     orion: {
-        id: "orion", label: "Orion", productName: "Orion App", tagline: "Orion App Analytics",
-        accent: "var(--text-primary)", defaultAssetKey: "orion", supportsExtraUsage: false,
-        sessionsPath: "~/.orion/cli/db/db.sqlite", instructionFile: "AGENTS.md",
-        homeDir: "~/.orion", fixLabel: "Fix with Orion App", globalStateSource: "Local SQLite session store",
+        id: "orion",
+        label: "Orion",
+        productName: "Orion App",
+        tagline: "Orion App Analytics",
+        accent: "var(--text-primary)",
+        defaultAssetKey: "orion",
+        supportsExtraUsage: false,
+        sessionsPath: "~/.orion/projects/index.sqlite",
+        instructionFile: "AGENTS.md",
+        homeDir: "~/.orion",
+        fixLabel: "Fix with Orion App",
+        globalStateSource: "Local SQLite session store",
     },
     commandcode: {
-        id: "commandcode", label: "Command Code", productName: "Command Code", tagline: "Command Code Analytics",
-        accent: "var(--text-primary)", defaultAssetKey: "commandcode", supportsExtraUsage: false,
-        sessionsPath: "~/.commandcode/projects/**/*.jsonl", instructionFile: "AGENTS.md",
-        homeDir: "~/.commandcode", fixLabel: "Fix with Command Code", globalStateSource: "Local transcripts and account API",
+        id: "commandcode",
+        label: "Command Code",
+        productName: "Command Code",
+        tagline: "Command Code Analytics",
+        accent: "var(--text-primary)",
+        defaultAssetKey: "commandcode",
+        supportsExtraUsage: false,
+        sessionsPath: "~/.commandcode/projects/**/*.jsonl",
+        instructionFile: "AGENTS.md",
+        homeDir: "~/.commandcode",
+        fixLabel: "Fix with Command Code",
+        globalStateSource: "Local transcripts and account API",
     },
     opencode: {
-        id: "opencode", label: "OpenCode", productName: "OpenCode", tagline: "OpenCode Analytics",
-        accent: "var(--text-primary)", defaultAssetKey: "opencode-v2", supportsExtraUsage: false,
-        sessionsPath: "~/.local/share/opencode/opencode*.db", instructionFile: "AGENTS.md",
-        homeDir: "~/.config/opencode", fixLabel: "Fix with OpenCode", globalStateSource: "Local SQLite session metadata",
+        id: "opencode",
+        label: "OpenCode",
+        productName: "OpenCode",
+        tagline: "OpenCode Analytics",
+        accent: "var(--text-primary)",
+        defaultAssetKey: "opencode-v2",
+        supportsExtraUsage: false,
+        sessionsPath: "~/.local/share/opencode/opencode*.db",
+        instructionFile: "AGENTS.md",
+        homeDir: "~/.config/opencode",
+        fixLabel: "Fix with OpenCode",
+        globalStateSource: "Local SQLite session metadata",
     },
     claude: {
         id: "claude",
@@ -161,7 +196,8 @@ export const providerProfile = derived(
             instructionFile: $copy.instruction_file || base.instructionFile,
             homeDir: $copy.home_dir || base.homeDir,
             fixLabel: $copy.fix_label || base.fixLabel,
-            globalStateSource: $copy.global_state_source || base.globalStateSource,
+            globalStateSource:
+                $copy.global_state_source || base.globalStateSource,
             sessionsPath: $copy.sessions_store || base.sessionsPath,
         };
     },

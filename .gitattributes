@@ -1,9 +1,10 @@
-* text=auto
-*.json text eol=lf
-*.md text eol=lf
-*.ps1 text eol=lf
-*.rs text eol=lf
-*.sh text eol=lf
-*.toml text eol=lf
-*.yml text eol=lf
-*.yaml text eol=lf
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.icns binary
+*.gif binary
+*.webp binary
+*.woff2 binary

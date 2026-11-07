@@ -1,41 +1,80 @@
 @keyframes pulse-glow {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
+    0%,
+    100% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
 }
 
 @keyframes thinking-pulse {
-  0%, 100% { opacity: 0.7; transform: scale(1); }
-  50% { opacity: 1; transform: scale(1.05); }
+    0%,
+    100% {
+        opacity: 0.7;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.05);
+    }
 }
 
 @keyframes slide-in-right {
-  from { transform: translateX(100%); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
 }
 
 @keyframes slide-out-right {
-  from { transform: translateX(0); opacity: 1; }
-  to { transform: translateX(100%); opacity: 0; }
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
 }
 
 @keyframes bar-fill {
-  from { width: 0%; }
+    from {
+        width: 0%;
+    }
 }
 
 @keyframes fade-up {
-  from { transform: translateY(8px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+    from {
+        transform: translateY(8px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
 }
 
 @keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 8px var(--accent-glow); }
-  50% { box-shadow: 0 0 16px var(--accent-glow), 0 0 32px var(--accent-dim); }
+    0%,
+    100% {
+        box-shadow: 0 0 8px var(--accent-glow);
+    }
+    50% {
+        box-shadow:
+            0 0 16px var(--accent-glow),
+            0 0 32px var(--accent-dim);
+    }
 }
 
 .animate-fade-up {
-  animation: fade-up 0.3s var(--ease) both;
+    animation: fade-up 0.3s var(--ease) both;
 }
 
 .animate-thinking {
-  animation: thinking-pulse 2s ease-in-out infinite;
+    animation: thinking-pulse 2s ease-in-out infinite;
 }

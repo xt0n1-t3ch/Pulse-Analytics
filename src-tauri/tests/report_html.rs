@@ -1,3 +1,5 @@
+//! Integration tests for the HTML report: rendering and the no-remote-assets guarantee.
+
 use std::path::PathBuf;
 
 use cc_discord_presence::provider::Provider;
@@ -8,7 +10,8 @@ fn html() -> String {
 }
 
 fn sample_html_path() -> PathBuf {
-    std::env::temp_dir().join("pulse-report-sample.html")
+    // Cargo's scratch folder for integration tests, inside the target directory.
+    std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("pulse-report-sample.html")
 }
 
 #[test]
@@ -278,7 +281,9 @@ fn markdown_report_is_valid_non_empty_gfm_with_sections() {
 fn isolate_storage() {
     static ROOT: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
     ROOT.get_or_init(|| {
-        let root = tempfile::tempdir().expect("isolated report storage");
+        // Kept inside the target directory: a static is never dropped.
+        let root =
+            tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).expect("isolated report storage");
         // All test entry points wait for this initialization before reading state.
         unsafe {
             std::env::set_var("PULSE_HOME", root.path());

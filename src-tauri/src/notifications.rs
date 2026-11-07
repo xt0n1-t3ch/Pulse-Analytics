@@ -864,7 +864,7 @@ fn humanize_window(window: &str) -> String {
     }
 }
 
-/// A friendly local reset timestamp, e.g. "Aug 07, 10:39 PM" — never the raw
+/// A friendly local reset timestamp, e.g. "Aug 07, 10:39 PM", never the raw
 /// RFC3339 string with microseconds and offset.
 fn humanize_reset_at(reset: DateTime<Utc>) -> String {
     reset

@@ -1,3 +1,6 @@
+//! Single-publisher lease: an exclusive file lock that decides which process publishes Discord
+//! presence.
+
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::PathBuf;

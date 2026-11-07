@@ -1,3 +1,5 @@
+//! Command Code integration: configuration, data roots and plan allocation.
+
 pub mod presence;
 mod store;
 
@@ -53,7 +55,7 @@ impl Default for Config {
 }
 impl Config {
     pub fn path() -> PathBuf {
-        crate::storage::home().join("pulse-commandcode.json")
+        crate::storage::config_file("commandcode.json")
     }
     pub fn load() -> Result<Self> {
         match std::fs::read(Self::path()) {

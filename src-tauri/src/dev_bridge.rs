@@ -490,6 +490,7 @@ fn dispatch(target: &BridgeTarget) -> Result<String, DispatchError> {
             target.provider.clone(),
         )),
         "get_db_size" => serialize(crate::commands::get_db_size()),
+        "get_update_channel" => serialize(crate::update_check::get_update_channel()),
         "get_reports_bundle" => serialize(crate::commands::reports_bundle_blocking(
             days,
             project,
@@ -1163,8 +1164,17 @@ mod tests {
 
     #[test]
     fn bridge_dispatches_real_health_and_reports_unavailable_backend() {
+        // The settings read creates a default config, so it must not reach the user's home.
+        let home = tempfile::tempdir().expect("isolated Pulse home");
+        unsafe {
+            std::env::set_var("PULSE_HOME", home.path().join("pulse"));
+            std::env::set_var("CLAUDE_HOME", home.path().join("claude-home"));
+            std::env::set_var("CODEX_HOME", home.path().join("codex-home"));
+        }
         let health = dispatch(&BridgeTarget::for_test("get_health")).expect("health dispatch");
         assert!(health.contains("\"version\""));
+        let channel = dispatch(&BridgeTarget::for_test("get_update_channel")).expect("channel");
+        assert!(channel == "\"in_app\"" || channel == "\"package_manager\"");
 
         assert!(matches!(
             dispatch(&BridgeTarget::for_test("not_a_command")),

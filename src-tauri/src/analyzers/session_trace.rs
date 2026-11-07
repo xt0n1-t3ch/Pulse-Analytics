@@ -1,3 +1,6 @@
+//! Bounded scan of Claude session JSONL files for trace analysis, with caps on file size, file
+//! count, depth and directories.
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};

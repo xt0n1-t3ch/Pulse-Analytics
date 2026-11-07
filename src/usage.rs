@@ -1,3 +1,6 @@
+//! Claude subscription usage: OAuth usage API client with caching, backoff and token refresh,
+//! plus the extra-usage toggle.
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -6,11 +9,12 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
 use crate::config;
+use crate::http::{self, Failure, Response};
 
-/// Cache usage data for 5 minutes — it changes slowly and the endpoint
+/// Cache usage data for 5 minutes: it changes slowly and the endpoint
 /// shares rate limits with Claude Code itself.
 const USAGE_CACHE_TTL: Duration = Duration::from_secs(300);
-/// Fallback backoff when Retry-After header is missing (reduced from 300s).
+/// Backoff when a 429 response carries no Retry-After header.
 const USAGE_RATE_LIMIT_FALLBACK: Duration = Duration::from_secs(30);
 const USAGE_API_TIMEOUT: Duration = Duration::from_secs(10);
 const USAGE_API_URL: &str = "https://api.anthropic.com/api/oauth/usage";
@@ -23,15 +27,14 @@ const OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const TOKEN_REFRESH_URL: &str = "https://console.anthropic.com/v1/oauth/token";
 const TOKEN_REFRESH_COOLDOWN: Duration = Duration::from_secs(120);
 
-/// Endpoint for enabling/disabling pay-per-use extra usage.
-/// NOTE: This is inferred from the usage URL pattern (internal Anthropic API).
-/// If the toggle is not working, open Chrome DevTools on claude.ai, click the
-/// Extra Usage toggle, and update this constant with the correct URL + method.
+/// Endpoint for enabling or disabling pay-per-use extra usage, inferred from the
+/// usage URL pattern (internal Anthropic API). The claude.ai session-cookie path
+/// is the primary route; this Bearer path is a best-effort fallback.
 const EXTRA_USAGE_TOGGLE_URL: &str = "https://api.anthropic.com/api/oauth/extra-usage";
 
 /// Build a shared HTTP agent with the standard timeout.
 fn http_agent() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout(USAGE_API_TIMEOUT).build()
+    http::agent_with_error_responses(USAGE_API_TIMEOUT, http::DEFAULT_REDIRECTS)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,7 +68,7 @@ impl UsageData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageWindow {
     pub utilization: f64,
-    /// Reset timestamp — API returns `null` for windows that haven't started
+    /// Reset timestamp: API returns `null` for windows that haven't started
     /// (e.g. `seven_day_sonnet` when the user hasn't used Sonnet yet).
     /// Must be Optional to avoid breaking the whole UsageData parse.
     #[serde(default)]
@@ -435,9 +438,8 @@ fn classify_claude_plan_signal(raw: &str) -> Option<ClaudePlanSignal> {
 /// How the usage figures on screen were actually obtained.
 ///
 /// Recorded at the moment a request succeeds, never inferred from configuration
-/// or defaults. Pulse used to label every quota reading `api`, which was wrong on
-/// two counts: it is not an API-key call, and the numbers may not have come from
-/// the network at all.
+/// or defaults. A fixed `api` label would be wrong on two counts: the call is not
+/// an API-key call, and the numbers may not have come from the network at all.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsageOrigin {
     /// Auth scheme actually presented on the wire.
@@ -512,31 +514,28 @@ pub struct UsageManager {
     last_error_hint: Option<String>,
     /// Shared HTTP agent for connection reuse across API calls.
     agent: ureq::Agent,
-    /// Number of fetch attempts — use shorter cache TTL for first 3 fetches.
+    /// Number of fetch attempts: use shorter cache TTL for first 3 fetches.
     fetch_count: u32,
     /// Test-only override for the credentials file path.
     credentials_path_override: Option<PathBuf>,
 }
 
 impl UsageManager {
+    /// Reads one credentials file. Pulse refreshes and rewrites tokens only in
+    /// a profile it manages under `accounts/`; an agent's own login is never
+    /// modified, because a rotated refresh token would sign that agent out.
     pub fn for_credentials(path: PathBuf, allow_refresh: bool) -> Self {
         Self {
-            read_only: !allow_refresh,
+            read_only: !(allow_refresh && path.starts_with(crate::storage::accounts_dir())),
             credentials_path_override: Some(path),
             ..Self::new()
         }
     }
 
-    pub fn read_only() -> Self {
-        Self {
-            read_only: true,
-            ..Self::new()
-        }
-    }
-
+    /// Reads the user's Claude login without ever modifying it.
     pub fn new() -> Self {
         Self {
-            read_only: false,
+            read_only: true,
             cached_usage: None,
             last_fetch: None,
             last_usage_origin: None,
@@ -614,7 +613,7 @@ impl UsageManager {
     }
 
     pub fn get_usage(&mut self) -> Option<UsageData> {
-        // Shorter cache TTL for first 3 fetches to get initial data faster
+        // The first three fetches use a shorter TTL so initial data arrives sooner.
         let ttl = if self.fetch_count < 3 {
             Duration::from_secs(30)
         } else {
@@ -646,7 +645,6 @@ impl UsageManager {
             return Some(cached);
         }
 
-        // Respect rate-limit backoff
         if let Some(until) = self.rate_limit_until
             && Instant::now() < until
         {
@@ -686,7 +684,7 @@ impl UsageManager {
 
     /// How the figures currently held by this manager were obtained.
     ///
-    /// `None` until something actually succeeds — a failed or rate-limited
+    /// `None` until something actually succeeds: a failed or rate-limited
     /// attempt must never produce a provenance claim.
     pub fn last_usage_origin(&self) -> Option<&UsageOrigin> {
         self.last_usage_origin.as_ref()
@@ -780,32 +778,27 @@ impl UsageManager {
         .map(str::to_string)
     }
 
-    // ── Core API call + response handling (shared by all fetch paths) ──────
-
     /// Send an authenticated GET to the usage API using the current credentials.
-    fn call_usage_api(&self) -> Option<Result<ureq::Response, ureq::Error>> {
+    fn call_usage_api(&self) -> Option<Result<Response, Failure>> {
         let creds = self.credentials.as_ref()?;
-        Some(
+        Some(http::classify(
             self.agent
                 .get(USAGE_API_URL)
-                .set(
+                .header(
                     "Authorization",
-                    &format!("Bearer {}", creds.claude_ai_oauth.access_token),
+                    format!("Bearer {}", creds.claude_ai_oauth.access_token),
                 )
-                .set("anthropic-beta", "oauth-2025-04-20")
-                .set("User-Agent", USER_AGENT)
+                .header("anthropic-beta", "oauth-2025-04-20")
+                .header("User-Agent", USER_AGENT)
                 .call(),
-        )
+        ))
     }
 
     /// Parse a usage API response, updating cache and error state.
-    fn handle_usage_response(
-        &mut self,
-        response: Result<ureq::Response, ureq::Error>,
-    ) -> Option<UsageData> {
+    fn handle_usage_response(&mut self, response: Result<Response, Failure>) -> Option<UsageData> {
         match response {
             Ok(resp) => {
-                let body = match resp.into_string() {
+                let body = match http::read_text(resp) {
                     Ok(b) => b,
                     Err(e) => {
                         warn!("Failed to read usage API response: {e}");
@@ -846,7 +839,7 @@ impl UsageManager {
                     }
                 }
             }
-            Err(ureq::Error::Status(429, resp)) => {
+            Err(Failure::Status(429, resp)) => {
                 let retry_after = Self::parse_retry_after(&resp);
                 debug!(
                     retry_after_secs = retry_after.as_secs(),
@@ -865,8 +858,6 @@ impl UsageManager {
         }
     }
 
-    // ── Fetch orchestration ───────────────────────────────────────────────
-
     fn fetch_usage(&mut self) -> Option<UsageData> {
         self.fetch_count = self.fetch_count.saturating_add(1);
         self.ensure_credentials();
@@ -875,7 +866,6 @@ impl UsageManager {
             return None;
         }
 
-        // Refresh expired tokens before calling the API
         if let Some(ref creds) = self.credentials
             && creds.claude_ai_oauth.expires_at < Utc::now().timestamp_millis()
         {
@@ -901,8 +891,7 @@ impl UsageManager {
             None => return self.cached_usage.clone(),
         };
 
-        // On 401, try refreshing the token once and retry
-        if let Err(ureq::Error::Status(401, _)) = &response {
+        if let Err(Failure::Status(401, _)) = &response {
             debug!("Usage API returned 401, attempting token refresh");
             self.last_error_hint = Some("re-authenticating...".to_string());
             if self.try_refresh_token()
@@ -919,10 +908,10 @@ impl UsageManager {
     }
 
     /// Parse the Retry-After header from a 429 response.
-    fn parse_retry_after(resp: &ureq::Response) -> Duration {
-        resp.header("retry-after")
+    fn parse_retry_after(resp: &Response) -> Duration {
+        http::header(resp, "retry-after")
             .and_then(|v| v.parse::<u64>().ok())
-            .map(|secs| Duration::from_secs(secs + 5)) // reduced safety margin (was 15s)
+            .map(|secs| Duration::from_secs(secs + 5)) // small safety margin past the server's window
             .unwrap_or(USAGE_RATE_LIMIT_FALLBACK)
     }
 
@@ -957,15 +946,16 @@ impl UsageManager {
             "client_id": OAUTH_CLIENT_ID,
         });
 
-        let result = self
-            .agent
-            .post(TOKEN_REFRESH_URL)
-            .set("Content-Type", "application/json")
-            .send_string(&body.to_string());
+        let result = http::classify(
+            self.agent
+                .post(TOKEN_REFRESH_URL)
+                .header("Content-Type", "application/json")
+                .send(body.to_string()),
+        );
 
         match result {
             Ok(resp) => {
-                let body_str = match resp.into_string() {
+                let body_str = match http::read_text(resp) {
                     Ok(b) => b,
                     Err(e) => {
                         warn!("Failed to read token refresh response: {e}");
@@ -984,9 +974,7 @@ impl UsageManager {
                 let expires_at =
                     Utc::now().timestamp_millis() + (refresh_resp.expires_in as i64 * 1000);
 
-                // Write updated credentials back to file atomically
                 if self.save_refreshed_credentials(&refresh_resp, expires_at) {
-                    // Reload from the file we just wrote
                     self.credentials = None;
                     self.ensure_credentials();
                     debug!(
@@ -998,8 +986,8 @@ impl UsageManager {
                     false
                 }
             }
-            Err(ureq::Error::Status(status, resp)) => {
-                let body = resp.into_string().unwrap_or_default();
+            Err(Failure::Status(status, resp)) => {
+                let body = http::read_text(*resp).unwrap_or_default();
                 debug!(status, body = %body, "Token refresh HTTP error");
                 false
             }
@@ -1017,7 +1005,7 @@ impl UsageManager {
         refresh_resp: &OAuthRefreshResponse,
         expires_at: i64,
     ) -> bool {
-        let cred_path = config::credentials_path();
+        let cred_path = self.credentials_path();
         let Ok(data) = std::fs::read_to_string(&cred_path) else {
             return false;
         };
@@ -1050,7 +1038,8 @@ impl UsageManager {
         let Ok(updated) = serde_json::to_string_pretty(&json) else {
             return false;
         };
-        if std::fs::write(&cred_path, updated).is_err() {
+        // Atomic, so a crash mid-write never leaves a half-written login.
+        if crate::codex::util::write_text_atomic(&cred_path, &updated).is_err() {
             warn!(
                 "Failed to write refreshed credentials to {}",
                 cred_path.display()
@@ -1111,17 +1100,17 @@ impl Default for UsageManager {
     }
 }
 
-// ── Claude.ai session-cookie toggle helpers ───────────────────────────────────
-
 /// Fetches the first organization UUID accessible with the given claude.ai session cookie.
 fn get_org_uuid(session_key: &str) -> Option<String> {
-    let resp = http_agent()
-        .get("https://claude.ai/api/organizations")
-        .set("Cookie", &format!("sessionKey={session_key}"))
-        .set("User-Agent", "Mozilla/5.0")
-        .call()
-        .ok()?;
-    let text = resp.into_string().ok()?;
+    let resp = http::classify(
+        http_agent()
+            .get("https://claude.ai/api/organizations")
+            .header("Cookie", format!("sessionKey={session_key}"))
+            .header("User-Agent", "Mozilla/5.0")
+            .call(),
+    )
+    .ok()?;
+    let text = http::read_text(resp).ok()?;
     let orgs: Vec<serde_json::Value> = serde_json::from_str(&text).ok()?;
     orgs.into_iter()
         .next()?
@@ -1135,23 +1124,25 @@ fn get_org_uuid(session_key: &str) -> Option<String> {
 fn toggle_extra_usage_via_session(session_key: &str, org_uuid: &str, enabled: bool) -> bool {
     let url = format!("https://claude.ai/api/organizations/{org_uuid}/overage_spend_limit");
     let body = format!("{{\"is_enabled\":{enabled}}}");
-    let result = http_agent()
-        .request("PATCH", &url)
-        .set("Cookie", &format!("sessionKey={session_key}"))
-        .set("Content-Type", "application/json")
-        .set("User-Agent", "Mozilla/5.0")
-        .send_string(&body);
+    let result = http::classify(
+        http_agent()
+            .patch(url.as_str())
+            .header("Cookie", format!("sessionKey={session_key}"))
+            .header("Content-Type", "application/json")
+            .header("User-Agent", "Mozilla/5.0")
+            .send(body),
+    );
     match result {
         Ok(resp) => {
             debug!(
                 enabled,
-                status = resp.status(),
+                status = resp.status().as_u16(),
                 "extra usage toggle via session cookie"
             );
             true
         }
-        Err(ureq::Error::Status(status, resp)) => {
-            let body = resp.into_string().unwrap_or_default();
+        Err(Failure::Status(status, resp)) => {
+            let body = http::read_text(*resp).unwrap_or_default();
             debug!(enabled, status, body = %body, "extra usage session toggle HTTP error");
             false
         }
@@ -1162,8 +1153,6 @@ fn toggle_extra_usage_via_session(session_key: &str, org_uuid: &str, enabled: bo
     }
 }
 
-// ── Public toggle entry point ─────────────────────────────────────────────────
-
 /// Spawns a background thread that disables Extra Usage, waits 3 seconds, then re-enables it.
 ///
 /// Prefers the `claude.ai` session-cookie path (real endpoint).
@@ -1171,38 +1160,39 @@ fn toggle_extra_usage_via_session(session_key: &str, org_uuid: &str, enabled: bo
 /// are logged at `debug` level only (the endpoint may not exist).
 pub fn spawn_extra_usage_toggle_cycle(access_token: String, session_key: Option<String>) {
     std::thread::spawn(move || {
-        // Resolve org UUID once — only needed for the session-cookie path.
+        // The org UUID is only needed for the session-cookie path.
         let org_uuid = session_key.as_deref().and_then(get_org_uuid);
 
         let agent = http_agent();
 
         let do_toggle = |enabled: bool| {
-            // Session-cookie path (real claude.ai endpoint).
             if let (Some(sk), Some(uuid)) = (&session_key, &org_uuid)
                 && toggle_extra_usage_via_session(sk, uuid, enabled)
             {
                 return;
             }
 
-            // Bearer-token fallback (endpoint may 404 — debug only, no WARN).
+            // Bearer-token fallback: the endpoint may 404, so failures log at debug level only.
             let body = format!("{{\"enabled\":{enabled}}}");
-            let result = agent
-                .put(EXTRA_USAGE_TOGGLE_URL)
-                .set("Authorization", &format!("Bearer {access_token}"))
-                .set("anthropic-beta", "oauth-2025-04-20")
-                .set("Content-Type", "application/json")
-                .set("User-Agent", USER_AGENT)
-                .send_string(&body);
+            let result = http::classify(
+                agent
+                    .put(EXTRA_USAGE_TOGGLE_URL)
+                    .header("Authorization", format!("Bearer {access_token}"))
+                    .header("anthropic-beta", "oauth-2025-04-20")
+                    .header("Content-Type", "application/json")
+                    .header("User-Agent", USER_AGENT)
+                    .send(body),
+            );
             match result {
                 Ok(resp) => {
                     debug!(
                         enabled,
-                        status = resp.status(),
+                        status = resp.status().as_u16(),
                         "extra usage bearer toggle response"
                     );
                 }
-                Err(ureq::Error::Status(status, resp)) => {
-                    let body = resp.into_string().unwrap_or_default();
+                Err(Failure::Status(status, resp)) => {
+                    let body = http::read_text(*resp).unwrap_or_default();
                     debug!(enabled, status, body = %body, "extra usage bearer toggle HTTP error");
                 }
                 Err(e) => {
@@ -1239,7 +1229,7 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
             let dir = tempfile::tempdir().expect("temp claude home");
-            std::fs::create_dir(dir.path().join("claude")).expect("isolated usage directory");
+            std::fs::create_dir(dir.path().join("cache")).expect("isolated usage directory");
             let previous = std::env::var_os("PULSE_HOME");
             unsafe { std::env::set_var("PULSE_HOME", dir.path()) };
             Self {
@@ -1259,6 +1249,54 @@ mod tests {
         }
     }
 
+    #[test]
+    fn only_pulse_managed_profiles_may_refresh_claude_tokens() {
+        let _home = IsolatedPulseHome::new();
+        let managed = crate::storage::accounts_dir()
+            .join("acct")
+            .join(".credentials.json");
+        let user = std::env::temp_dir()
+            .join("someone-elses-claude")
+            .join(".credentials.json");
+
+        assert!(
+            UsageManager::new().read_only,
+            "the user's own login is read-only"
+        );
+        assert!(UsageManager::for_credentials(user, true).read_only);
+        assert!(!UsageManager::for_credentials(managed.clone(), true).read_only);
+        assert!(UsageManager::for_credentials(managed, false).read_only);
+    }
+
+    #[test]
+    fn refreshed_tokens_are_written_to_the_profile_that_was_read() {
+        let _home = IsolatedPulseHome::new();
+        let path = crate::storage::accounts_dir()
+            .join("acct")
+            .join(".credentials.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"claudeAiOauth":{"accessToken":"old","refreshToken":"r1","expiresAt":1,"scopes":["user:inference"]}}"#,
+        )
+        .unwrap();
+        let manager = UsageManager::for_credentials(path.clone(), true);
+        let response = OAuthRefreshResponse {
+            access_token: "new".to_string(),
+            refresh_token: Some("r2".to_string()),
+            expires_in: 3600,
+        };
+
+        assert!(manager.save_refreshed_credentials(&response, 42));
+
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["claudeAiOauth"]["accessToken"], "new");
+        assert_eq!(saved["claudeAiOauth"]["refreshToken"], "r2");
+        assert_eq!(saved["claudeAiOauth"]["expiresAt"], 42);
+        assert_eq!(saved["claudeAiOauth"]["scopes"][0], "user:inference");
+    }
+
     fn credentials_fixture(subscription: &str) -> CredentialsFile {
         serde_json::from_str(&format!(
             r#"{{"claudeAiOauth":{{"accessToken":"token","expiresAt":9999999999999,
@@ -1268,14 +1306,19 @@ mod tests {
         .expect("credentials fixture")
     }
 
-    fn usage_response_fixture() -> ureq::Response {
-        ureq::Response::new(
+    fn response_fixture(status: u16, body: &str) -> Response {
+        ureq::http::Response::builder()
+            .status(status)
+            .body(ureq::Body::builder().data(body))
+            .expect("response fixture")
+    }
+
+    fn usage_response_fixture() -> Response {
+        response_fixture(
             200,
-            "OK",
             r#"{"five_hour":{"utilization":10.0,"resets_at":null},
                 "seven_day":{"utilization":14.0,"resets_at":null}}"#,
         )
-        .expect("usage response fixture")
     }
 
     #[test]
@@ -1365,9 +1408,9 @@ mod tests {
             UsageManager::with_credentials_path(claude_dir.path().join(".credentials.json"));
         manager.credentials = Some(credentials_fixture("max"));
 
-        manager.handle_usage_response(Err(ureq::Error::Status(
+        manager.handle_usage_response(Err(Failure::Status(
             500,
-            ureq::Response::new(500, "Server Error", "boom").expect("error response"),
+            Box::new(response_fixture(500, "boom")),
         )));
 
         assert!(

@@ -38,8 +38,7 @@ transport, not a production API and not a fixture provider.
 
 For the normal browser development workflow, use the repository-owned launcher:
 
-```powershell
-cd frontend
+```bash
 bun run dev
 ```
 
@@ -80,7 +79,7 @@ $env:PULSE_HOME = 'C:\pulse-dev-data'
 $env:PULSE_DEV_PORT = '1430'
 $env:PULSE_DEV_BRIDGE_PORT = '1431'
 $env:PULSE_DISABLE_DISCORD = '1'
-npm run dev
+bun run dev
 ```
 
 The launcher validates distinct integer ports, generates one shared token, starts Rust, checks readiness, then starts Vite. The proxy strips cookies and adds authentication even for clients that send `Expect: 100-continue`. Missing authentication and foreign origins remain rejected.

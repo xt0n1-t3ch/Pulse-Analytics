@@ -8,7 +8,7 @@ parsing or Discord line composition in TypeScript or a second Rust module.
 
 ## Promoted contract
 
-Pulse **v1.9.7** consumes `codex-presence-core` **2.0.1** from the immutable
+Pulse **v2.0.0** consumes `codex-presence-core` **2.0.1** from the immutable
 upstream **v1.11.3** release at commit
 `77d5dd637d33f6876a63cc8760fdc0a1a86ba4f8`. Pulse 1.9.0 to 1.9.6 consumed
 the same core from upstream v1.11.2 at commit
@@ -69,7 +69,7 @@ validated Windows SPDX SBOM, and a checksum manifest.
 
 ## Promoted cost and composition work
 
-Upstream v1.11.2 publishes per-event cost accumulation, observed-request long-context pricing, currency-only known subtotals and the reserved compositor cost space. Pulse 1.9.0 pins that release, so the ordinary pinned build contains those behaviors and no source override is required. Canonical parser, model and cost changes are mirrored into Pulse's Rust adapters. `scripts/check-model-catalog-parity.ps1` compares the catalog with its canonical owner.
+Upstream v1.11.2 introduced per-event cost accumulation, observed-request long-context pricing, currency-only known subtotals and the reserved compositor cost space. Pulse pins v1.11.3 (see `src/codex/UPSTREAM.json`), so the ordinary pinned build contains those behaviors and no source override is required. Canonical parser, model and cost changes are mirrored into Pulse's Rust adapters. `cargo xtask catalog-parity` compares the catalog with its canonical owner: the two files must be byte-identical, and the `gpt-6-astra`, `gpt-6.1-sol` and `gpt-6.1-terra` entries must match the published rates.
 
 Set `PULSE_CODEX_CORE_PATH` only for the development launcher. For Cargo checks against unpublished core work, pass an explicit temporary configuration that patches the canonical Git source to the local core directory, and run the ordinary pinned build as well.
 

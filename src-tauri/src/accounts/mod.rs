@@ -1,3 +1,5 @@
+//! Provider accounts for the Accounts view: listing, background polling and per-connection snapshots.
+
 mod connections;
 mod models;
 mod providers;
@@ -25,27 +27,10 @@ fn polls() -> &'static Mutex<PollState> {
 }
 
 /// The Accounts view lists accounts every two seconds while it is open.
-const ACCOUNTS_VIEW_WINDOW: Duration = Duration::from_secs(30);
-
-static ACCOUNTS_VIEW_SEEN: Mutex<Option<Instant>> = Mutex::new(None);
-
-fn note_accounts_view() {
-    if let Ok(mut seen) = ACCOUNTS_VIEW_SEEN.lock() {
-        *seen = Some(Instant::now());
-    }
-}
-
-fn accounts_view_open(now: Instant) -> bool {
-    ACCOUNTS_VIEW_SEEN.lock().is_ok_and(|seen| {
-        seen.is_some_and(|at| now.saturating_duration_since(at) < ACCOUNTS_VIEW_WINDOW)
-    })
-}
-
-/// A Codex read starts a Codex app-server, so background polling of Codex
-/// accounts runs only while the Accounts view is open or on an explicit
-/// refresh or connection.
-fn background_read_allowed(provider: &str, requested: bool, view_open: bool) -> bool {
-    provider != "codex" || requested || view_open
+/// A Codex read starts a Codex app-server, so Codex accounts are read only
+/// on an explicit refresh or connection, never by the background loop.
+fn background_read_allowed(provider: &str, requested: bool) -> bool {
+    provider != "codex" || requested
 }
 
 fn provider_label(provider: &str) -> &'static str {
@@ -253,11 +238,7 @@ fn schedule(id: &str, requested: bool) -> Result<()> {
     let record = store::record(id)?;
     if record.removed
         || connections::is_pending(id)
-        || !background_read_allowed(
-            &record.provider,
-            requested,
-            accounts_view_open(Instant::now()),
-        )
+        || !background_read_allowed(&record.provider, requested)
     {
         return Ok(());
     }
@@ -322,12 +303,10 @@ pub fn start() {
 
 #[tauri::command]
 pub fn list_accounts() -> Result<Vec<AccountSnapshot>, String> {
-    note_accounts_view();
     list().map_err(|error| error.to_string())
 }
 #[tauri::command]
 pub fn discover_accounts() -> Result<Vec<AccountSnapshot>, String> {
-    note_accounts_view();
     discover().map_err(|error| error.to_string())
 }
 
@@ -336,23 +315,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn codex_accounts_are_read_only_on_view_or_request() {
-        assert!(!background_read_allowed("codex", false, false));
-        assert!(background_read_allowed("codex", true, false));
-        assert!(background_read_allowed("codex", false, true));
+    fn codex_accounts_are_read_only_on_an_explicit_request() {
+        assert!(!background_read_allowed("codex", false));
+        assert!(background_read_allowed("codex", true));
         for provider in ["claude", "opencode", "commandcode"] {
-            assert!(background_read_allowed(provider, false, false));
+            assert!(background_read_allowed(provider, false));
         }
-    }
-
-    #[test]
-    fn accounts_view_demand_lapses_after_the_view_stops_polling() {
-        note_accounts_view();
-        let now = Instant::now();
-        assert!(accounts_view_open(now));
-        assert!(!accounts_view_open(
-            now + ACCOUNTS_VIEW_WINDOW + Duration::from_secs(1)
-        ));
     }
 }
 #[tauri::command]

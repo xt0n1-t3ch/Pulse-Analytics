@@ -1,4 +1,4 @@
-//! Cache Health analyzer — gives the user an A–F letter grade based on their
+//! Cache Health analyzer: gives the user an A–F letter grade based on their
 //! prompt cache hit ratio. Recent days are weighted more heavily so a good
 //! week lifts the grade even if historical cache was poor (and vice versa).
 

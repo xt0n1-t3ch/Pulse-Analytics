@@ -6,7 +6,7 @@ The Command Code adapter reads CLI and Desktop sessions through one Rust collect
 
 ## Session sources
 
-Pulse reads `.commandcode/projects/**/*.jsonl`. `PULSE_COMMANDCODE_HOME` overrides the default profile; `profile_paths` in `pulse-commandcode.json` selects explicit profiles. Desktop's `Command Code/thread-index.db` adds titles and branch metadata. Pulse opens that index read-only.
+Pulse reads `.commandcode/projects/**/*.jsonl`. `PULSE_COMMANDCODE_HOME` overrides the default profile; `profile_paths` in `~/.pulse-analytics/config/commandcode.json` selects explicit profiles. Desktop's `Command Code/thread-index.db` adds titles and branch metadata. Pulse opens that index read-only.
 
 The collector excludes checkpoints and hook audit logs. It deduplicates message IDs and session IDs before storage. Completed sessions remain in history. A recent session with active work supplies session details. Starting with 1.9.2, when Command Code is selected and Rich Presence is enabled, Pulse keeps a plain Idle presence visible without an active session. Idle never reuses historical project, model, cost, tokens, context or session elapsed time. Turning off Rich Presence or selecting another broadcaster clears it.
 
@@ -34,9 +34,9 @@ The individual plan allocation fallback matches Command Code CLI 1.39.0's `getPl
 | Application ID | `1551026507806281829` |
 | Large asset key | `commandcode` |
 | Published asset ID | `1551028194629521428` |
-| Local asset | `frontend/src/assets/rp/commandcode.png` |
+| Local asset | `frontend/src/assets/rp/commandcode.svg` |
 
-The unmodified image comes from the [official Command Code artwork](https://raw.githubusercontent.com/CommandCodeAI/command-code/refs/heads/main/.github/commandcode/symbols/spaced-bg-black-symbol-commandcode.png), linked by the [brand page](https://commandcode.ai/brand). Its SHA-256 is `5D1BF3183D6CACC975D12F9F3043D313DCD374FF5F104CF3187718DE946297AF`.
+The unmodified vector comes from the [official Command Code symbol](https://raw.githubusercontent.com/CommandCodeAI/command-code/refs/heads/main/.github/commandcode/symbols/commandcode.svg), linked by the [brand page](https://commandcode.ai/brand) and downloaded on November 7, 2026. Its SHA-256 is `871466714A147699588DEB0981B45BF3FD92C7F402725F76C7D0A152D8E2A178`. Being a vector, it stays sharp at every size in the app; the Discord asset is uploaded separately.
 
 The public asset inventory and local Discord `SET_ACTIVITY` acknowledgement resolved that published asset ID on 2026-09-20. The diagnostic activity was cleared. An acknowledged asset ID is not a screenshot of Discord rendering it.
 

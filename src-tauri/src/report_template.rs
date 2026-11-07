@@ -1,3 +1,5 @@
+//! Static HTML report template: stylesheet, content security policy, and document head and tail.
+
 pub const REPORT_CSS: &str = r##":root {
   color-scheme: dark;
   --bg: #000000;

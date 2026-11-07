@@ -1,3 +1,6 @@
+//! Session health analyzer: grades session durations and the share of long sessions into one
+//! health score.
+
 use std::collections::HashMap;
 
 use serde::Serialize;

@@ -11,8 +11,8 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
-  - package-ecosystem: npm
-    directory: "/frontend"
+  - package-ecosystem: bun
+    directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 3

@@ -1,3 +1,5 @@
+//! Integration tests for the Command Code adapter against local history and Discord.
+
 use cc_discord_presence::commandcode::{CLIENT_ID, Collector, Config, NAME};
 use std::collections::HashSet;
 

@@ -2,7 +2,7 @@
 
 # Pulse architecture
 
-Pulse combines four provider adapters, one analytics store and a native desktop interface. The Claude headless daemon is a separate executable; Pulse does not require that daemon to serve its GUI.
+Pulse combines five provider adapters, one analytics store and a native desktop interface. The Claude headless daemon is a separate executable; Pulse does not require that daemon to serve its GUI.
 
 ## Data flow
 
@@ -27,23 +27,26 @@ Session history, account proof and Discord broadcaster identity remain separate.
 | OpenCode ingestion | [src/opencode](../../src/opencode) | Read-only SQLite, sessions, contributions and metadata |
 | Accounts | [account backend](../../src-tauri/src/accounts/mod.rs), [Accounts UI](../../frontend/src/views/Accounts.svelte) | Stable connections, account-isolated polling, protected credentials and removal tombstones |
 | Command Code | [adapter](../../src/commandcode/mod.rs), [bridge](../../src-tauri/src/commandcode.rs) | One CLI/Desktop reader and publisher |
+| Orion App | [adapter](../../src/orion/mod.rs), [bridge](../../src-tauri/src/orion.rs) | Read-only index, JSONL/gzip, telemetry and legacy SQL fallback |
 | Native integration | [commands](../../src-tauri/src/commands.rs), [OpenCode bridge](../../src-tauri/src/opencode.rs) | Polling, snapshots and IPC |
 | Persistence | [storage](../../src/storage.rs), [db](../../src-tauri/src/db.rs) | Provider-neutral paths, safe legacy copies, analytics schema 7, WAL and notifications |
 | Reports | [analyzers](../../src-tauri/src/analyzers), [report](../../src-tauri/src/report.rs) | Provider-supported analysis and exports |
-| Presentation | [App](../../frontend/src/App.svelte), [API](../../frontend/src/lib/api.ts), [stores](../../frontend/src/lib/stores.ts) | Six routes and coherent backend state |
+| Presentation | [App](../../frontend/src/App.svelte), [API](../../frontend/src/lib/api.ts), [stores](../../frontend/src/lib/stores.ts) | Seven primary routes and coherent backend state |
 
 ## Provider contracts
 
 - Claude reads `~/.claude/projects/` and optional statusline data. Its statusline headline cost is authoritative when available. `CLAUDE_HOME` can change the root.
 - Codex reads its own session and runtime metadata under `CODEX_HOME` (default `~/.codex`). Its local model inventory and observed context outrank bundled fallback values.
 - OpenCode reads its local databases without mutating them. It preserves reported costs and unknowns, including mixed-model contributions. Completed sessions stay in history, not live presence.
+- Command Code reads shared CLI/Desktop JSONL and preserves reported costs and one Discord identity.
+- Orion reads the current session index, JSONL/gzip transcripts and usage telemetry, falling back to legacy SQL only when it contains sessions. Cost remains API-equivalent, not a billed amount.
 - The native core pin, local model catalog and frontend are distinct owners. Do not activate residual `src/codex/app.rs` or duplicate parsers in Svelte.
 
 Read the [Claude](../models/claude.md), [Codex](../models/codex.md) and [OpenCode](../guides/opencode.md) guides for provider-specific limits.
 
 ## Snapshot and UI boundary
 
-The current routes are Home (`dashboard`), Sessions, Costs, Reports, Discord and Settings. Context commands/components remain available internally; Context is not a seventh primary route.
+The current routes are Home (`dashboard`), Sessions, Costs, Reports, Discord, Accounts and Settings. Context commands/components remain available internally; Context is not a primary route.
 
 `get_app_snapshot` hydrates related frontend stores together. Sequence guards reject late responses. Transport failures preserve the last coherent snapshot with a disconnected state. Provider changes must not carry another provider's settings, allowances or preview forward.
 

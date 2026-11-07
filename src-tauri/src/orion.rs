@@ -1,13 +1,48 @@
+//! Orion App adapter: maps Orion sessions and usage telemetry onto the shared session type with
+//! API-equivalent costs.
+
 use crate::access::{AccessProof, AccessRouteSnapshot, AccessSource, AccessSourceKind, AuthMethod};
 use crate::commands::{DiscordDisplayPrefs, DiscordPresencePreview, DiscordSettings, SessionInfo};
-use cc_discord_presence::orion::{ASSET_KEY, Config, NAME, Session, preferred_session};
+use cc_discord_presence::orion::{
+    ASSET_KEY, AgentUsage, Config, HelperRequests, NAME, Session, preferred_session,
+};
 use codex_presence_core::PresenceFieldId;
+use serde::Serialize;
 
 /// Orion stores `cost: 0` on every message, so Pulse prices the exact token
 /// counts at published per-model rates, the same calculation Claude Code
 /// sessions use. It is a calculation, not an invoice: `partial` when some model
 /// has no known rate, `unavailable` when none does.
 pub const COST_SOURCE: &str = "api_equivalent";
+
+/// Orion telemetry that has no field in `SessionInfo` yet, serialized with
+/// snake_case keys. Every value is `None` when Orion did not record it (usage
+/// telemetry only covers the last 30 days), never a zero stand-in. The context
+/// window and fill already travel as `context_window_tokens` and
+/// `context_used_tokens` in `SessionInfo`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub struct OrionTelemetry {
+    /// Tokens at which Orion compacts the conversation on its own.
+    pub auto_compact_threshold_tokens: Option<u64>,
+    /// Share of prompt tokens served from cache, 0 to 1.
+    pub cache_hit_rate: Option<f64>,
+    /// Median time to first token over streamed requests, in milliseconds.
+    pub ttft_ms_median: Option<f64>,
+    pub output_tokens_per_second: Option<f64>,
+    pub helper_requests: Option<HelperRequests>,
+    pub subagents_by_agent: Option<Vec<AgentUsage>>,
+}
+
+pub fn telemetry(session: &Session) -> OrionTelemetry {
+    OrionTelemetry {
+        auto_compact_threshold_tokens: session.auto_compact_threshold,
+        cache_hit_rate: session.cache_hit_rate,
+        ttft_ms_median: session.ttft_ms_median,
+        output_tokens_per_second: session.output_tokens_per_sec,
+        helper_requests: session.helper_requests.clone(),
+        subagents_by_agent: session.subagents_by_agent.clone(),
+    }
+}
 
 /// Live view of a session: the subagent badge counts only subagents that are
 /// still working, so finished ones never linger on the card.
@@ -29,6 +64,7 @@ pub fn session_info(session: &Session) -> SessionInfo {
     let has_inflated_tokenizer = model_id.to_ascii_lowercase().starts_with("claude-")
         && cc_discord_presence::cost::has_inflated_tokenizer(model_id);
     SessionInfo {
+        orion: Some(telemetry(session)),
         provider: "orion".into(),
         app_name: Some(NAME.into()),
         session_id: session.id.clone(),
@@ -139,7 +175,7 @@ pub fn prefs(config: &Config) -> DiscordDisplayPrefs {
     }
 }
 
-/// Orion reports no account quota or credits, so those fields stay off.
+/// Pulse reads no Orion account quota or credits, so those fields stay off.
 pub fn apply_prefs(config: &mut Config, prefs: &DiscordDisplayPrefs) {
     for field in &mut config.layout.fields {
         field.enabled = match field.field {
@@ -186,7 +222,7 @@ pub fn access_route() -> AccessRouteSnapshot {
             proof: AccessProof::None,
             plan: None,
         },
-        "Orion App does not report an account quota",
+        "Pulse does not read an Orion App account quota",
     )
 }
 
@@ -305,6 +341,41 @@ mod tests {
         };
         assert_eq!(live_session_info(&session).subagent_count, 1);
         assert_eq!(session_info(&session).subagent_count, 5);
+    }
+
+    #[test]
+    fn telemetry_keeps_missing_values_unavailable_and_copies_recorded_ones() {
+        assert_eq!(telemetry(&Session::default()), OrionTelemetry::default());
+        let session = Session {
+            auto_compact_threshold: Some(800_000),
+            cache_hit_rate: Some(0.41),
+            ttft_ms_median: Some(1_250.0),
+            output_tokens_per_sec: Some(120.0),
+            helper_requests: Some(HelperRequests {
+                count: 3,
+                input_tokens: 900,
+                output_tokens: 30,
+                cost_usd: None,
+            }),
+            subagents_by_agent: Some(vec![AgentUsage {
+                agent: "orion-Explore".into(),
+                requests: 2,
+                input_tokens: 500,
+                output_tokens: 20,
+                cost_usd: Some(0.01),
+            }]),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(telemetry(&session)).unwrap();
+        assert_eq!(json["auto_compact_threshold_tokens"], 800_000);
+        assert_eq!(json["cache_hit_rate"], 0.41);
+        assert_eq!(json["ttft_ms_median"], 1_250.0);
+        assert_eq!(json["output_tokens_per_second"], 120.0);
+        assert_eq!(json["helper_requests"]["count"], 3);
+        assert!(json["helper_requests"]["cost_usd"].is_null());
+        assert_eq!(json["subagents_by_agent"][0]["agent"], "orion-Explore");
+        let none = serde_json::to_value(telemetry(&Session::default())).unwrap();
+        assert!(none["helper_requests"].is_null() && none["subagents_by_agent"].is_null());
     }
 
     #[test]

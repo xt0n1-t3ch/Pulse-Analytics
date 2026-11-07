@@ -1,6 +1,10 @@
+//! Provider adapters for account snapshots: profile file reads and bounded HTTPS lookups whose
+//! failures carry a retry hint.
+
 use super::store::AccountRecord;
 use super::{AccountBalance, AccountIdentity, AccountSnapshot, AccountWindow};
 use anyhow::{Context, Result, bail};
+use cc_discord_presence::http;
 use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 use std::io::Read;
@@ -80,30 +84,30 @@ pub(super) fn http_json(url: &str, key: &str, query: &[(&str, &str)]) -> Result<
     if key.is_empty() || key.len() > 16384 || key.contains(['\r', '\n']) {
         bail!("Provider credentials are invalid");
     }
-    let agent = ureq::AgentBuilder::new()
-        .timeout(std::time::Duration::from_secs(12))
-        .redirects(0)
-        .build();
+    let agent = http::agent_with_error_responses(std::time::Duration::from_secs(12), 0);
     let mut request = agent
         .get(url)
-        .set("Authorization", &format!("Bearer {key}"))
-        .set("User-Agent", concat!("Pulse/", env!("CARGO_PKG_VERSION")))
-        .set("Accept", "application/json")
-        .set("Content-Type", "application/json");
+        .header("Authorization", format!("Bearer {key}"))
+        .header("User-Agent", concat!("Pulse/", env!("CARGO_PKG_VERSION")))
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json");
     for (name, value) in query {
         request = request.query(name, value);
     }
-    let response = match request.call() {
+    let response = match http::classify(request.call()) {
         Ok(response) => response,
-        Err(ureq::Error::Status(status, response)) => {
-            let retry_after = response
-                .header("retry-after")
+        Err(http::Failure::Status(status, response)) => {
+            let retry_after = http::header(&response, "retry-after")
                 .and_then(|value| value.parse::<u64>().ok())
                 .unwrap_or(if status == 429 { 300 } else { 120 })
                 .clamp(30, 86_400);
             let entitlement_required = if status == 403 && url.starts_with("https://opencode.ai/") {
                 let mut body = String::new();
-                let _ = response.into_reader().take(16384).read_to_string(&mut body);
+                let _ = (*response)
+                    .into_body()
+                    .into_reader()
+                    .take(16384)
+                    .read_to_string(&mut body);
                 serde_json::from_str::<Value>(&body)
                     .ok()
                     .is_some_and(|value| {
@@ -120,10 +124,11 @@ pub(super) fn http_json(url: &str, key: &str, query: &[(&str, &str)]) -> Result<
             }
             .into());
         }
-        Err(_) => bail!("Provider could not be reached"),
+        Err(http::Failure::Transport(_)) => bail!("Provider could not be reached"),
     };
     let mut bytes = Vec::new();
     response
+        .into_body()
         .into_reader()
         .take(1024 * 1024 + 1)
         .read_to_end(&mut bytes)?;

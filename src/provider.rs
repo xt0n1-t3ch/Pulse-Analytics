@@ -1,3 +1,5 @@
+//! Provider identity, capabilities and the persisted active-provider selection.
+
 use std::fs;
 use std::path::PathBuf;
 
@@ -77,7 +79,7 @@ impl Provider {
             Self::Claude => "~/.claude/projects/**/*.jsonl",
             Self::Codex => "~/.codex/sessions/**/*.jsonl",
             Self::OpenCode => "~/.local/share/opencode/opencode*.db",
-            Self::Orion => "~/.orion/cli/db/db.sqlite",
+            Self::Orion => "~/.orion/projects/index.sqlite",
         }
     }
 
@@ -161,7 +163,7 @@ impl Default for ProviderState {
 }
 
 fn state_path() -> PathBuf {
-    crate::storage::home().join("pulse-provider.json")
+    crate::storage::config_file("provider.json")
 }
 
 pub fn load_active_provider() -> Provider {

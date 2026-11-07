@@ -1,3 +1,5 @@
+//! Shared helpers: silent child processes, process probes, tracing setup and number formatting.
+
 use std::process::Command;
 use std::time::Duration;
 
@@ -16,6 +18,26 @@ pub fn silent_command(program: &str) -> Command {
         cmd
     };
     cmd
+}
+
+/// Whether a process with this id exists, probed with `kill(pid, 0)`.
+///
+/// Signal 0 delivers nothing. `EPERM` means the process exists but belongs to
+/// another user, so it counts as alive. Ids that do not fit a positive `pid_t`
+/// are never probed: `kill` gives 0 and negative ids a process-group meaning.
+#[cfg(unix)]
+pub fn process_is_alive(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return false;
+    };
+    if pid <= 0 {
+        return false;
+    }
+    // SAFETY: signal 0 only checks that the process exists and can be signalled.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 pub fn setup_tracing() {
@@ -122,6 +144,26 @@ pub fn format_time_until_reset(reset_time: DateTime<Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn process_is_alive_sees_the_current_process() {
+        assert!(process_is_alive(std::process::id()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_is_alive_is_false_for_a_reaped_child_and_for_pid_zero() {
+        let mut child = Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .expect("spawn short-lived child");
+        let pid = child.id();
+        child.wait().expect("reap child");
+        assert!(!process_is_alive(pid));
+        assert!(!process_is_alive(0));
+        assert!(!process_is_alive(u32::MAX));
+    }
 
     #[test]
     fn token_formatting() {

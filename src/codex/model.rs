@@ -1,3 +1,6 @@
+//! Codex model catalog: aliases, context windows, rates and display names from
+//! `model_catalog.json`.
+
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -716,6 +719,18 @@ mod gpt_6_family_tests {
             "GPT-6.1 Sol · Extra High"
         );
         assert_eq!(
+            format_model_display("gpt-6.1-terra", Some(ReasoningEffort::Medium), false),
+            "GPT-6.1 Terra · Medium"
+        );
+        assert_eq!(
+            format_model_display("gpt-6.1-terra-fast", Some(ReasoningEffort::Ultra), true),
+            "GPT-6.1 Terra · Ultra · ⚡ Fast"
+        );
+        assert_eq!(
+            format_model_display("GPT-6.1-Terra", Some(ReasoningEffort::XHigh), false),
+            "GPT-6.1 Terra · Extra High"
+        );
+        assert_eq!(
             format_model_display("gpt-6-sol", Some(ReasoningEffort::Max), false),
             "GPT-6 Sol · Max"
         );
@@ -769,8 +784,74 @@ mod gpt_6_family_tests {
     }
 
     #[test]
+    fn gpt_6_1_terra_catalog_matches_the_published_contract() {
+        let model = resolve_model("gpt-6.1-terra").expect("Terra catalog entry");
+        assert_eq!(model.canonical_id(), "gpt-6.1-terra");
+        assert_eq!(model.display_name(), "GPT-6.1 Terra");
+
+        // Codex models.json: context_window 500000 at the default 95% (475,000 usable).
+        let context = model.context().expect("Terra context");
+        assert_eq!(context.raw_tokens, 500_000);
+        assert_eq!(context.effective_percent, 95);
+        assert_eq!(context.api_tokens, Some(1_050_000));
+        assert_eq!(context.max_input_tokens, Some(922_000));
+        assert_eq!(context.max_output_tokens, Some(128_000));
+        assert_eq!(context.long_context_input_threshold, Some(272_000));
+
+        // OpenAI pricing page, USD per million tokens, checked on 2026-11-07.
+        let rates = model.api_rates().expect("Terra rates");
+        assert_eq!(rates.input_per_million, 1.0);
+        assert_eq!(rates.cache_write_per_million, Some(1.25));
+        assert_eq!(rates.cached_input_per_million, 0.05);
+        assert_eq!(rates.output_per_million, 5.0);
+        assert!(model.credit_rates().is_none());
+
+        let long = model.long_context_pricing().expect("long-context pricing");
+        assert_eq!(long.input_and_cache, 2.0);
+        assert_eq!(long.output, 1.5);
+        assert!(model.supports_fast());
+        assert_eq!(model.fast_usage_multiplier(), Some(2.0));
+        assert_eq!(model.resolve_speed(true), SpeedMode::Fast);
+
+        for effort in [
+            ReasoningEffort::Low,
+            ReasoningEffort::Medium,
+            ReasoningEffort::High,
+            ReasoningEffort::XHigh,
+            ReasoningEffort::Max,
+            ReasoningEffort::Ultra,
+        ] {
+            assert!(model.supports_effort(effort), "{effort:?}");
+        }
+        assert!(!model.supports_effort(ReasoningEffort::Minimal));
+    }
+
+    #[test]
+    fn gpt_6_1_terra_bundled_context_is_475k_without_observation_or_inventory() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cache = dir.path().join("models_cache.json");
+        let bundled = resolve_context_window_from_cache_path("gpt-6.1-terra", None, &cache)
+            .expect("bundled context");
+        assert_eq!(bundled.raw_tokens, 500_000);
+        assert_eq!(bundled.effective_tokens, 475_000);
+        assert_eq!(bundled.source, ContextSource::BundledCatalog);
+
+        std::fs::write(&cache, r#"{"models":[]}"#).expect("empty inventory");
+        let empty = resolve_context_window_from_cache_path("gpt-6.1-terra", None, &cache)
+            .expect("bundled context");
+        assert_eq!(empty.effective_tokens, 475_000);
+        assert_eq!(empty.source, ContextSource::BundledCatalog);
+    }
+
+    #[test]
     fn unknown_gpt_6_variants_stay_unresolved() {
-        for id in ["gpt-6.2-sol", "gpt-6.1-luna", "gpt-6.1-sol-ultrafast"] {
+        for id in [
+            "gpt-6.2-sol",
+            "gpt-6.1-luna",
+            "gpt-6-terra",
+            "gpt-6.1-sol-ultrafast",
+            "gpt-6.1-terra-ultrafast",
+        ] {
             assert!(resolve_model(id).is_none(), "{id}");
         }
     }
@@ -802,5 +883,31 @@ mod gpt_6_family_tests {
         assert_eq!(bundled.raw_tokens, 500_000);
         assert_eq!(bundled.effective_tokens, 475_000);
         assert_eq!(bundled.source, ContextSource::BundledCatalog);
+    }
+}
+
+#[cfg(test)]
+mod gpt_5_6_rate_tests {
+    use super::*;
+
+    /// OpenAI pricing page, USD per million tokens, checked on 2026-11-07. Sol's $4 / $20 is
+    /// promotional until 2026-11-30.
+    #[test]
+    fn gpt_5_6_catalog_rates_match_the_published_table() {
+        let cases = [
+            ("gpt-5.6-sol", 4.0, 5.0, 0.4, 20.0),
+            ("gpt-5.6-terra", 2.0, 2.5, 0.2, 12.0),
+            ("gpt-5.6-luna", 0.2, 0.25, 0.02, 1.2),
+        ];
+        for (id, input, write, read, output) in cases {
+            let rates = resolve_model(id)
+                .expect("catalog model")
+                .api_rates()
+                .expect("catalog rates");
+            assert_eq!(rates.input_per_million, input, "input for {id}");
+            assert_eq!(rates.cache_write_per_million, Some(write), "write for {id}");
+            assert_eq!(rates.cached_input_per_million, read, "read for {id}");
+            assert_eq!(rates.output_per_million, output, "output for {id}");
+        }
     }
 }

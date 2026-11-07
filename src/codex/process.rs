@@ -1,169 +1,98 @@
-#[cfg(windows)]
-use std::process::Stdio;
+//! Detects the OpenCode and Codex desktop processes from one in-process list
+//! (see `crate::process_list`); nothing here launches another program.
 
-#[cfg(any(windows, test))]
-const OPENCODE_PROCESS_NAMES: [&str; 3] = ["OpenCode.exe", "opencode.exe", "opencode-cli.exe"];
-#[cfg(any(windows, test))]
-const CODEX_APP_PROCESS_NAME: &str = "Codex.exe";
+use crate::process_list::{self, RunningProcess};
 
 pub fn is_opencode_running() -> bool {
-    is_opencode_running_impl()
+    opencode_in(&process_list::snapshot())
 }
 
 pub fn is_codex_app_running() -> bool {
-    is_codex_app_running_impl()
+    codex_app_in(&process_list::snapshot())
 }
 
 pub fn is_desktop_surface_running() -> bool {
-    is_opencode_running() || is_codex_app_running()
+    let processes = process_list::snapshot();
+    opencode_in(&processes) || codex_app_in(&processes)
 }
 
-#[cfg(windows)]
-fn is_opencode_running_impl() -> bool {
-    read_tasklist().is_some_and(|text| tasklist_has_opencode(&text))
+/// The OpenCode app or CLI. Exact and case-insensitive, so `opencode-helper`
+/// and `not-opencode` do not count.
+pub fn opencode_in(processes: &[RunningProcess]) -> bool {
+    processes
+        .iter()
+        .any(|process| process.names().any(is_opencode_name))
 }
 
-#[cfg(not(windows))]
-fn is_opencode_running_impl() -> bool {
-    false
+/// The Codex desktop app. Case-sensitive, so the `codex` CLI does not count.
+pub fn codex_app_in(processes: &[RunningProcess]) -> bool {
+    processes
+        .iter()
+        .any(|process| process.names().any(is_codex_app_name))
 }
 
-#[cfg(windows)]
-fn is_codex_app_running_impl() -> bool {
-    read_tasklist().is_some_and(|text| tasklist_has_codex_app(&text))
+fn is_opencode_name(name: &str) -> bool {
+    ["opencode", "opencode-cli"]
+        .iter()
+        .any(|expected| without_exe(name).eq_ignore_ascii_case(expected))
 }
 
-#[cfg(not(windows))]
-fn is_codex_app_running_impl() -> bool {
-    false
+fn is_codex_app_name(name: &str) -> bool {
+    name == "Codex" || name == "Codex.exe"
 }
 
-#[cfg(windows)]
-fn read_tasklist() -> Option<String> {
-    let output = crate::util::silent_command("tasklist")
-        .arg("/FO")
-        .arg("CSV")
-        .arg("/NH")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output();
-
-    let Ok(output) = output else {
-        return None;
-    };
-    if !output.status.success() {
-        return None;
-    }
-
-    Some(String::from_utf8_lossy(&output.stdout).to_string())
-}
-
-#[cfg(any(windows, test))]
-pub(crate) fn tasklist_has_opencode(output: &str) -> bool {
-    output.lines().any(|line| {
-        let Some(name) = tasklist_image_name(line) else {
-            return false;
-        };
-        OPENCODE_PROCESS_NAMES
-            .iter()
-            .any(|expected| name.eq_ignore_ascii_case(expected))
-    })
-}
-
-#[cfg(any(windows, test))]
-pub(crate) fn tasklist_has_codex_app(output: &str) -> bool {
-    output.lines().any(|line| {
-        let Some(name) = tasklist_image_name(line) else {
-            return false;
-        };
-        name == CODEX_APP_PROCESS_NAME
-    })
-}
-
-#[cfg(any(windows, test))]
-fn tasklist_image_name(line: &str) -> Option<&str> {
-    let trimmed = line.trim();
-    if trimmed.is_empty()
-        || trimmed
-            .eq_ignore_ascii_case("INFO: No tasks are running which match the specified criteria.")
-    {
-        return None;
-    }
-
-    let name = tasklist_csv_image_name(trimmed)
-        .unwrap_or_else(|| trimmed.split_whitespace().next().unwrap_or(trimmed));
-    if name.is_empty() || name.eq_ignore_ascii_case("Image Name") {
-        None
-    } else {
-        Some(name)
-    }
-}
-
-#[cfg(any(windows, test))]
-fn tasklist_csv_image_name(line: &str) -> Option<&str> {
-    if let Some(rest) = line.strip_prefix('"') {
-        let end = rest.find('"')?;
-        return Some(&rest[..end]);
-    }
-
-    let mut fields = line.split(',');
-    let first = fields.next()?.trim();
-    let second = fields.next()?.trim();
-    if fields.count() < 3 {
-        return None;
-    }
-
-    if second.eq_ignore_ascii_case("PID") || second.parse::<u32>().is_ok() {
-        Some(first)
-    } else {
-        None
-    }
+fn without_exe(name: &str) -> &str {
+    name.rsplit_once('.')
+        .filter(|(_, extension)| extension.eq_ignore_ascii_case("exe"))
+        .map_or(name, |(stem, _)| stem)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn tasklist_parser_detects_opencode_names_case_insensitively() {
-        let output = r#"
-"Image Name","PID","Session Name","Session#","Mem Usage"
-"OpenCode.exe","1234","Console","1","42,000 K"
-"opencode-cli.exe","2345","Console","1","10,000 K"
-"#;
-
-        assert!(tasklist_has_opencode(output));
+    fn process(name: &str, argv0_name: Option<&str>) -> RunningProcess {
+        RunningProcess {
+            pid: 1,
+            parent_pid: 0,
+            name: name.into(),
+            argv0_name: argv0_name.map(Into::into),
+        }
     }
 
     #[test]
-    fn tasklist_parser_rejects_partial_names() {
-        let output = r#"
-"not-opencode.exe","1234","Console","1","42,000 K"
-"opencode-helper.exe","2345","Console","1","10,000 K"
-"#;
-
-        assert!(!tasklist_has_opencode(output));
+    fn opencode_is_found_by_name_or_argv0_on_every_platform() {
+        for found in [
+            process("OpenCode", None),
+            process("OpenCode.exe", None),
+            process("opencode-cli.exe", None),
+            process("node", Some("opencode-cli")),
+        ] {
+            assert!(
+                opencode_in(&[process("bash", None), found.clone()]),
+                "{found:?}"
+            );
+        }
     }
 
     #[test]
-    fn tasklist_parser_supports_table_output() {
-        let output = r#"
-Image Name                     PID Session Name        Session#    Mem Usage
-========================= ======== ================ =========== ============
-opencode.exe                  7777 Console                    1     12,000 K
-"#;
-
-        assert!(tasklist_has_opencode(output));
+    fn partial_opencode_names_do_not_count() {
+        let processes = [
+            process("opencode-helper", None),
+            process("not-opencode.exe", None),
+            process("opencode-helper.exe", None),
+        ];
+        assert!(!opencode_in(&processes));
     }
 
     #[test]
-    fn tasklist_parser_detects_official_codex_app() {
-        let output = r#"
-"Image Name","PID","Session Name","Session#","Mem Usage"
-"Codex.exe","1234","Console","1","148,000 K"
-"codex.exe","2345","Console","1","30,000 K"
-"#;
-
-        assert!(tasklist_has_codex_app(output));
+    fn only_the_codex_desktop_app_counts_not_the_cli() {
+        assert!(!codex_app_in(&[
+            process("codex", None),
+            process("codex.exe", None)
+        ]));
+        assert!(codex_app_in(&[process("Codex", None)]));
+        assert!(codex_app_in(&[process("Codex.exe", None)]));
+        assert!(!codex_app_in(&[process("Codex Helper", None)]));
     }
 }

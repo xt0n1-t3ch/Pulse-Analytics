@@ -1,6 +1,6 @@
 [package]
 name = "pulse"
-version = "1.9.7"
+version = "2.0.0"
 edition = "2024"
 description = "Pulse - local-first analytics for Claude Code, Codex, OpenCode, Command Code and Orion App"
 default-run = "pulse"
@@ -10,29 +10,35 @@ homepage = "https://github.com/xt0n1-t3ch/Pulse-Analytics"
 authors = ["xt0n1-t3ch"]
 
 [dependencies]
+anyhow.workspace = true
 cc-discord-presence = { path = ".." }
-codex-presence-core = { git = "https://github.com/xt0n1-t3ch/Codex-Discord-Rich-Presence", rev = "77d5dd637d33f6876a63cc8760fdc0a1a86ba4f8", version = "2.0.1" }
-tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-dialog = "2"
-tauri-plugin-fs = "2"
-tauri-plugin-notification = "2"
-tauri-plugin-shell = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
-tauri-plugin-single-instance = "2"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-chrono = { version = "0.4", features = ["serde"] }
-anyhow = "1"
-tracing = "0.1"
-rusqlite = { version = "0.31", features = ["bundled"] }
-fs2 = "0.4.3"
-dirs = "6.0.0"
-tempfile = "3.23.0"
-ureq = { version = "2.12.1", default-features = true, features = ["json"] }
+chrono.workspace = true
+codex-presence-core.workspace = true
+dirs.workspace = true
+fs2.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.12.5", features = ["tray-icon"] }
+tauri-plugin-dialog = "2.8.4"
+tauri-plugin-fs = "2.7.1"
+tauri-plugin-notification = "2.8.0"
+tauri-plugin-process = "2.4.0"
+tauri-plugin-shell = "2.6.0"
+tauri-plugin-single-instance = "2.5.5"
+tauri-plugin-updater = "2.14.1"
+tempfile.workspace = true
+tracing.workspace = true
+ureq = { workspace = true, features = ["json"] }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0.2"
 
 [dev-dependencies]
-tempfile = "3.23.0"
+tempfile.workspace = true
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.7.4", features = [] }

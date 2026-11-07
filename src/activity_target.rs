@@ -1,3 +1,5 @@
+//! Turns raw tool targets (paths and commands) into short readable labels for presence text.
+
 use std::path::Path;
 
 pub fn readable_file_target(raw: &str, max_len: usize) -> String {

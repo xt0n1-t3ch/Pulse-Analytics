@@ -1,3 +1,5 @@
+//! Source-level checks of the startup order in `main.rs`.
+
 #[test]
 fn single_instance_plugin_is_registered_before_the_background_poller() {
     let source = include_str!("../src/main.rs");

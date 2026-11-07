@@ -1,3 +1,6 @@
+//! Analytics report builder: aggregates session history into the data behind the HTML and
+//! Markdown exports.
+
 use crate::db;
 
 struct ReportData {
@@ -407,7 +410,7 @@ fn load_report_data(days: i64, project: Option<&str>, provider: &str) -> ReportD
     }
 }
 
-/// Render the analytics report as Markdown — suitable for pasting into a
+/// Render the analytics report as Markdown, suitable for pasting into a
 /// GitHub issue, a Slack message, or a CC session. Sections mirror the HTML
 /// report: cache grade, stats, top sessions, project + model breakdowns.
 pub fn generate_markdown_report(days: Option<i64>, project: Option<&str>) -> String {
@@ -1986,6 +1989,8 @@ mod tests {
         assert!(!model_label_is_fast_capable("Claude Opus 4.6"));
         assert!(!model_label_is_fast_capable("Claude Sonnet 5"));
         assert!(!model_label_is_fast_capable("Claude Sonnet 5.5"));
+        assert!(!model_label_is_fast_capable("Claude Haiku 5.5"));
+        assert!(!model_label_is_fast_capable("Claude Haiku 4.5"));
         assert!(!model_label_is_fast_capable("Claude Fable 5"));
     }
 }

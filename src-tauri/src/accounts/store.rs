@@ -1,3 +1,6 @@
+//! SQLite persistence for account records and their latest snapshots; removed accounts stay as
+//! tombstones.
+
 use super::models::AccountSnapshot;
 use anyhow::{Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};

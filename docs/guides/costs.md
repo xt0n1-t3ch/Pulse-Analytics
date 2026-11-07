@@ -26,16 +26,40 @@ Claude Code writes one JSONL line per content block of a response (thinking, tex
 ```text
 turn input = uncached input + cache creation + cache read
 turn cost = (uncached input × input rate
-           + cache creation × write rate
+           + cache creation (5m) × 5m write rate
+           + cache creation (1h) × 1h write rate
            + cache read × read rate
            + output × output rate) / 1,000,000
 ```
 
 The [cost owner](../../src/cost.rs) applies supported long-context and Fast modifiers per turn, then accumulates the four category costs. Mixed-speed sessions retain each turn's multiplier. `usage.service_tier` is not the same field as `usage.speed`.
 
-When Claude statusline data supplies `total_cost_usd`, Pulse uses it for the headline. It scales JSONL category proportions to reconcile the breakdown. Without statusline authority, costs remain estimates based on implemented rates and available telemetry. Missing cache TTL is priced using the 5-minute write rate, not a demonstrated 1-hour rate.
+### Cache write lifetime
 
-Current prices, API limits and the cancelled Sonnet 5 price increase belong in the [Claude model reference](../models/claude.md), not a duplicated rate table here. That reference also covers Sonnet 5.5: it bills at the same per-token rates as Sonnet 5, with no long-context surcharge and no Fast multiplier, and Pulse classifies the two versions separately. For example, 1,000,000 input tokens plus 1,000,000 output tokens on Sonnet 5.5 cost $2 + $10 = $12.
+Claude Code reports the split of each request's cache writes in `message.usage.cache_creation.ephemeral_5m_input_tokens` and `ephemeral_1h_input_tokens`. Pulse bills the 1-hour tokens at 2× the model's input rate and the rest at the 5-minute rate (1.25× input). A request without the split is all 5-minute writes. The 1-hour count is clamped to `cache_creation_input_tokens`, so token totals never change. The split lives only in the per-request arithmetic: the database stores the four category costs and needs no extra column.
+
+| Request on Opus 5.5 | Arithmetic | Cost |
+| --- | --- | ---: |
+| 100,000 writes, all 1-hour | 100,000 × $8 / 1,000,000 | $0.80 |
+| 100,000 writes, no split | 100,000 × $5 / 1,000,000 | $0.50 |
+| 40,000 5-minute + 60,000 1-hour writes | (40,000 × $5 + 60,000 × $8) / 1,000,000 | $0.68 |
+
+### Haiku 5.5 prompt tiers
+
+Claude Haiku 5.5 has two rate rows, chosen for each request by its prompt: uncached input + cache creation + cache read. Up to and including 100,000 tokens the request bills at $0.10 input, $0.125 5-minute write, $0.20 1-hour write, $0.01 cache read and $0.50 output. Above 100,000 tokens every category of that request, output included, uses $0.50, $0.625, $1.00, $0.05 and $2.50. There is no other surcharge across its 1M window and no Fast mode.
+
+| Request on Haiku 5.5 | Arithmetic | Cost |
+| --- | --- | ---: |
+| 50,000 input, 1,000 output (prompt 50,000) | 50,000 × $0.10 + 1,000 × $0.50 | $0.0055 |
+| 100,000 input (prompt 100,000, low row) | 100,000 × $0.10 | $0.01 |
+| 100,001 input (prompt 100,001, high row) | 100,001 × $0.50 | $0.0500005 |
+| 20,000 input, 30,000 writes, 150,000 reads, 2,000 output (prompt 200,000) | 20,000 × $0.50 + 30,000 × $0.625 + 150,000 × $0.05 + 2,000 × $2.50 | $0.04125 |
+
+Tiers apply per request, never to a session total. Two 60,000-token requests are two low-row requests ($0.012 for the input); one 120,000-token request costs $0.06. For the same reason, a history row rebuilt from session totals (when a row has no stored cost) is priced only when its total input is at most 100,000 tokens, where every request must have been in the low row. Above that, the row stays unpriced.
+
+When Claude statusline data supplies `total_cost_usd`, Pulse uses it for the headline. It scales JSONL category proportions to reconcile the breakdown. Without statusline authority, costs remain estimates based on implemented rates and available telemetry. A turn that has no known model, because no earlier line named one, keeps its tokens but adds no cost. A session made only of such turns shows its cost as unavailable, never as a Sonnet 4 price.
+
+Current prices, API limits and the cancelled Sonnet 5 price increase belong in the [Claude model reference](../models/claude.md), not a duplicated rate table here. That reference also covers Sonnet 5.5: it bills at the same rates as Sonnet 5 except cache reads ($0.10 instead of $0.20), with no long-context surcharge and no Fast multiplier, and Pulse classifies the two versions separately. For example, 1,000,000 input tokens plus 1,000,000 output tokens on Sonnet 5.5 cost $2 + $10 = $12, and 50,000 cache-read tokens cost 50,000 × $0.10 / 1,000,000 = $0.005.
 
 ## Codex
 
@@ -43,13 +67,13 @@ Current prices, API limits and the cancelled Sonnet 5 price increase belong in t
 
 Codex input totals include cache reads and cache writes; known categories are subtracted once from ordinary input. Cached input is clamped to total input before uncached input is calculated. Missing cache-write telemetry stays missing. Do not reuse Claude's raw-token interpretation for Codex.
 
-The bundled Astra, GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna entries record Fast at 2× and long-context rates of 2× input/cache and 1.5× output above 272,000 input tokens per request. GPT-5.6 entries still lack a Fast multiplier and use older base rates. Aggregate input cannot prove each request's long-context price. The resolver preserves partial coverage when a required pricing condition is unresolved, and the history estimate for these four models is withheld when a stored session total is above the threshold. [GPT-6 rates and gaps](../models/codex.md#gpt-61-sol-gpt-6-sol-and-gpt-6-luna) · [Current API facts and catalog gaps](../models/codex.md#bundled-catalog-gaps).
+The bundled Astra, GPT-6.1 Sol, GPT-6.1 Terra, GPT-6 Sol and GPT-6 Luna entries record Fast at 2× and long-context rates of 2× input/cache and 1.5× output above 272,000 input tokens per request. GPT-5.6, GPT-5.5 and GPT-5.4 entries record the same long-context rates; GPT-5.6 entries still lack an API Fast multiplier, and their base rates match the published table of 2026-11-07. Aggregate input cannot prove each request's long-context price. The resolver preserves partial coverage when a required pricing condition is unresolved, and the history estimate of a model with a long-context threshold is withheld when a stored session total is above the threshold. [GPT-6 rates and gaps](../models/codex.md#gpt-61-sol-gpt-6-sol-and-gpt-6-luna) · [Current API facts and catalog gaps](../models/codex.md#bundled-catalog-gaps).
 
 For example, 100,000 fresh input plus 1,000 output tokens in one GPT-6.1 Sol request cost 0.1 × $2 + 0.001 × $10 = $0.21 Standard and $0.42 Fast. With 300,000 fresh input instead, the request is above the threshold: 0.3 × $2 × 2 + 0.001 × $10 × 1.5 = $1.215.
 
 API dollars and Codex subscription credits are separate units. A new API price does not establish a new credit conversion or account allowance.
 
-Session cost is accumulated per telemetry delta with that sample's model and speed. Duplicate cumulative events do not add value. A large cumulative input total does not trigger request-level long-context pricing. An observed Astra, GPT-6.1 Sol, GPT-6 Sol or GPT-6 Luna request over 272,000 input tokens applies the documented input/cache and output multipliers. Missing request boundaries keep the subtotal partial.
+Session cost is accumulated per telemetry delta with that sample's model and speed. Duplicate cumulative events do not add value. A large cumulative input total does not trigger request-level long-context pricing. An observed request over 272,000 input tokens on a model with a long-context threshold (the GPT-6 family, GPT-5.6, GPT-5.5 and GPT-5.4) applies the documented input/cache and output multipliers. Missing request boundaries keep the subtotal partial.
 
 ## Command Code
 

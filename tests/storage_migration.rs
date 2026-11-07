@@ -1,3 +1,5 @@
+//! Integration tests for Pulse storage paths and the daemon's startup migration.
+
 use std::fs;
 use std::process::Command;
 
@@ -30,12 +32,20 @@ fn daemon_startup_uses_pulse_home_and_keeps_provider_roots_separate() {
         "{}",
         String::from_utf8_lossy(&first.stderr)
     );
-    assert!(pulse.join("legacy-migration-v1.json").exists());
-    assert!(pulse.join("claude/discord-presence-config.json").exists());
+    assert!(pulse.join("state/legacy-migration-v1.json").exists());
+    assert!(pulse.join("config/claude-presence.json").exists());
     assert!(!claude.join("discord-presence-config.json").exists());
     assert_eq!(
-        fs::read(pulse.join("pulse-provider.json")).unwrap(),
-        fs::read(claude.join("pulse-provider.json")).unwrap()
+        fs::read_to_string(pulse.join("config/provider.json")).unwrap(),
+        r#"{"active_provider":"opencode"}"#
+    );
+    assert!(
+        !claude.join("pulse-provider.json").exists(),
+        "the imported Pulse file leaves the Claude home"
+    );
+    assert!(
+        fs::read_dir(&codex).unwrap().next().is_none(),
+        "the Codex home stays untouched"
     );
     fs::write(
         claude.join("pulse-provider.json"),
@@ -44,7 +54,7 @@ fn daemon_startup_uses_pulse_home_and_keeps_provider_roots_separate() {
     .unwrap();
     assert!(run().status.success());
     assert!(
-        fs::read_to_string(pulse.join("pulse-provider.json"))
+        fs::read_to_string(pulse.join("config/provider.json"))
             .unwrap()
             .contains("opencode")
     );

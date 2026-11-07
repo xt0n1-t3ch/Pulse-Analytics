@@ -3,7 +3,8 @@
 //! A plain `Child::kill` ends only the direct child. Provider CLIs are often
 //! shims (`cmd.exe` running an npm script, or a Node launcher that starts the
 //! native binary), so the real worker is a grandchild. Windows children run in
-//! a kill-on-close job object; Unix children lead their own process group.
+//! a kill-on-close job object; Unix children lead their own process group, and
+//! Linux children also get SIGTERM when the process that spawned them dies.
 
 use std::io;
 use std::process::{Child, ChildStdin, ChildStdout, Command, ExitStatus};
@@ -22,6 +23,15 @@ impl OwnedChild {
         {
             use std::os::unix::process::CommandExt;
             command.process_group(0);
+            #[cfg(target_os = "linux")]
+            {
+                let parent = libc::pid_t::try_from(std::process::id()).unwrap_or(0);
+                // SAFETY: the closure runs between fork and exec and calls only
+                // `prctl` and `getppid`, which are async-signal-safe.
+                unsafe {
+                    command.pre_exec(move || die_with_parent(parent));
+                }
+            }
         }
         let child = command.spawn()?;
         #[cfg(windows)]
@@ -88,19 +98,34 @@ impl Drop for OwnedChild {
     }
 }
 
+/// Asks the kernel to send SIGTERM to this child when its parent dies, so a
+/// crash or `panic = "abort"` cannot leave provider CLIs running. The signal
+/// follows the thread that spawned the child, which is the supervising thread
+/// of every `OwnedChild` in Pulse.
+///
+/// Fails when the parent is already gone: the signal would never come.
+#[cfg(target_os = "linux")]
+fn die_with_parent(expected_parent: libc::pid_t) -> io::Result<()> {
+    // SAFETY: `PR_SET_PDEATHSIG` takes a signal number as its only argument.
+    if unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM as libc::c_ulong) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `getppid` has no preconditions.
+    if unsafe { libc::getppid() } != expected_parent {
+        return Err(io::Error::from_raw_os_error(libc::ESRCH));
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
 fn kill_process_group(pgid: u32) {
-    unsafe extern "C" {
-        fn kill(pid: i32, sig: i32) -> i32;
-    }
-    const SIGKILL: i32 = 9;
-    if let Ok(pgid) = i32::try_from(pgid)
+    if let Ok(pgid) = libc::pid_t::try_from(pgid)
         && pgid > 0
     {
         // SAFETY: `kill` has no memory-safety preconditions; a negative pid
         // addresses the group this child leads.
         unsafe {
-            kill(-pgid, SIGKILL);
+            libc::kill(-pgid, libc::SIGKILL);
         }
     }
 }
@@ -280,16 +305,37 @@ mod tests {
                 .stderr(Stdio::null()),
         )
         .expect("spawn fixture");
-        let pgid = child.child.id() as i32;
+        let pgid = child.child.id() as libc::pid_t;
         drop(child);
-        unsafe extern "C" {
-            fn kill(pid: i32, sig: i32) -> i32;
-        }
         let deadline = Instant::now() + Duration::from_secs(10);
         // Signal 0 probes for any live member of the group.
-        while unsafe { kill(-pgid, 0) } == 0 {
+        // SAFETY: `kill` has no memory-safety preconditions.
+        while unsafe { libc::kill(-pgid, 0) } == 0 {
             assert!(Instant::now() < deadline, "a group member survived");
             std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn die_with_parent_arms_sigterm_and_rejects_a_wrong_parent() {
+        fn pdeathsig() -> libc::c_int {
+            let mut signal: libc::c_int = -1;
+            // SAFETY: `PR_GET_PDEATHSIG` writes one int through the pointer.
+            let rc = unsafe { libc::prctl(libc::PR_GET_PDEATHSIG, &raw mut signal) };
+            assert_eq!(rc, 0);
+            signal
+        }
+        // SAFETY: `getppid` has no preconditions.
+        let parent = unsafe { libc::getppid() };
+        assert_eq!(pdeathsig(), 0);
+        die_with_parent(parent).expect("the parent is still alive");
+        assert_eq!(pdeathsig(), libc::SIGTERM);
+        let error = die_with_parent(parent + 1).expect_err("not our parent");
+        assert_eq!(error.raw_os_error(), Some(libc::ESRCH));
+        // SAFETY: clears the signal this test armed on its own thread.
+        unsafe {
+            libc::prctl(libc::PR_SET_PDEATHSIG, 0 as libc::c_ulong);
         }
     }
 }

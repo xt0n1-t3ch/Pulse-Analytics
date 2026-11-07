@@ -1,3 +1,5 @@
+//! OpenCode adapter: maps OpenCode sessions onto the shared session type.
+
 use cc_discord_presence::opencode::{Config, Session, preferred_session};
 use codex_presence_core::PresenceFieldId;
 

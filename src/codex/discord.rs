@@ -1,3 +1,5 @@
+//! Discord Rich Presence publisher and presentation preview for Codex sessions.
+
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use discord_rich_presence::activity::{Activity, Assets, Timestamps};
@@ -20,6 +22,7 @@ use crate::codex::telemetry::service_tier::ResolvedServiceTier;
 #[cfg(test)]
 use crate::codex::util::format_cost;
 use crate::codex::util::format_tokens;
+use crate::http;
 
 pub struct DiscordPresence {
     surface: PresenceSurface,
@@ -898,20 +901,13 @@ struct DiscordAssetResponse {
 
 fn fetch_discord_asset_keys(client_id: &str) -> Result<HashSet<String>> {
     let url = format!("https://discord.com/api/v10/oauth2/applications/{client_id}/assets");
-    let agent = ureq::AgentBuilder::new()
-        .timeout(DISCORD_ASSET_FETCH_TIMEOUT)
-        .build();
-    let body = agent
-        .get(&url)
+    let agent = http::agent(DISCORD_ASSET_FETCH_TIMEOUT, http::DEFAULT_REDIRECTS);
+    let response = agent
+        .get(url.as_str())
         .call()
-        .with_context(|| {
-            format!(
-                "failed to fetch Discord assets for application {}",
-                client_id
-            )
-        })?
-        .into_string()
-        .context("failed to decode Discord assets response as UTF-8")?;
+        .with_context(|| format!("failed to fetch Discord assets for application {client_id}"))?;
+    let body =
+        http::read_text(response).context("failed to decode Discord assets response as UTF-8")?;
     parse_discord_asset_keys(&body)
 }
 
@@ -1407,6 +1403,41 @@ mod tests {
             &config,
         );
         assert!(state.contains("GPT-6.1 Sol · Ultra · ⚡ Fast | Pro 20x ($200/month)"));
+    }
+
+    #[test]
+    fn state_labels_gpt_6_1_terra_standard_and_fast() {
+        for (model, speed_mode, fast_tier, label) in [
+            (
+                "gpt-6.1-terra",
+                SpeedMode::Standard,
+                false,
+                "GPT-6.1 Terra · Ultra | Pro 20x ($200/month)",
+            ),
+            (
+                "gpt-6.1-terra",
+                SpeedMode::Fast,
+                true,
+                "GPT-6.1 Terra · Ultra · ⚡ Fast | Pro 20x ($200/month)",
+            ),
+        ] {
+            let mut session = sample_session();
+            session.model = Some(model.to_string());
+            session.reasoning_effort = Some(crate::codex::session::ReasoningEffort::Ultra);
+            session.speed = crate::codex::model::SessionSpeed::explicit(
+                speed_mode,
+                crate::codex::model::SpeedSource::ThreadSettings,
+            );
+            let config = PresenceConfig::default();
+            let (_details, state) = presence_lines(
+                &session,
+                Some(&session.limits),
+                &resolved_plan_pro(),
+                &resolved_service_tier(fast_tier),
+                &config,
+            );
+            assert!(state.contains(label), "{state}");
+        }
     }
 
     #[test]

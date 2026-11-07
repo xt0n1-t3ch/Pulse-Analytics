@@ -1,17 +1,19 @@
+# Drafts Unreleased text only; curate release summaries in CHANGELOG.md.
 [changelog]
 header = """
 
 All notable changes to Pulse are documented here.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 """
 body = """
-{% if version %}\
-{% else %}\
-{% endif %}
+## [Unreleased]
+
 {% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+
 {% for commit in commits %}
 - {{ commit.message | split(pat="\\n") | first | trim }}{% if commit.id %} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/xt0n1-t3ch/Pulse-Analytics/commit/{{ commit.id }})){% endif %}\
 {% endfor %}

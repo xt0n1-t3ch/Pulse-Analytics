@@ -2,30 +2,33 @@
 
 # Pulse storage and migration
 
-Pulse stores its own data in `~/.pulse-analytics/`. Set `PULSE_HOME` to an absolute path to use another directory. On Windows, the default is `%USERPROFILE%\.pulse-analytics`. `CLAUDE_HOME` and `CODEX_HOME` change provider discovery, not Pulse storage. This behavior is the same in 1.8.2 and 1.9.0.
+Pulse writes only inside `~/.pulse-analytics/`. Set `PULSE_HOME` to an absolute path to use another directory; on Windows the default is `%USERPROFILE%\.pulse-analytics`. `CLAUDE_HOME` and `CODEX_HOME` change where Pulse looks for sessions, not where it stores anything.
 
-| Location inside the Pulse directory | Contents |
+| Folder | Contents |
 | --- | --- |
-| `pulse-analytics.db` | History, budgets and notifications; SQLite WAL sidecars stay beside it |
-| `pulse-provider.json`, `pulse-app-settings.json` | Selected provider and window preferences |
-| `pulse-opencode.json` | OpenCode integration and presence settings |
-| `pulse-last-app-snapshot.json` | Cached application snapshot |
-| `claude/` | Presence settings, usage cache, daemon metrics and diagnostic log |
-| `claude/session-checkpoints/v1/` | Parse checkpoints for Claude transcripts. Each file records the Pulse version that wrote it; files from another version or for a deleted transcript are removed at startup |
-| `codex/` | Presence settings and plan cache |
-| `legacy-migration-v1.json`, `migration.lock` | Migration receipt and coordination |
+| `config/` | `app.json` (window), `provider.json` (selected provider), `claude-presence.json` and `codex-presence.json` (Discord), `opencode.json`, `orion.json`, `commandcode.json` (integrations) |
+| `data/` | `pulse-analytics.db`: history, budgets, accounts and notifications. SQLite keeps its `-wal` and `-shm` files beside it while Pulse runs |
+| `accounts/` | Private profiles of Pulse-managed account connections |
+| `cache/` | `app-snapshot.json` (first frame of the next launch, saved at most once a minute), `claude-usage.json`, `codex-plan.json`, `claude-checkpoints/` (transcript parse checkpoints) and `codex-probe/` (the isolated `CODEX_HOME` of a Codex quota read). Safe to delete while Pulse is closed |
+| `state/` | Lock files and the one-time migration receipt |
+| `logs/` | `daemon.log`, capped at 1 MiB plus one `.old` copy |
+| `webview/` | The embedded browser profile (local storage and HTTP cache). On macOS the system keeps it in its own WebKit store |
 
-Provider credentials, transcripts, model inventories, OpenCode databases and the Claude statusline handoff stay in their existing directories. Legacy daemon instance locks also stay at their existing paths so old and new daemons cannot publish concurrently. Locks are coordination files, not analytics storage.
+## What Pulse never touches
+
+- Agent folders are read, never written: `~/.claude`, `~/.codex`, OpenCode's data folder, `~/.orion` and Command Code's folder. Pulse does not install hooks, statusline scripts or settings in them, and never rewrites an agent's login. Only a profile that Pulse itself created under `accounts/` gets refreshed tokens.
+- Another program's SQLite database is opened read-only. When its owner is closed, Pulse opens it as immutable, so no `-wal` or `-shm` file appears next to it.
+- No program runs on a timer. Process detection, the Git branch and instance checks run in-process. A Codex quota read starts `codex app-server` only when you select **Refresh** under **Provider limits** or refresh a Codex account, and its files stay in `cache/codex-probe/`. Opening a release page or connecting an account also runs a program, on that click only.
 
 ## First startup
 
 1. Stop the previous Pulse installation before upgrading. Do not run old and new versions together.
-2. Before polling or reading preferences, Pulse locks the migration directory.
-3. Missing Pulse files are copied from the configured legacy Claude/Codex homes. Existing destination files are never replaced. JSON copies are parsed and byte-checked.
-4. SQLite creates a consistent snapshot, including committed WAL transactions. Pulse checks it with `PRAGMA quick_check` before installing it without overwrite.
-5. Pulse writes a receipt after success. Later starts do not import legacy data again.
+2. Before polling or reading preferences, Pulse locks `state/migration.lock`.
+3. Files from the flat 1.9 layout (`pulse-provider.json`, `claude/`, `codex/` and the others) move into the folders above. The analytics database is checkpointed first, so one move carries every committed transaction. A newer file is never replaced; its older duplicate is removed. Obsolete lock and metrics files are deleted and the empty `claude/` and `codex/` folders go away.
+4. Releases before 1.9 kept Pulse files in `~/.claude`. Pulse copies their settings and history, checks the database copy with `PRAGMA quick_check`, then removes those Pulse files from `~/.claude`. Claude's own files are never touched. The Codex presence config is copied but stays in `~/.codex`, because Codex Discord Rich Presence uses it too.
+5. Pulse writes a receipt to `state/`. Later starts do not import legacy data again.
 
-Original files remain for rollback. A failed migration stops startup instead of silently creating empty history. Correct the reported path, permissions or corrupt source and retry. Partial migration resumes without overwriting destination files. The directory override uses the same migration; isolate provider homes too when testing.
+A failed migration stops startup instead of silently creating empty history. Correct the reported path, permissions or corrupt source and retry; a partial migration resumes without overwriting anything.
 
 ## Recovery
 
@@ -38,10 +41,10 @@ Do not delete the receipt to merge databases. Pulse does not automatically merge
 Earlier versions counted parts of some Claude responses more than once and priced Sonnet 5 and Fable 5.1 cache reads at outdated rates. Pulse corrects a session while it is active, but saved sessions that already ended keep their old totals until you correct them:
 
 1. Open **Settings** and select **Check history** under **Claude history correction**. Pulse re-reads your transcripts and shows how many sessions would change, with token and cost totals before and after. Nothing is written.
-2. Select **Correct sessions…**, then confirm. Pulse writes `pulse-analytics.db.pre-history-repair-<UTC time>.bak` with `VACUUM INTO`, checks it, and updates the sessions in one transaction.
+2. Select **Correct sessions…**, then confirm. Pulse writes `data/pulse-analytics.db.pre-history-repair-<UTC time>.bak` with `VACUUM INTO`, checks it, and updates the sessions in one transaction.
 3. Sessions whose transcript is no longer on this computer stay unchanged. Sessions priced by Claude's statusline keep their cost and receive corrected token counts only.
 
-To undo the correction, stop Pulse and restore the backup file as `pulse-analytics.db`.
+To undo the correction, stop Pulse and restore the backup file as `data/pulse-analytics.db`.
 
 ## Privacy
 

@@ -29,7 +29,7 @@ Codex has distinct configuration keys for context capacity and automatic compact
 
 ## Claude Code
 
-The [Claude model guide](../models/claude.md#claude-code-capacity) separates native API capacity, Claude Code availability and compaction thresholds. The Sonnet 5.5 and Sonnet 5 default of about 967K is not a reserve rule for every Claude model. Both Sonnet versions always run with a 1M window on the direct Anthropic route, so Pulse selects 1,000,000 for them without a `[1m]` suffix.
+The [Claude model guide](../models/claude.md#claude-code-capacity) separates native API capacity, Claude Code availability and compaction thresholds. The Sonnet 5.5 and Sonnet 5 default of about 967K is not a reserve rule for every Claude model. Both Sonnet versions always run with a 1M window on the direct Anthropic route, so Pulse selects 1,000,000 for them without a `[1m]` suffix. Haiku 5.5 also has a 1M window (verified November 7, 2026) and gets 1,000,000 the same way; Haiku 4.5 stays at 200,000. Haiku 5.5's 100,000-token price tier is a cost rule, not a context limit: see [Haiku 5.5 prompt tiers](costs.md#haiku-55-prompt-tiers).
 
 The [JSONL parser](../../src/session.rs) maintains two fields:
 
@@ -38,7 +38,7 @@ The [JSONL parser](../../src/session.rs) maintains two fields:
 | `current_context_tokens` | Latest total input: uncached input + cache creation + cache read | Resets to valid `postTokens`, then follows later turns |
 | `max_turn_api_input` | Largest total input in any observed turn | Keeps the historical peak |
 
-The current meter uses `current_context_tokens`. Pulse's capacity heuristic uses the model's GA context flag, a `[1m]` suffix or a historical input above 200,000 to select 1,000,000 instead of 200,000. This is the current implementation, not a universal claim about every Claude account. [Capacity selection](../../src-tauri/src/commands.rs).
+The current meter uses `current_context_tokens`. Pulse's capacity heuristic uses the model's GA context flag (`is_ga_1m_context`, which covers Fable/Mythos, Sonnet 5, Sonnet 5.5 and Haiku 5.5 and the Opus versions from 4.6), a `[1m]` suffix or a historical input above 200,000 to select 1,000,000 instead of 200,000. This is the current implementation, not a universal claim about every Claude account. [Capacity selection](../../src-tauri/src/commands.rs).
 
 ### Compaction example
 

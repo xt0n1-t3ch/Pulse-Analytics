@@ -1,8 +1,72 @@
 # Changelog
 
-All notable changes to **Pulse** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versioning is [SemVer](https://semver.org/).
+All notable changes to Pulse are documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/2.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+Pulse versions cover the desktop installers and the `cc-discord-presence` daemon CLI, analytics database and configuration schemas, and access to provider data folders. Minor releases add compatible capabilities and patches correct existing behavior. Breaking CLI or data-contract changes require a major version and explicit migration notes. Each affected release announces compatibility, backup requirements and rollback steps. Pulse-owned migrations preserve existing sessions; provider source folders remain separate and read-only. Rollback across an incompatible schema requires the matching database backup as well as the older package.
 
 ## [Unreleased]
+
+## [2.0.0] - 2026-11-07
+
+Pulse 2.0.0 keeps everything it writes in `~/.pulse-analytics`, starts no background processes, adds Linux packaging, Claude Haiku 5.5 and GPT-6.1 Terra, and redraws the interface with Tahoe-style corners. Analytics stays at schema 7. The layout under `~/.pulse-analytics` moves into purpose folders on first start. Stored costs remain unchanged until a session is re-read or the history repair runs. Native runtime acceptance and publication must be verified separately from local checks. Back up the analytics database and configuration before replacing an installation.
+
+### Added
+
+- Claude Haiku 5.5 with two prompt-length price tiers and 1M context; GPT-6.1 Terra with provider-scoped context and pricing.
+- Price 1-hour prompt-cache writes at their own rate, falling back to the 5-minute rate when the TTL split is absent.
+- Read Orion App's current session index, JSONL transcripts and usage telemetry, with observed context window, cache hit rate, time to first token, output speed and per-agent subagent roll-up.
+- Arch/CachyOS PKGBUILD for the release binary, `CITATION.cff` and generated `llms-full.txt`.
+- `cargo xtask` commands for checks, llms files, changelog, repository metadata, catalog parity and release operations; `cargo xtask --help` describes every command and argument.
+- Orion App session details show time to first token, output speed, cache hit rate, the auto-compact point, helper requests and per-agent subagent usage; Home marks Orion's auto-compact point on the context bar.
+- A **Refresh** button under **Provider limits** reads the latest limits on request.
+
+### Changed
+
+- Price Sonnet 5.5 cache reads at $0.10 per million tokens (5% of input), and align GPT-5.6 Sol, Terra and Luna rates with the published table.
+- Apply the long-context tier to individual requests above 272,000 input tokens for GPT-5.6 Sol, Terra and Luna, GPT-5.5 and GPT-5.4: 2x input and cache, 1.5x output.
+- Use Rust 1.99.1 and a Bun workspace with bun test, bun check, bun fmt and oxlint, Vite 8, TypeScript 6 and compatible dependency updates.
+- Speed up development builds with mold on Linux, rust-lld on Windows and no development debug info.
+- Replace PowerShell release scripts and their tests with Rust tooling; adopt Keep a Changelog 2.0.0.
+- Move the HTTP client to ureq 3 and the SQLite binding to rusqlite 0.41.
+- Linux package-manager installs say updates come from the system package manager, also offline, and offer no in-app install.
+- Document every Rust module and move the large unit-test modules into their own files.
+- Keep everything Pulse writes in `~/.pulse-analytics`, grouped into `config/`, `data/`, `accounts/`, `cache/`, `state/`, `logs/` and `webview/`. The first start moves the flat 1.9 layout and removes the Pulse files older releases left in `~/.claude`.
+- Read the Codex account quota, which starts `codex app-server`, only on **Refresh** or an account refresh instead of every few minutes.
+- Detect processes and check instances in-process instead of running `tasklist`, `taskkill`, PowerShell or `ps`, and read the Git branch from `.git/HEAD` instead of running `git`.
+- Save the launch snapshot at most once a minute instead of on every live change.
+- Write a live session's analytics row at most once a minute while it changes, and once more when it stops, instead of on every poll.
+- Skip the database write when a session read from Orion App, OpenCode or Command Code has not changed at its source, so a restart no longer rewrites the whole imported history.
+- Turn buttons, fields and selectors into capsules, keep all provider tiles on one row, and let the token mix fill the session panel with each category's share.
+- Use the official vector Command Code mark, sharp at every size.
+- Draw rounded shapes with macOS Tahoe-style continuous corners (`corner-shape: squircle`) and larger, concentric radii; WebKitGTK gets the feature turned on at startup.
+
+### Removed
+
+- Vitest, Playwright, the Windows-only browser E2E harness and the npm lockfile.
+- The daemon metrics files rewritten every 10 seconds, which nothing read.
+
+### Fixed
+
+- Leave Claude turns without a model unpriced instead of assigning Sonnet 4 rates.
+- Stop treating Haiku 5.5 as Haiku 4.5 with a 200K context window.
+- Find Orion App sessions after Orion's October 17, 2026 storage change.
+- Avoid a crash on window close when the Linux tray library is missing, disable in-app updates for Linux package-manager installs and avoid blank WebKitGTK windows on NVIDIA.
+- Detect OpenCode and Codex desktop processes on Linux and macOS, and honor IDE lock files on macOS.
+- Resolve Discord banners and local storage on Linux.
+- Match workspace paths at component boundaries so `/x/cc` does not match `/x/cc-discord-presence`.
+- Terminate Pulse-owned child processes when Pulse exits on Linux.
+- Never rewrite Claude Code's own login. Token refreshes apply only to Pulse-managed profiles, and are written to the profile that was read.
+- Move the daemon lock out of `~/.claude`.
+- Stop leaving `-wal` and `-shm` files next to OpenCode, Orion App and Command Code databases.
+- Remove the browser cookie copy left in the temporary folder on Windows.
+- Keep tests out of the user's home folder and remove their temporary folders.
+
+### Security
+
+- Require rustls-webpki 0.103.16 or later and webpki-roots 1.0.10 or later for RUSTSEC-2026-0381 and RUSTSEC-2026-0382.
 
 ## [1.9.7] - 2026-10-17
 
@@ -18,17 +82,8 @@ GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna support, on-demand Codex quota reads and w
 - Pin `codex-presence-core` 2.0.1 to the upstream Codex-Discord-Rich-Presence v1.11.3 release (`77d5dd6`). The core API is unchanged from v1.11.2; v1.11.3 owns the GPT-6 catalog rows that Pulse copies.
 - The API-equivalent history estimate for GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna, like Astra, is withheld when a stored session total is above 272,000 input tokens, because the total cannot show which requests crossed the long-context threshold. Rows already stored are not changed.
 
-### Security
-
-- Remove the webview's filesystem write grant and its `$HOME/**` scope. Every export (HTML report, CSV, analytics JSON) already downloads through the browser, so no frontend code needs file access. Remove unused `dialog:allow-save`, `notification:default` and window hide/show/focus grants.
-- Add a Content Security Policy to the Pulse window: bundled scripts only, no `eval`, inline styles, IPC, local and `data:`/`blob:` images plus `https://cdn.discordapp.com` for the Discord avatar and banner preview.
-- Set `withGlobalTauri` to `false`. The title bar window controls import `@tauri-apps/api/window` instead of reading `window.__TAURI__`.
-- Limit links the webview can open in the system browser to `https://` URLs.
-- Compare the dev bridge bearer token in constant time.
-- Grant the event listen/unlisten/emit and app theme commands the frontend already calls. They were missing from the capability, so live snapshot pushes fell back to polling, notification read/dismiss changes did not reach the tray and the native window theme did not follow the in-app toggle.
-- Update rustls to 0.23.46 (RUSTSEC-2026-0346 to 0349).
-- The isolated Codex quota probe deletes any `auth.json` it wrote as soon as the probe ends, and again before the next probe after a crash.
-- Record RUSTSEC-2026-0367, 0368 and 0369 in `zip` 4.6.1 as reviewed exceptions. `tauri-plugin-updater` uses `zip` only on Windows, extracts only after the minisign signature check passes, and no updater release accepts the fixed `zip` 9. See the [dependency audit](docs/maintainers/dependencies.md#updater-zip-advisories).
+- tauri 2.11.6, tauri-plugin-single-instance 2.4.5, thiserror 2.0.21, clap 4.6.7, serde_json 1.0.154; add windows-sys 0.61 for job objects.
+- Frontend tooling: vite 6.4.4, vitest and @vitest/coverage-v8 5.0.5, svelte 5.57.2, svelte-check 4.7.7, happy-dom 20.14.6, @testing-library/user-event 14.6.8, source-map-js 1.2.2.
 
 ### Fixed
 
@@ -40,10 +95,17 @@ GPT-6.1 Sol, GPT-6 Sol and GPT-6 Luna support, on-demand Codex quota reads and w
 - Reload the Codex presence config only when the file changes instead of on every 5-second poll.
 - Cap the daemon diagnostic log at 1 MB with one rotated copy, and remove atomic-write temp files left in `PULSE_HOME` by a crash once they are a day old.
 
-### Dependencies
+### Security
 
-- tauri 2.11.6, tauri-plugin-single-instance 2.4.5, thiserror 2.0.21, clap 4.6.7, serde_json 1.0.154; add windows-sys 0.61 for job objects.
-- Frontend tooling: vite 6.4.4, vitest and @vitest/coverage-v8 5.0.5, svelte 5.57.2, svelte-check 4.7.7, happy-dom 20.14.6, @testing-library/user-event 14.6.8, source-map-js 1.2.2.
+- Remove the webview's filesystem write grant and its `$HOME/**` scope. Every export (HTML report, CSV, analytics JSON) already downloads through the browser, so no frontend code needs file access. Remove unused `dialog:allow-save`, `notification:default` and window hide/show/focus grants.
+- Add a Content Security Policy to the Pulse window: bundled scripts only, no `eval`, inline styles, IPC, local and `data:`/`blob:` images plus `https://cdn.discordapp.com` for the Discord avatar and banner preview.
+- Set `withGlobalTauri` to `false`. The title bar window controls import `@tauri-apps/api/window` instead of reading `window.__TAURI__`.
+- Limit links the webview can open in the system browser to `https://` URLs.
+- Compare the dev bridge bearer token in constant time.
+- Grant the event listen/unlisten/emit and app theme commands the frontend already calls. They were missing from the capability, so live snapshot pushes fell back to polling, notification read/dismiss changes did not reach the tray and the native window theme did not follow the in-app toggle.
+- Update rustls to 0.23.46 (RUSTSEC-2026-0346 to 0349).
+- The isolated Codex quota probe deletes any `auth.json` it wrote as soon as the probe ends, and again before the next probe after a crash.
+- Record RUSTSEC-2026-0367, 0368 and 0369 in `zip` 4.6.1 as reviewed exceptions. `tauri-plugin-updater` uses `zip` only on Windows, extracts only after the minisign signature check passes, and no updater release accepts the fixed `zip` 9. See the [dependency audit](docs/maintainers/dependencies.md#updater-zip-advisories).
 
 ## [1.9.6] - 2026-09-29
 
@@ -59,13 +121,11 @@ Orion App provider and Claude Sonnet 5.5 release. The database remains schema 7,
 - Claude Opus 5.5 and Claude Sonnet 5.5 no longer show the inflated-tokenizer marker. The marker stays on Sonnet 5 and Opus 4.7/4.8.
 - Label every calculated session cost (Claude, Codex and Orion App) as "Session cost" with the note "Calculated from token counts at public API rates. Not a provider invoice." Provider-reported totals keep "Reported value".
 
+- Rewrite `llms.txt` to the llms.txt v2 format with absolute links, key facts and an Optional section. Describe all five providers in the README, package descriptions and installer text, and add a 1280×640 social preview image at `assets/social-preview.png`.
+
 ### Fixed
 
 - Read the Orion App project name from Windows paths on Linux and macOS as well. The Linux release preflight failed on this.
-
-### Documentation
-
-- Rewrite `llms.txt` to the llms.txt v2 format with absolute links, key facts and an Optional section. Describe all five providers in the README, package descriptions and installer text, and add a 1280×640 social preview image at `assets/social-preview.png`.
 
 ## [1.9.5] - 2026-09-22
 
@@ -74,6 +134,10 @@ Claude plan, pricing and data-integrity release. The database remains schema 7, 
 ### Added
 
 - Correct saved Claude history on request. **Settings > Claude history correction** re-reads transcripts, shows how many sessions would change with token and cost totals before and after, and applies the correction only after confirmation. It writes a verified `VACUUM INTO` backup first and updates the sessions in one transaction. Sessions without a transcript stay unchanged, and statusline-priced sessions keep their cost.
+
+### Changed
+
+- Record six-platform 1.9.3 and 1.9.4 publication and the installed Windows x64 upgrade evidence, including the Opus 5.5 cost recomputation.
 
 ### Fixed
 
@@ -84,10 +148,6 @@ Claude plan, pricing and data-integrity release. The database remains schema 7, 
 - Store Claude session checkpoints under `PULSE_HOME/claude/session-checkpoints/` instead of inside Claude's own `~/.claude` folder. File names use a stable hash, so a Rust toolchain update no longer orphans them. At startup, Pulse removes checkpoints from another version, checkpoints for deleted transcripts and the old folder in `~/.claude`.
 - Ignore the Claude usage cache when it belongs to another account. The cache now stores a hash of the account and organization IDs, never a token, so switching accounts no longer shows the previous account's limits for up to five minutes. The cache is written atomically because the daemon and the app can both update it.
 - Show the saved startup snapshot only when the same Pulse version wrote it within the last 24 hours. After an upgrade, the first screen no longer shows costs and plans computed by the previous version.
-
-### Documentation
-
-- Record six-platform 1.9.3 and 1.9.4 publication and the installed Windows x64 upgrade evidence, including the Opus 5.5 cost recomputation.
 
 ## [1.9.4] - 2026-09-22
 
@@ -106,18 +166,18 @@ Claude Opus 5.5 release. The database remains schema 7, Claude config schema 6 a
 
 - Claude Opus 5.5 (`claude-opus-5-5`) support: official $4/$20 per million input/output, $5 5-minute cache writes and $0.20 cache reads (0.05x input), 1M GA context without a long-context surcharge, Fast mode at $8/$40, display names, Rich Presence labels, model routing and reports. Rates verified September 22, 2026 against Anthropic's pricing page.
 
-### Fixed
-
-- `claude-opus-5-5` no longer falls through to Opus 5's $5/$25 rates, which overstated Opus 5.5 estimates by 25% and cache reads by 150%. Opus 5 classification now requires exactly version 5.0.
-
-### Documentation
+### Changed
 
 - Add Opus 5.5 to the Claude model guide, price table, Fast list and implementation-gap table.
 - Record six-platform 1.9.2 publication, downloaded-asset verification and installed Windows upgrade evidence, with remaining host-specific acceptance gaps.
 
+### Fixed
+
+- `claude-opus-5-5` no longer falls through to Opus 5's $5/$25 rates, which overstated Opus 5.5 estimates by 25% and cache reads by 150%. Opus 5 classification now requires exactly version 5.0.
+
 ## [1.9.2] - 2026-09-20
 
-Patch correction for Command Code Rich Presence. The database remains schema 7, provider configuration is unchanged, and the immutable shared core stays at 2.0.1. Rollback to 1.9.1 needs only its package; rollback to 1.8.2 still requires the pre-schema-7 database backup. GitHub macOS packages have no Apple Developer ID signature or notarization.
+Patch correction for Command Code Rich Presence. The database remains schema 7, provider configuration is unchanged, and the immutable shared core stays at 2.0.1. Rollback to 1.9.1 needs only its package; rollback to 1.8.2 still requires the pre-schema-7 database backup. GitHub macOS packages have no Apple Developer ID signature or notarization. Validation recorded for this release: Cover idle, stale/completed sessions, disabled publication, provider labels and disconnected states. Verify the production idle publisher with real Discord acknowledgement and native UI toggle-off/toggle-on checks.
 
 ### Fixed
 
@@ -125,20 +185,21 @@ Patch correction for Command Code Rich Presence. The database remains schema 7, 
 - Exclude historical session fields and session elapsed time from idle activity. Active sessions still publish their current data with existing privacy controls.
 - Show Command Code's own idle label instead of "OpenCode is idle". Distinguish a published idle activity from a disconnected Discord client and remove the misleading publisher-ownership copy.
 
-### Tests
-
-- Cover idle, stale/completed sessions, disabled publication, provider labels and disconnected states. Verify the production idle publisher with real Discord acknowledgement and native UI toggle-off/toggle-on checks.
-
 ## [1.9.1] - 2026-09-20
 
-Pulse 1.9.1 delivers the compatible 1.9 feature line: it adds Accounts, the Command Code provider and Codex cost coverage without removing existing behavior. The analytics database migrates additively to schema 7. Claude config schema 6 and Codex presence config schema 13 are unchanged. The shared `codex-presence-core` pin moves to 2.0.1 at `0caece60a71eb657d7b829e3b6c7c4896a0a536c` (canonical v1.11.2), which publishes per-event Codex cost accumulation and the reserved compositor cost space.
-
-Rollback: Pulse 1.8.2 cannot open a schema 7 database. Reinstall the published 1.8.2 package and restore the database backup taken before the schema 7 migration. Account removal writes a tombstone; it does not sign out a provider agent and does not delete transcripts. GitHub macOS packages carry no Apple Developer ID signature or notarization.
+Pulse 1.9.1 delivers the compatible 1.9 feature line: it adds Accounts, the Command Code provider and Codex cost coverage without removing existing behavior. The analytics database migrates additively to schema 7. Claude config schema 6 and Codex presence config schema 13 are unchanged. The shared `codex-presence-core` pin moves to 2.0.1 at `0caece60a71eb657d7b829e3b6c7c4896a0a536c` (canonical v1.11.2), which publishes per-event Codex cost accumulation and the reserved compositor cost space. Rollback: Pulse 1.8.2 cannot open a schema 7 database. Reinstall the published 1.8.2 package and restore the database backup taken before the schema 7 migration. Account removal writes a tombstone; it does not sign out a provider agent and does not delete transcripts. GitHub macOS packages carry no Apple Developer ID signature or notarization.
 
 ### Added
 
 - Add Accounts with independent provider connections, native allowances, credits, banked resets, per-account refresh state and protected profiles. Removing a link leaves agent logins and session history intact.
 - Add one Command Code CLI/Desktop adapter across analytics, reports, Accounts and Discord, with official artwork and a shared identity.
+
+### Changed
+
+- Upgrade Vitest and coverage to 5.0.0, align the Node.js/Vite baseline, and synchronize npm and Bun resolution. This changes contributor tooling, not the application runtime or data schema.
+- Link the current downloads for all six targets and record publication, checksum, signature and native-runtime acceptance boundaries.
+- Remove superseded release-preparation instructions and document the promoted core and schema-7 rollback boundary.
+- Promote the shared `codex-presence-core` pin to 2.0.1 from the immutable upstream v1.11.2 release, replacing the 2.0.0 pin at canonical v1.10.3.
 
 ### Fixed
 
@@ -151,35 +212,17 @@ Rollback: Pulse 1.8.2 cannot open a schema 7 database. Reinstall the published 1
 
 - Update `rustls` to 0.23.45 and `rustls-webpki` to 0.103.15 for RUSTSEC-2026-0285, which affects TLS 1.3 handshake validation.
 
-### Changed
-
-- Upgrade Vitest and coverage to 5.0.0, align the Node.js/Vite baseline, and synchronize npm and Bun resolution. This changes contributor tooling, not the application runtime or data schema.
-- Link the current downloads for all six targets and record publication, checksum, signature and native-runtime acceptance boundaries.
-- Remove superseded release-preparation instructions and document the promoted core and schema-7 rollback boundary.
-- Promote the shared `codex-presence-core` pin to 2.0.1 from the immutable upstream v1.11.2 release, replacing the 2.0.0 pin at canonical v1.10.3.
-
 ## [1.9.0] - 2026-09-19
 
 Unpublished candidate. The annotated tag is retained unchanged. Publication was cancelled before any release assets became public because the updater rejected canonical links after the repository rename. Version 1.9.1 includes the candidate features and the correction.
 
+### Changed
+
+- Nothing shipped in this version: its publication was cancelled, and 1.9.1 carries every change.
+
 ## [1.8.2] - 2026-09-05
 
 Patch release with no configuration or database schema change. Native cross-platform packages require the complete build, checksum and updater-signature gate. macOS DMGs and app archives are distributed through GitHub without Apple Developer ID signing or notarization; macOS may block first launch. This is not an App Store release. Known model-rate discrepancies remain documented; this release does not change runtime pricing.
-
-### Fixed
-
-- Pass the macOS executable before the architecture list to `lipo`, so successful DMG builds pass the native package check.
-
-- Repair UTF-8 documentation text, include OpenCode in package and repository discovery metadata, and clarify local analytics, costs and network access.
-- Use Node 24 artifact actions and the repository retention policy without deprecated-runtime or retention-limit warnings.
-
-- Use host-native fixture paths in the OpenChamber process identity test so Linux and macOS execute the same assertions as Windows. Runtime process detection is unchanged.
-
-- Resolve OpenCode provider and allowance icons from the tracked versioned artwork, so clean checkouts do not depend on an ignored local image.
-
-### Security
-
-- Patch the brace-expansion and nanoid transitive dependencies reported by npm audit.
 
 ### Changed
 
@@ -200,24 +243,37 @@ Patch release with no configuration or database schema change. Native cross-plat
 - Update Svelte to 5.56.10, Testing Library user-event to 14.6.7 and the Tauri filesystem JavaScript plugin to 2.5.2 (#113, #114, #115).
 - Update Tauri single-instance to 2.4.4, shell to 2.3.6, dialog to 2.7.3 and its filesystem dependency to 2.5.2 (#116, #117, #118).
 
-## [1.8.1] - 2026-09-05
-
-Pulse 1.8.1 includes the OpenCode and GPT-6 Astra integration, interface updates and Windows Efficiency mode introduced in 1.8.0. This patch also corrects non-Windows compilation. The highlights below describe the complete 1.8 update, not additional changes made after the 1.8.1 build.
-
 ### Fixed
 
-- Make Windows Efficiency mode initialization an explicit no-op on other operating systems, so warning-denying Linux builds pass without suppressing lints. Windows EcoQoS behavior is unchanged.
+- Pass the macOS executable before the architecture list to `lipo`, so successful DMG builds pass the native package check.
 
-### Included from 1.8.0
+- Repair UTF-8 documentation text, include OpenCode in package and repository discovery metadata, and clarify local analytics, costs and network access.
+- Use Node 24 artifact actions and the repository retention policy without deprecated-runtime or retention-limit warnings.
 
-#### GPT-6 Astra support
+- Use host-native fixture paths in the OpenChamber process identity test so Linux and macOS execute the same assertions as Windows. Runtime process detection is unchanged.
+
+- Resolve OpenCode provider and allowance icons from the tracked versioned artwork, so clean checkouts do not depend on an ignored local image.
+
+### Security
+
+- Patch the brace-expansion and nanoid transitive dependencies reported by npm audit.
+
+## [1.8.1] - 2026-09-05
+
+Pulse 1.8.1 includes the OpenCode and GPT-6 Astra integration, interface updates and Windows Efficiency mode introduced in 1.8.0. This patch also corrects non-Windows compilation. The highlights below describe the complete 1.8 update, not additional changes made after the 1.8.1 build. Use the attached Windows x64 NSIS or MSI installer and verify it with `SHA256SUMS.txt`. This local release does not include a signed automatic-updater manifest. Back up configuration and the analytics database before upgrading; rollback must restore a compatible database backup with the older executable. See the [OpenCode and Astra guide](https://github.com/xt0n1-t3ch/Pulse-Analytics/blob/v1.8.1/docs/opencode-and-astra.md), [Windows Efficiency mode](https://github.com/xt0n1-t3ch/Pulse-Analytics/blob/v1.8.1/docs/windows-efficiency.md), and [complete changes since 1.7.9](https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.7.9...v1.8.1).
+
+### Added
+
+
+- **GPT-6 Astra support:**
 
 - Recognize `gpt-6-astra` as GPT-6 Astra in session analytics and Discord presence through the shared model catalog.
 - Preserve observed reasoning effort, including `ultra`, without presenting harness-specific labels as API settings.
 - Track context limits and Standard/Fast pricing. Keep incomplete monetary coverage visible instead of claiming an exact bill.
 - Keep subscription credits separate from token-based cost estimates. Unknown credit conversion remains unavailable.
 
-#### Native OpenCode integration
+
+- **Native OpenCode integration:**
 
 - Read local OpenCode SQLite history without an agent plugin, including supported message-table schemas and configured database paths.
 - Preserve model providers, original model IDs and mixed-model contributions. Recorded zero cost remains distinct from missing cost.
@@ -225,7 +281,8 @@ Pulse 1.8.1 includes the OpenCode and GPT-6 Astra integration, interface updates
 - Remove completed sessions from live focus and Discord presence while preserving their history. With no recent session, show an idle state instead of an old model.
 - Use the square OpenCode artwork in Pulse and Discord. Keep quota toggles, presets and field order consistent between preview and publication.
 
-#### Frontend, design and responsive layouts
+
+- **Frontend, design and responsive layouts:**
 
 - Use one provider bar for Claude, Codex, OpenCode and combined analytics. Keep Discord's broadcast choice separate from combined history.
 - Scope Home summaries and activity to the selected provider and seven-day window, with a separately labeled monthly projection.
@@ -234,33 +291,36 @@ Pulse 1.8.1 includes the OpenCode and GPT-6 Astra integration, interface updates
 - Use two-row mobile navigation, compact provider selection and collapsible Home quotas. Keep Sessions and Costs metrics in two columns on narrow screens.
 - Preserve keyboard navigation, visible focus, selected states and explicit horizontal scrolling for wide tables.
 
-#### Notification center
+
+- **Notification center:**
 
 - Add individual and bulk read/unread controls.
 - Confirm list clearing and retain the stored records. Persistent Undo restores the last confirmed clear and its read states.
 - Keep the last loaded history when refresh fails. Do not claim an unconfirmed mutation succeeded.
 
-#### Performance and Windows efficiency
+
+- **Performance and Windows efficiency:**
 
 - Import OpenCode history in bounded, incremental batches. Reuse calculated metadata for unchanged recent sessions and advance cursors only after persistence succeeds.
 - Poll OpenCode Go usage through a background worker with a 60-second interval, timeout and no redirects.
 - Request process-local Windows EcoQoS and Idle priority, with an environment opt-out and read-only verifier. Task Manager controls the leaf indicator; this is not a measured energy-savings claim.
 - Add a portable Tauri build command that embeds the frontend and does not require a development server.
 
-#### Data accuracy and compatibility
+
+- **Data accuracy and compatibility:**
 
 - Give a manual Codex plan selection priority over cached detection. Recognize Pro 5x, Pro 20x, Edu and explicit aliases.
 - Read the connected Discord name and avatar from local READY identity. Do not fabricate missing banners or image badges.
 - Display monetary values with two decimal places without reducing stored precision.
 - Migrate analytics to schema 6 for OpenCode metadata. The shared core remains 2.0.0 at its existing immutable Git revision.
 
-### Installation and recovery
+### Fixed
 
-Use the attached Windows x64 NSIS or MSI installer and verify it with `SHA256SUMS.txt`. This local release does not include a signed automatic-updater manifest. Back up configuration and the analytics database before upgrading; rollback must restore a compatible database backup with the older executable.
-
-See the [OpenCode and Astra guide](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/blob/v1.8.1/docs/opencode-and-astra.md), [Windows Efficiency mode](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/blob/v1.8.1/docs/windows-efficiency.md), and [complete changes since 1.7.9](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/compare/v1.7.9...v1.8.1).
+- Make Windows Efficiency mode initialization an explicit no-op on other operating systems, so warning-denying Linux builds pass without suppressing lints. Windows EcoQoS behavior is unchanged.
 
 ## [1.8.0] - 2026-09-05
+
+OpenCode, GPT-6 Astra, adaptive layouts and Windows Efficiency mode. Analytics migrates to schema 6; retain a compatible database backup before upgrading.
 
 ### Added
 
@@ -290,11 +350,26 @@ See the [OpenCode and Astra guide](https://github.com/xt0n1-t3ch/Pulse-Claude-Co
 
 ## [1.7.9] - 2026-08-27
 
-### Removed
+Interface and reporting refinements, Discord identity corrections and removal of the primary Context route. Live context remains available in session details.
 
-- The Context view: it duplicated the Sessions surface whenever no session
-  was live. Live-session context composition stays available through the
-  session detail views.
+### Added
+
+- The Discord live preview uses the signed-in local client's real identity:
+  the account's global display name is parsed from the LevelDB profile record,
+  the handle renders as an `@username` subtitle, and avatar, banner, and names
+  refresh every 60 seconds instead of being captured once at startup.
+- Dashboard sections state their data window (all time / month to date /
+  30 days), the initial analytics load renders skeleton placeholders instead of
+  reading as empty history, and the active-session tray plus focus panel form a
+  complete tab/tabpanel pair.
+- Settings reports a load failure for the window-close preference as a warning
+  toast that keeps the default, and disables the export button with an
+  "Exporting…" label while an export runs.
+- Context exposes a clear empty state ("Nothing live yet") with a direct path
+  to the Sessions view.
+- The Discord live preview mirrors the real Rich Presence payload's small
+  activity asset as a decorative circular chip on the artwork when the backend
+  provides one.
 
 ### Changed
 
@@ -302,7 +377,7 @@ See the [OpenCode and Astra guide](https://github.com/xt0n1-t3ch/Pulse-Claude-Co
   primary label derives from the window duration ("5-hour limit", "Weekly
   limit"), model-scoped windows carry the model name as a muted secondary
   line, and raw tokens like "1w" are gone from primary labels.
-- The Discord Live Preview card is re-skinned onto the app's theme tokens —
+- The Discord Live Preview card is re-skinned onto the app's theme tokens -
   light and dark both render it as a native Pulse panel (zero hardcoded hex
   in the preview styles, enforced by a source-level test), with the real
   local avatar, username, and banner when present.
@@ -317,8 +392,6 @@ See the [OpenCode and Astra guide](https://github.com/xt0n1-t3ch/Pulse-Claude-Co
 - Repository discoverability: added root `llms.txt` (llmstxt.org format) and
   an SEO pass on the README (keyword-bearing opening, factual badge row,
   Why Pulse section, table of contents, single H1).
-
-### Changed
 
 - Reports bundles are cached in-process for 60 seconds per (window, project,
   provider) key, so revisiting the Reports view renders the stored analysis
@@ -345,7 +418,7 @@ See the [OpenCode and Astra guide](https://github.com/xt0n1-t3ch/Pulse-Claude-Co
 - The Context idle panel reads as a hero: the project name is the heading
   (no duplicated "Latest session" label), a full-width threshold-colored
   meter with big token figures, meta row for model/branch/time, and the
-  recorded category composition — with an honest one-liner when no
+  recorded category composition - with an honest one-liner when no
   breakdown was recorded.
 - Sessions replaces its raw native selects with the shared custom controls,
   keeps sort/range values verbatim, renders history as a real table with
@@ -357,24 +430,11 @@ See the [OpenCode and Astra guide](https://github.com/xt0n1-t3ch/Pulse-Claude-Co
 - Shell copy pass: "Needs attention", deduplicated accessible names on the
   Claude source card, shorter notification copy, calmer update-banner wording.
 
-### Added
+### Removed
 
-- The Discord live preview uses the signed-in local client's real identity:
-  the account's global display name is parsed from the LevelDB profile record,
-  the handle renders as an `@username` subtitle, and avatar, banner, and names
-  refresh every 60 seconds instead of being captured once at startup.
-- Dashboard sections state their data window (all time / month to date /
-  30 days), the initial analytics load renders skeleton placeholders instead of
-  reading as empty history, and the active-session tray plus focus panel form a
-  complete tab/tabpanel pair.
-- Settings reports a load failure for the window-close preference as a warning
-  toast that keeps the default, and disables the export button with an
-  "Exporting…" label while an export runs.
-- Context exposes a clear empty state ("Nothing live yet") with a direct path
-  to the Sessions view.
-- The Discord live preview mirrors the real Rich Presence payload's small
-  activity asset as a decorative circular chip on the artwork when the backend
-  provides one.
+- The Context view: it duplicated the Sessions surface whenever no session
+  was live. Live-session context composition stays available through the
+  session detail views.
 
 ### Fixed
 
@@ -400,12 +460,10 @@ See the [OpenCode and Astra guide](https://github.com/xt0n1-t3ch/Pulse-Claude-Co
 - The Settings footer derives a friendly platform label (Windows/macOS/Linux)
   via userAgentData with a raw-value fallback instead of printing the
   deprecated `navigator.platform` string.
-=======
+
 ## [1.7.8] - 2026-08-25
 
-Pulse 1.7.8 publishes the complete patch after the immutable release gate caught
-an architecture label missing from the Windows SBOM step before any v1.7.7
-artifacts became public.
+Pulse 1.7.8 publishes the complete patch after the immutable release gate caught an architecture label missing from the Windows SBOM step before any v1.7.7 artifacts became public.
 
 ### Fixed
 
@@ -415,9 +473,7 @@ artifacts became public.
 
 ## [1.7.7] - 2026-08-25
 
-Pulse 1.7.7 was an unpublished release candidate that renewed the
-time-bounded RustSec review contract that correctly stopped the first release
-attempt before any artifacts were published.
+Pulse 1.7.7 was an unpublished release candidate that renewed the time-bounded RustSec review contract that correctly stopped the first release attempt before any artifacts were published.
 
 ### Security
 
@@ -427,9 +483,14 @@ attempt before any artifacts were published.
 
 ## [1.7.6] - 2026-08-25
 
-Pulse 1.7.6 is a patch release that makes update availability truthful on each
-supported platform, completes native x64 and ARM64 release coverage, and
-refines the operational workspace without changing public data contracts.
+Pulse 1.7.6 is a patch release that makes update availability truthful on each supported platform, completes native x64 and ARM64 release coverage, and refines the operational workspace without changing public data contracts.
+
+### Changed
+
+- Refreshed Svelte and the frontend interaction test harness to compatible
+  patch releases.
+- Promoted the immutable Codex Presence Core pin to canonical v1.10.3 while
+  retaining Pulse-owned desktop classification at the adapter boundary.
 
 ### Fixed
 
@@ -446,19 +507,26 @@ refines the operational workspace without changing public data contracts.
 - Pulse's local Codex adapter recognizes `codex_work_desktop` sessions as the
   desktop app, matching the canonical Rich Presence classifier.
 
-### Changed
-
-- Refreshed Svelte and the frontend interaction test harness to compatible
-  patch releases.
-- Promoted the immutable Codex Presence Core pin to canonical v1.10.3 while
-  retaining Pulse-owned desktop classification at the adapter boundary.
-
 ## [1.7.5] - 2026-08-25
 
-Pulse 1.7.5 isolates analytics scope from Discord publishing, keeps Codex
-quota windows faithful to fresh provider data, makes reset dismissals durable,
-and ships a tighter, faster desktop workspace without changing public command
-or database contracts.
+Pulse 1.7.5 isolates analytics scope from Discord publishing, keeps Codex quota windows faithful to fresh provider data, makes reset dismissals durable, and ships a tighter, faster desktop workspace without changing public command or database contracts.
+
+### Changed
+
+- Refreshed the Svelte compiler and checker, user-interaction test harness, and
+  Rust error-derive lockfile to their compatible patch releases.
+- Refined the desktop analytics shell while preserving its ultra-dark canvas, clearer
+  text hierarchy, a compact provider strip, a less crowded Discord field
+  editor, and a bounded Reports loading state across desktop and narrow widths.
+- Reflowed account limits into a content-driven horizontal ledger above the
+  live workspace and widened the centered source selector, removing the empty
+  full-height rail and unused chrome space without changing provider ownership.
+- Split non-dashboard views into route-loaded production chunks. The measured
+  entry JavaScript fell from 506.28 kB to 148.06 kB (167.01 kB to 51.67 kB
+  gzip) while Home remains eagerly available.
+- Added rendered axe-core coverage to the existing dark/light Playwright
+  matrix, including the 390-pixel narrow shell across every primary view and
+  geometry checks for centered source occupancy and content-driven allowances.
 
 ### Fixed
 
@@ -488,135 +556,10 @@ or database contracts.
   silently composing a presence from defaults.
 - Reports now normalizes and bounds stored prompt excerpts, keeps them out of
   the rendered DOM by default, and requires an explicit per-session reveal.
-
-### Changed
-
-- Refreshed the Svelte compiler and checker, user-interaction test harness, and
-  Rust error-derive lockfile to their compatible patch releases.
-- Refined the desktop analytics shell while preserving its ultra-dark canvas, clearer
-  text hierarchy, a compact provider strip, a less crowded Discord field
-  editor, and a bounded Reports loading state across desktop and narrow widths.
-- Reflowed account limits into a content-driven horizontal ledger above the
-  live workspace and widened the centered source selector, removing the empty
-  full-height rail and unused chrome space without changing provider ownership.
-- Split non-dashboard views into route-loaded production chunks. The measured
-  entry JavaScript fell from 506.28 kB to 148.06 kB (167.01 kB to 51.67 kB
-  gzip) while Home remains eagerly available.
-- Added rendered axe-core coverage to the existing dark/light Playwright
-  matrix, including the 390-pixel narrow shell across every primary view and
-  geometry checks for centered source occupancy and content-driven allowances.
->>>>>>> origin/main
-
-## [1.7.8] - 2026-08-25
-
-Pulse 1.7.8 publishes the complete patch after the immutable release gate caught
-an architecture label missing from the Windows SBOM step before any v1.7.7
-artifacts became public.
-
-### Fixed
-
-- Windows x64 and ARM64 SBOM filenames now receive their matrix platform label
-  in the step that creates them, so the release assembler can verify and
-  publish the complete cross-platform asset set.
-
-## [1.7.7] - 2026-08-25
-
-Pulse 1.7.7 was an unpublished release candidate that renewed the
-time-bounded RustSec review contract that correctly stopped the first release
-attempt before any artifacts were published.
-
-### Security
-
-- Re-reviewed the 19 accepted Tauri/GTK3 and build-time RustSec warnings against
-  the current advisory database and extended their fail-closed review window to
-  September 25, 2026. No new vulnerability exception was added.
-
-## [1.7.6] - 2026-08-25
-
-Pulse 1.7.6 is a patch release that makes update availability truthful on each
-supported platform, completes native x64 and ARM64 release coverage, and
-refines the operational workspace without changing public data contracts.
-
-### Fixed
-
-- The repository status row now links to Pulse's real local quality gate instead
-  of a removed CI workflow, and the dashboard source strip uses the full
-  operational width with a higher-contrast Codex signal color.
-- Cross-platform releases now build and verify native Windows, macOS, and Linux
-  artifacts for both x64 and ARM64, including architecture-specific updater
-  targets, Windows SBOMs, checksums, and installer selection.
-- Pulse now offers **Update** only after Tauri confirms that the current
-  platform has a signed updater manifest. Missing or invalid updater metadata
-  shows **Open release** immediately instead of failing after approval, and the
-  verified update handle is reused for download and installation.
-- Pulse's local Codex adapter recognizes `codex_work_desktop` sessions as the
-  desktop app, matching the canonical Rich Presence classifier.
-
-### Changed
-
-- Refreshed Svelte and the frontend interaction test harness to compatible
-  patch releases.
-- Promoted the immutable Codex Presence Core pin to canonical v1.10.3 while
-  retaining Pulse-owned desktop classification at the adapter boundary.
-
-## [1.7.5] - 2026-08-25
-
-Pulse 1.7.5 isolates analytics scope from Discord publishing, keeps Codex
-quota windows faithful to fresh provider data, makes reset dismissals durable,
-and ships a tighter, faster desktop workspace without changing public command
-or database contracts.
-
-### Fixed
-
-- The frameless Windows title bar uses Tauri's native drag command again,
-  preserves double-click maximize, and excludes navigation, notifications,
-  theme, and window controls from the draggable surface.
-- Analytics source changes no longer switch the provider published to Discord.
-  The Discord view keeps its own Claude/Codex broadcaster selector while Home,
-  Sessions, Context, Costs, and Reports retain their independent provider scope.
-- Codex quota presentation now projects the provider's effective account scope.
-  A newly reported weekly-only response removes an older or model-scoped 5-hour
-  window from Pulse surfaces instead of presenting an invented `100% remaining`
-  value; reported zero usage remains distinct from an absent window.
-- Model-scoped quota windows now keep duration-specific identities, so a 5-hour
-  and weekly window cannot alternately recreate the same reset notification on
-  every poll. Dismissal remains durable across refreshes and restarts, and a
-  one-time migration hides pre-fix collision rows without deleting the audit
-  trail or suppressing later genuine reset events.
-- A malformed Discord configuration now degrades only Discord settings and
-  preview data. Core analytics remain live, same-provider last-good Discord
-  data stays visible with an explicit warning, provider changes revoke that
-  cache, and poisoned shared state fails the whole snapshot instead of
-  publishing fabricated empty telemetry.
-- Snapshot freshness uses the backend capture timestamp, including restored
-  startup snapshots, rather than the time the frontend happened to receive it.
-  Direct Discord preview reads now report configuration errors instead of
-  silently composing a presence from defaults.
-- Reports now normalizes and bounds stored prompt excerpts, keeps them out of
-  the rendered DOM by default, and requires an explicit per-session reveal.
-
-### Changed
-
-- Refreshed the Svelte compiler and checker, user-interaction test harness, and
-  Rust error-derive lockfile to their compatible patch releases.
-- Refined the desktop analytics shell while preserving its ultra-dark canvas, clearer
-  text hierarchy, a compact provider strip, a less crowded Discord field
-  editor, and a bounded Reports loading state across desktop and narrow widths.
-- Reflowed account limits into a content-driven horizontal ledger above the
-  live workspace and widened the centered source selector, removing the empty
-  full-height rail and unused chrome space without changing provider ownership.
-- Split non-dashboard views into route-loaded production chunks. The measured
-  entry JavaScript fell from 506.28 kB to 148.06 kB (167.01 kB to 51.67 kB
-  gzip) while Home remains eagerly available.
-- Added rendered axe-core coverage to the existing dark/light Playwright
-  matrix, including the 390-pixel narrow shell across every primary view and
-  geometry checks for centered source occupancy and content-driven allowances.
 
 ## [1.7.2] - 2026-08-12
 
-Pulse 1.7.2 makes local analytics incremental and provenance-correct, removes
-blank route transitions, and promotes the published Codex Presence Core that
-recognizes the Daybreak Blue and Red cyber models.
+Pulse 1.7.2 makes local analytics incremental and provenance-correct, removes blank route transitions, and promotes the published Codex Presence Core that recognizes the Daybreak Blue and Red cyber models.
 
 ### Added
 
@@ -625,6 +568,12 @@ recognizes the Daybreak Blue and Red cyber models.
   six observed reasoning-effort tiers without inventing Blue pricing.
 - Versioned active-session checkpoints, bundled dashboard/cost snapshots, and
   reconciliation fixtures spanning raw JSONL, SQLite, command DTOs, and exports.
+
+### Changed
+
+- Pulse pins `codex-presence-core` 2.0.0 to the immutable Discord Rich Presence
+  `v1.10.2` release at commit `a508507e0849fd5c9e09c7d1c55eebe2d199cfc0`.
+- `@testing-library/user-event` is updated to 14.6.3.
 
 ### Fixed
 
@@ -640,24 +589,30 @@ recognizes the Daybreak Blue and Red cyber models.
   Windows SPDX SBOM, verifies downloaded hashes, and finalizes the release only
   after the draft asset inventory matches.
 
-### Changed
-
-- Pulse pins `codex-presence-core` 2.0.0 to the immutable Discord Rich Presence
-  `v1.10.2` release at commit `a508507e0849fd5c9e09c7d1c55eebe2d199cfc0`.
-- `@testing-library/user-event` is updated to 14.6.3.
-
 ## [1.7.1] - 2026-08-04
 
-Pulse 1.7.1 corrects the Claude subscription route so a validly signed-in
-account is no longer reported as signed out, resolves a design-QA punch-list
-across the Dashboard, Sessions, Context, Costs, and Reports views, and hardens
-the desktop lifecycle (single-instance, close-to-tray, and notifications).
+Pulse 1.7.1 corrects the Claude subscription route so a validly signed-in account is no longer reported as signed out, resolves a design-QA punch-list across the Dashboard, Sessions, Context, Costs, and Reports views, and hardens the desktop lifecycle (single-instance, close-to-tray, and notifications).
 
 ### Added
 
 - A "Window close" preference in Settings ("Minimize to tray" / "Quit",
   default minimize) that controls whether closing the window hides Pulse to the
   system tray or exits the app.
+
+### Changed
+
+- The Dashboard "Live workspace" section header now uses the shared
+  section-eyebrow treatment (matching "This session" and "At a glance") instead
+  of a heading that rendered smaller than - and competed with - the session
+  name beneath it.
+- Context-window utilization bars use a single green / yellow / red semantic
+  scale (healthy headroom → filling → near limit), shared by the per-session
+  bars and the hero badge.
+- The Costs "Subscription value ledger" heading and description were rewritten
+  from generic copy to describe the API-equivalent value it presents; the data
+  was already real and is unchanged.
+- The Costs "Cost by project" chart was refined (fully rounded bars, tighter
+  spacing, hover state, cleaner axes).
 
 ### Fixed
 
@@ -690,25 +645,9 @@ the desktop lifecycle (single-instance, close-to-tray, and notifications).
   a friendly local reset time instead of internal ids and a raw timestamp), and
   a one-time cleanup dismisses any previously recorded spurious alerts.
 
-### Changed
-
-- The Dashboard "Live workspace" section header now uses the shared
-  section-eyebrow treatment (matching "This session" and "At a glance") instead
-  of a heading that rendered smaller than — and competed with — the session
-  name beneath it.
-- Context-window utilization bars use a single green / yellow / red semantic
-  scale (healthy headroom → filling → near limit), shared by the per-session
-  bars and the hero badge.
-- The Costs "Subscription value ledger" heading and description were rewritten
-  from generic copy to describe the API-equivalent value it presents; the data
-  was already real and is unchanged.
-- The Costs "Cost by project" chart was refined (fully rounded bars, tighter
-  spacing, hover state, cleaner axes).
-
 ## [1.7.0] - 2026-08-01
 
-Pulse 1.7.0 adds provider-neutral authenticated access routes, freshness-aware
-quota presentation, and exact-cost provenance across the Pulse runtime.
+Pulse 1.7.0 adds provider-neutral authenticated access routes, freshness-aware quota presentation, and exact-cost provenance across the Pulse runtime. Validation recorded for this release: Rust workspace tests, Clippy with warnings denied, formatting, and route parity coverage pass on the release candidate. Live bridge and browser QA cover all seven routes at `1488 x 1058` and `390 x 844`, including Codex unavailable cost, Claude partial local history, zero page overflow, and an empty durable notification center.
 
 ### Added
 
@@ -750,17 +689,9 @@ quota presentation, and exact-cost provenance across the Pulse runtime.
   focusing the existing window on a second launch instead of duplicating the
   poller; the independent Discord publisher lease remains unchanged.
 
-### Validated
-
-- Rust workspace tests, Clippy with warnings denied, formatting, and route
-  parity coverage pass on the release candidate.
-- Live bridge and browser QA cover all seven routes at `1488 x 1058` and
-  `390 x 844`, including Codex unavailable cost, Claude partial local history,
-  zero page overflow, and an empty durable notification center.
-
 ## [1.6.5] - 2026-07-25
 
-Pulse 1.6.5 makes the redesigned UI obey the same rule as the backend: one current owner per fact, with freshness and provider provenance visible at the point of use.
+Pulse 1.6.5 makes the redesigned UI obey the same rule as the backend: one current owner per fact, with freshness and provider provenance visible at the point of use. Validation recorded for this release: See `docs/evidence/visual-qa-v1.7.0.md` and `tests/index.md` for the final automated and live-browser proof matrix.
 
 ### Added
 
@@ -783,10 +714,6 @@ Pulse 1.6.5 makes the redesigned UI obey the same rule as the backend: one curre
 - Hourly analytics no longer group UTC timestamp substrings as local time, and the UI no longer abbreviates 5 PM as `5p`.
 - The Dashboard's empty spend placeholder no longer occupies a live-session panel; provider-reported token categories render instead.
 
-### Validated
-
-- See `docs/evidence/visual-qa-v1.7.0.md` and `tests/index.md` for the final automated and live-browser proof matrix.
-
 ## [1.6.2] - 2026-07-24
 
 Pulse 1.6.2 reports what it actually observed: the reasoning effort Claude Code recorded, the Rich Presence switches you last saved, and the handshake that produced your quota numbers.
@@ -799,7 +726,7 @@ Pulse 1.6.2 reports what it actually observed: the reasoning effort Claude Code 
 
 ### Changed
 
-- Sessions, Context, and the shared stat tiles adopt one panel signature — a lit top edge, a directional sheen, and hover lift — driven by new `--panel-*`, `--meter-*`, and `--lift` tokens in `global.css` rather than per-view copies.
+- Sessions, Context, and the shared stat tiles adopt one panel signature - a lit top edge, a directional sheen, and hover lift - driven by new `--panel-*`, `--meter-*`, and `--lift` tokens in `global.css` rather than per-view copies.
 - Switching provider re-seeds the Discord switches from that provider's config instead of leaving the previous provider's cache on screen.
 - The Claude presence config is written atomically (temp file, fsync, rename), matching the Codex writer; a truncating write let the 5s poller read torn JSON and fall back to defaults.
 
@@ -838,7 +765,7 @@ Pulse 1.6.1 corrects Claude Opus 5 pricing, reports true window totals instead o
 
 ## [1.6.0] - 2026-07-16
 
-Pulse 1.6.0 unifies live analytics, Discord publication, and persistence around one semantic snapshot while promoting Codex parsing and presence composition to a canonical shared core.
+Pulse 1.6.0 unifies live analytics, Discord publication, and persistence around one semantic snapshot while promoting Codex parsing and presence composition to a canonical shared core. Validation recorded for this release: Rust, Svelte, Vitest, bundle, migration, accessibility, and six-viewport visual gates passed. Real Windows Fast, weekly-only quota, Credits, presence persistence/publication, native Light mode, and 720x560 resize behavior were observed. Startup, idle CPU/memory, Tauri invokes, SQLite writes, and initial bundle size were measured with claim boundaries recorded where run order affected results.
 
 ### Added
 
@@ -857,41 +784,28 @@ Pulse 1.6.0 unifies live analytics, Discord publication, and persistence around 
 - Discord settings and the remaining views use responsive layouts down to 720×560, system fonts, reduced-motion behavior, and keyboard-accessible controls.
 - Repository release governance now requires Conventional Commits, provider/runtime proof, Dark/Light viewport evidence, performance measurements, and an exact canonical core pin.
 
-### Fixed
-
-- A weekly-only 10,080-minute Codex quota no longer appears as a false five-hour limit.
-- `âš¡ Fast` is derived from active-session evidence before fallbacks and is presented consistently in Pulse, preview, and Discord.
-- Light mode no longer leaves the Discord preview and secondary UI surfaces on hardcoded dark colors.
-- Parser tests no longer read the developer's real model cache.
-
-### Performance
-
 - Idle snapshot delivery is content-addressed, frontend recurring invokes are removed, and session persistence skips unchanged fingerprints.
 - Historical provider/time queries gain a schema-5 index and controlled WAL maintenance.
 
-### Validated
+### Fixed
 
-- Rust, Svelte, Vitest, bundle, migration, accessibility, and six-viewport visual gates passed.
-- Real Windows Fast, weekly-only quota, Credits, presence persistence/publication, native Light mode, and 720x560 resize behavior were observed.
-- Startup, idle CPU/memory, Tauri invokes, SQLite writes, and initial bundle size were measured with claim boundaries recorded where run order affected results.
+- A weekly-only 10,080-minute Codex quota no longer appears as a false five-hour limit.
+- `⚡ Fast` is derived from active-session evidence before fallbacks and is presented consistently in Pulse, preview, and Discord.
+- Light mode no longer leaves the Discord preview and secondary UI surfaces on hardcoded dark colors.
+- Parser tests no longer read the developer's real model cache.
 
-## [1.5.3] — 2026-07-10
+## [1.5.3] - 2026-07-10
 
-v1.5.3 is a Windows runtime-correctness patch for Pulse's existing Codex polling lane. No public Tauri command or persisted schema changed.
+v1.5.3 is a Windows runtime-correctness patch for Pulse's existing Codex polling lane. No public Tauri command or persisted schema changed. Validation recorded for this release: A red-green vendoring regression rejects the previous v1.7.5 pin and any raw `Command::new("git")` polling path. Rust format, Clippy with warnings denied, workspace tests/build, Svelte check, frontend tests/build, RustSec audit, release contracts, Tauri packaging, and a repeated-poll Windows window trace.
 
 ### Fixed
 
 - The five-second Codex Git branch probes now use the shared Windows `CREATE_NO_WINDOW` launcher, preventing visible console flashes while Pulse refreshes live sessions.
 - Pulse vendors Codex Discord Rich Presence v1.7.6 by immutable tag, commit, and per-file hashes, preserving Pulse-owned adapters outside the mirror and carrying canonical cross-file source contracts as uncompiled inputs.
 
-### Validated
+## [1.5.2] - 2026-07-10
 
-- A red-green vendoring regression rejects the previous v1.7.5 pin and any raw `Command::new("git")` polling path.
-- Rust format, Clippy with warnings denied, workspace tests/build, Svelte check, frontend tests/build, RustSec audit, release contracts, Tauri packaging, and a repeated-poll Windows window trace.
-
-## [1.5.2] — 2026-07-10
-
-v1.5.2 is a compatibility, provenance, and presentation-correctness patch for GPT-5.6 and the existing Codex lane. No public Tauri command was removed.
+v1.5.2 is a compatibility, provenance, and presentation-correctness patch for GPT-5.6 and the existing Codex lane. No public Tauri command was removed. Validation recorded for this release: Model, alias, effort, speed, context, pricing-completeness, privacy-toggle, migration, report-injection, frontend, and release-contract suites. Rust format, Clippy with warnings denied, workspace tests/build, Svelte check, frontend tests/build, dependency audit, and Tauri packaging.
 
 ### Added
 
@@ -921,14 +835,9 @@ v1.5.2 is a compatibility, provenance, and presentation-correctness patch for GP
 - Offline HTML reports include a restrictive Content Security Policy and encode transcript/database text at the rendering boundary.
 - Release and vendoring gates verify immutable source hashes, version surfaces, tag provenance, and checksums.
 
-### Validated
+## [1.5.1] - 2026-07-06
 
-- Model, alias, effort, speed, context, pricing-completeness, privacy-toggle, migration, report-injection, frontend, and release-contract suites.
-- Rust format, Clippy with warnings denied, workspace tests/build, Svelte check, frontend tests/build, dependency audit, and Tauri packaging.
-
-## [1.5.1] — 2026-07-06
-
-v1.5.1 is a Windows safety patch for the Codex runtime embedded in Pulse. No public API was removed.
+v1.5.1 is a Windows safety patch for the Codex runtime embedded in Pulse. No public API was removed. Validation recorded for this release: `cargo test --test codex_upstream_contract codex_wsl_probe_commands_use_hidden_windows_launcher`
 
 ### Fixed
 
@@ -936,13 +845,9 @@ v1.5.1 is a Windows safety patch for the Codex runtime embedded in Pulse. No pub
 - The WSL opt-in path now uses Pulse's hidden subprocess launcher, so enabled WSL scans do not create visible WSL/conhost windows from the desktop app.
 - Codex source-sync scripts now preserve the WSL opt-in/no-window overlay, preventing a future sync from reintroducing the Windows console flood.
 
-### Validated
+## [1.5.0] - 2026-07-05
 
-- `cargo test --test codex_upstream_contract codex_wsl_probe_commands_use_hidden_windows_launcher`
-
-## [1.5.0] — 2026-07-05
-
-v1.5.0 brings the Codex Discord Rich Presence overhaul into Pulse. Codex App, Codex CLI, VS Code Extension, and OpenCode-hosted Codex sessions now share one cost/cache/context contract and keep the correct Discord identity while active or idle. No public API was removed.
+v1.5.0 brings the Codex Discord Rich Presence overhaul into Pulse. Codex App, Codex CLI, VS Code Extension, and OpenCode-hosted Codex sessions now share one cost/cache/context contract and keep the correct Discord identity while active or idle. No public API was removed. Validation recorded for this release: Rust formatting, Clippy with warnings denied, workspace tests, daemon and GUI release builds, frontend type checks and frontend bundle build.
 
 ### Added
 
@@ -961,19 +866,15 @@ v1.5.0 brings the Codex Discord Rich Presence overhaul into Pulse. Codex App, Co
 - Codex App activity no longer collapses to the generic `Codex CLI / Codex VS Code Extension` Discord card immediately after a short idle gap.
 - OAuth Codex context display no longer advertises the API-only 1M context path to typical ChatGPT/Codex users; Pulse caps the visible runtime at 400K while retaining API metadata separately.
 
-### Validated
+## [1.4.2] - 2026-07-01
 
-- `cargo fmt --check`
-- `cargo clippy --workspace --all-targets -- -D warnings`
-- `cargo test --workspace`
-- `cargo build --release`
-- `cargo build -p pulse --release`
-- `npm --prefix frontend run check`
-- `npm --prefix frontend run build`
+v1.4.2 is the release-hygiene patch for the v1.4.1 lane. It keeps the published v1.4.1 tag immutable, then ships the final Discord Rich Presence contract fixes, Sonnet 5 copy corrections, docs cleanup, and dependency sweep as a new patch release. No public API was removed. Validation recorded for this release: Rust formatting, Clippy with warnings denied and workspace tests using one job, frontend type checks, frontend tests, frontend bundle build and Tauri packaging.
 
-## [1.4.2] — 2026-07-01
+### Changed
 
-v1.4.2 is the release-hygiene patch for the v1.4.1 lane. It keeps the published v1.4.1 tag immutable, then ships the final Discord Rich Presence contract fixes, Sonnet 5 copy corrections, docs cleanup, and dependency sweep as a new patch release. No public API was removed.
+- README and docs now introduce Sonnet 5 with Anthropic's published introductory cache prices: 5-minute writes at $2.50 / MTok, 1-hour writes at $4.00 / MTok, and cache reads at $0.20 / MTok during the introductory window. (#46)
+- The release notes template remains CHANGELOG-driven, so GitHub Releases use the curated section for the tag instead of stale generated wording. (#46)
+- Local runtime proof artifacts under `target/evidence` were treated as scratch output and removed from the workspace cleanup path. (#46)
 
 ### Fixed
 
@@ -982,25 +883,13 @@ v1.4.2 is the release-hygiene patch for the v1.4.1 lane. It keeps the published 
 - Plain Claude thinking blocks no longer render as a fake workflow systems label. `ULTRACODE` is shown only for a live workflow record, and stale workflow records expire instead of keeping Discord stuck after the workflow ends. (#46)
 - Codex systems copy uses `Tool active` for pending tool calls and avoids workflow wording for normal thinking activity. (#46)
 
-### Changed
-
-- README and docs now introduce Sonnet 5 with Anthropic's published introductory cache prices: 5-minute writes at $2.50 / MTok, 1-hour writes at $4.00 / MTok, and cache reads at $0.20 / MTok during the introductory window. (#46)
-- The release notes template remains CHANGELOG-driven, so GitHub Releases use the curated section for the tag instead of stale generated wording. (#46)
-- Local runtime proof artifacts under `target/evidence` were treated as scratch output and removed from the workspace cleanup path. (#46)
-
-### Validated
-
-- `cargo fmt --all -- --check`
-- `cargo clippy --workspace --all-targets --jobs 1 -- -D warnings`
-- `cargo test --workspace --jobs 1`
-- `npm --prefix frontend run check`
-- `npm --prefix frontend run test`
-- `npm --prefix frontend run build`
-- `cd src-tauri && cargo tauri build`
-
-## [1.4.1] — 2026-06-30
+## [1.4.1] - 2026-06-30
 
 v1.4.1 fixes a real, live-confirmed data-staleness bug in every "how full is my context right now" UI surface, and adds explicit aggregation-scope labels to the Dashboard and Costs cost totals. No public API was removed.
+
+### Changed
+
+- Dashboard's "Total Cost" KPI tile is now labeled "Total Cost (Live)" (it sums only currently-live sessions); the Costs view's "Total Spent" tile is now labeled "Total Spent (30d)" (it sums the persisted 30-day historical database). Both totals were already real and correctly computed -- they answer different, legitimate questions that weren't previously distinguished by their labels. (#44)
 
 ### Fixed
 
@@ -1010,45 +899,36 @@ v1.4.1 fixes a real, live-confirmed data-staleness bug in every "how full is my 
 - The Context Window header card, the "Per-session utilization" panel, and the Sessions/Dashboard "ctx-1m" badge all read a field (`max_turn_api_input`) that is a monotonically-increasing, never-resetting all-time peak across a session's entire lifetime -- including across compactions. A session that hit a high-water mark before an auto-compaction kept showing that historical peak, and the resulting false "Context is 100% full -- CRITICAL" recommendation, indefinitely after the compaction had actually emptied the context back out. Confirmed live: `get_context_breakdown` returned `used_tokens: 999486` for a real, currently-running session whose own JSONL transcript recorded a `compact_boundary` event with `compactMetadata.postTokens: 25500` 2.5 hours earlier. (#44)
 - `src/session.rs` now detects `{"type":"system","subtype":"compact_boundary"}` events (which Claude Code writes on every compaction, with the authoritative post-compaction size in `compactMetadata.postTokens`) and tracks a new field, `current_context_tokens`, separately from `max_turn_api_input`. The new field resets to the real post-compaction size at each boundary and otherwise tracks the most recent turn's total -- the field every "current state" UI surface now reads. `max_turn_api_input` is untouched and keeps its correct, separate role: detecting whether a session has ever required the 1M context tier (a lifetime question that should never decrease). See [docs/context-tracking.md](docs/guides/context.md). (#44)
 
-### Changed
+## [1.4.0] - 2026-06-30
 
-- Dashboard's "Total Cost" KPI tile is now labeled "Total Cost (Live)" (it sums only currently-live sessions); the Costs view's "Total Spent" tile is now labeled "Total Spent (30d)" (it sums the persisted 30-day historical database). Both totals were already real and correctly computed -- they answer different, legitimate questions that weren't previously distinguished by their labels. (#44)
-
-## [1.4.0] — 2026-06-30
-
-v1.4.0 adds native Claude Sonnet 5 support, including a generic, date-driven introductory-pricing system that automatically reverts to standard pricing with no manual flag, and fixes a pre-existing 1M-context pricing bug discovered while building it. No public API was removed.
+v1.4.0 adds native Claude Sonnet 5 support, including a generic, date-driven introductory-pricing system that automatically reverts to standard pricing with no manual flag, and fixes a pre-existing 1M-context pricing bug discovered while building it. No public API was removed. Anthropic publishes prompt-caching rates as multipliers of the input price: 5-minute writes at 1.25x, 1-hour writes at 2x, and cache hits at 0.10x. Pulse applies those official multipliers to Sonnet 5's introductory input rate and uses the 5-minute write rate for Claude Code JSONL because transcripts do not expose cache TTL. See [docs/sonnet-5.md](https://github.com/xt0n1-t3ch/Pulse-Analytics/blob/9367949c496c832269505dfac4b3eee73310cdb8/docs/sonnet-5.md). This environment's `pulse` crate build (Tauri's full dependency tree) needs `cargo --jobs 2` under tight available memory, or the build can hit `STATUS_COMMIT_LIMIT_EXCEEDED` and cascade into unrelated-looking errors in transitive dependencies (`icu_properties`, `idna`). Documented in [tests/index.md](tests/index.md) - environment characteristic, not a code defect.
 
 ### Added
 
-- Claude Sonnet 5 (`claude-sonnet-5`) native support: introductory pricing of $2.00 input / $10.00 output per MTok through August 31, 2026, then $3.00 / $15.00 standard — automatically, evaluated against the real clock on every poll cycle. (#43)
-- A reusable introductory-pricing mechanism in `src/cost.rs`: clock-injected `cost::model_pricing_at(model_id, now)` (the real source of truth; `cost::model_pricing(model_id)` stays the existing real-clock entry point) and `cost::active_intro_pricing(model_id, now)`, which returns the active promo only while genuinely inside its window — `None` both for models with no promo and once a promo's window has closed. Adding the next time-boxed launch is a registry addition, not new branching logic. (#43)
-- Sessions and Dashboard live-session cards show a new "Intro Pricing" badge sourced entirely from the backend (`SessionInfo.intro_pricing`) — exact discounted rate, human end date, and the rate it reverts to, with zero date math or hardcoded pricing in the frontend. (#43)
-- `cost::has_inflated_tokenizer()` now also covers Sonnet 5 (Anthropic-confirmed new tokenizer, ~1.0-1.35x more tokens than Sonnet 4.6 for the same input, permanent and independent of the promo window) — the existing Sessions/Dashboard `⚠` marker now triggers for it too. (#43)
-- [docs/sonnet-5.md](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/blob/9367949c496c832269505dfac4b3eee73310cdb8/docs/sonnet-5.md): official specs, the introductory-pricing mechanism, Anthropic's published cache multipliers, and the 1M-context bug fix below.
+- Claude Sonnet 5 (`claude-sonnet-5`) native support: introductory pricing of $2.00 input / $10.00 output per MTok through August 31, 2026, then $3.00 / $15.00 standard - automatically, evaluated against the real clock on every poll cycle. (#43)
+- A reusable introductory-pricing mechanism in `src/cost.rs`: clock-injected `cost::model_pricing_at(model_id, now)` (the real source of truth; `cost::model_pricing(model_id)` stays the existing real-clock entry point) and `cost::active_intro_pricing(model_id, now)`, which returns the active promo only while genuinely inside its window - `None` both for models with no promo and once a promo's window has closed. Adding the next time-boxed launch is a registry addition, not new branching logic. (#43)
+- Sessions and Dashboard live-session cards show a new "Intro Pricing" badge sourced entirely from the backend (`SessionInfo.intro_pricing`) - exact discounted rate, human end date, and the rate it reverts to, with zero date math or hardcoded pricing in the frontend. (#43)
+- `cost::has_inflated_tokenizer()` now also covers Sonnet 5 (Anthropic-confirmed new tokenizer, ~1.0-1.35x more tokens than Sonnet 4.6 for the same input, permanent and independent of the promo window) - the existing Sessions/Dashboard `⚠` marker now triggers for it too. (#43)
+- [docs/sonnet-5.md](https://github.com/xt0n1-t3ch/Pulse-Analytics/blob/9367949c496c832269505dfac4b3eee73310cdb8/docs/sonnet-5.md): official specs, the introductory-pricing mechanism, Anthropic's published cache multipliers, and the 1M-context bug fix below.
 
 ### Fixed
 
-- `cost::is_ga_1m_context("claude-sonnet-5")` previously returned `false` — the generic Sonnet/Opus version parser expects a two-segment id like `"4-6"` and Sonnet 5's id has only one numeric segment (`"5"`), so it fell through and would have applied the beta long-context 2x/1.5x surcharge above 200K tokens. A dedicated `is_sonnet_5_class()` classifier (mirroring the existing `is_mythos_class()` pattern for Fable 5 / Mythos 5) now short-circuits `is_ga_1m_context`, `supports_1m_context`, `has_inflated_tokenizer`, and the pricing lookup, so all four agree that Sonnet 5 is GA at 1M context. (#43)
+- `cost::is_ga_1m_context("claude-sonnet-5")` previously returned `false` - the generic Sonnet/Opus version parser expects a two-segment id like `"4-6"` and Sonnet 5's id has only one numeric segment (`"5"`), so it fell through and would have applied the beta long-context 2x/1.5x surcharge above 200K tokens. A dedicated `is_sonnet_5_class()` classifier (mirroring the existing `is_mythos_class()` pattern for Fable 5 / Mythos 5) now short-circuits `is_ga_1m_context`, `supports_1m_context`, `has_inflated_tokenizer`, and the pricing lookup, so all four agree that Sonnet 5 is GA at 1M context. (#43)
 
-### Notes
+## [1.3.0] - 2026-06-16
 
-- Anthropic publishes prompt-caching rates as multipliers of the input price: 5-minute writes at 1.25x, 1-hour writes at 2x, and cache hits at 0.10x. Pulse applies those official multipliers to Sonnet 5's introductory input rate and uses the 5-minute write rate for Claude Code JSONL because transcripts do not expose cache TTL. See [docs/sonnet-5.md](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/blob/9367949c496c832269505dfac4b3eee73310cdb8/docs/sonnet-5.md).
-- This environment's `pulse` crate build (Tauri's full dependency tree) needs `cargo --jobs 2` under tight available memory, or the build can hit `STATUS_COMMIT_LIMIT_EXCEEDED` and cascade into unrelated-looking errors in transitive dependencies (`icu_properties`, `idna`). Documented in [tests/index.md](tests/index.md) — environment characteristic, not a code defect.
-
-## [1.3.0] — 2026-06-16
-
-v1.3.0 makes the Codex and Claude Rich Presence accurate again, makes the plan override actually stick, gives the Discord Live Preview the real Rich Presence artwork, and hardens the analytics core. No public API was removed.
+v1.3.0 makes the Codex and Claude Rich Presence accurate again, makes the plan override actually stick, gives the Discord Live Preview the real Rich Presence artwork, and hardens the analytics core. No public API was removed. The live Discord broadcast still requires the Rich Presence images to be uploaded to each Discord application's Developer Portal (`codex-logo` / `codex-app` are not yet uploaded); the in-app Live Preview bundles its own art and is unaffected. Tracked in #36. See [docs/discord-assets.md](docs/guides/discord.md).
 
 ### Added
 
-- Discord Live Preview renders the real Rich Presence artwork — the Claude Code mascot and the Codex mark — bundled in-app and mapped by provider/surface, with a Fast-tier (⚡) indicator on the state line. The activity card now mirrors Discord's layout (large image, optional small badge, name, details, state, elapsed). (#32)
+- Discord Live Preview renders the real Rich Presence artwork - the Claude Code mascot and the Codex mark - bundled in-app and mapped by provider/surface, with a Fast-tier (⚡) indicator on the state line. The activity card now mirrors Discord's layout (large image, optional small badge, name, details, state, elapsed). (#32)
 - Canonical Claude plan mapping module `cc_discord_presence::plan` (key, name, display name, badge, tolerant override parser), shared by the core library and the Tauri command layer. (#33)
 - Coverage for the new behavior: plan round-trip/tolerance, bounded session-scan depth/entry limits, report-trace depth cap, canonical plan-key round-trip in Settings, and a credentials-refresh plan-detection test. (#31, #33)
 
 ### Changed
 
 - Cost analysis reports **cost per 1M tokens** instead of per 1K, which rounded to `$0.00` at any realistic usage. (#34)
-- Dashboard cache-health shows a neutral `—` instead of a red `F` when there is no token data yet. (#34)
+- Dashboard cache-health shows a neutral `-` instead of a red `F` when there is no token data yet. (#34)
 - The duplicated Claude plan key/label/badge mapping is centralized; `config.rs` and the command layer delegate to the canonical module. (#33)
 - Claude and Codex session-file walks and the report trace scan are now depth/entry/dir bounded so a pathological tree cannot walk unbounded. (#33)
 - Previously-swallowed failures (Discord presence update, config/provider and display-pref saves, usage-cache write/remove, Codex plan-cache save) are logged via `tracing` instead of being discarded. (#33)
@@ -1059,11 +939,7 @@ v1.3.0 makes the Codex and Claude Rich Presence accurate again, makes the plan o
 - The manual plan override persists to the config file, reaches the live Discord broadcast, and stays selected instead of snapping back to Auto-detect; the Settings select now uses a canonical plan-key contract. (#31)
 - Claude plan auto-detect reads the credentials plan fields fresh from disk, so a plan upgrade (e.g. Max 5x → Max 20x) is reflected without restarting Pulse. (#31)
 
-### Notes
-
-- The live Discord broadcast still requires the Rich Presence images to be uploaded to each Discord application's Developer Portal (`codex-logo` / `codex-app` are not yet uploaded); the in-app Live Preview bundles its own art and is unaffected. Tracked in #36. See [docs/discord-assets.md](docs/guides/discord.md).
-
-## [1.2.0] — 2026-06-10
+## [1.2.0] - 2026-06-10
 
 v1.2.0 is a minor release for Anthropic's Fable/Mythos 5 launch, the Context Window view's stale one-session bias, and Pulse's first in-app release-awareness flow. The release adds new model economics, multi-session UI, and update-check UX without removing any public API.
 
@@ -1076,7 +952,7 @@ v1.2.0 is a minor release for Anthropic's Fable/Mythos 5 launch, the Context Win
 - Frontend API type `SessionContextBreakdown` and Vitest coverage for multi-session Context cards, active Discord preview selection, and Fable/Mythos session badges.
 - Backend update-check command `check_app_update()` that compares the packaged Pulse version against the latest stable GitHub Release, plus `open_app_release_page()` with a Pulse-release URL allowlist.
 - Global update popup with current/latest version, release title, release notes toggle, Later, Skip version, Open release, 6-hour polling, and a `?fakeUpdate=` development lane.
-- Documentation page [docs/fable-5.md](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/blob/9367949c496c832269505dfac4b3eee73310cdb8/docs/fable-5.md) with official specs, pricing, context window, cache TTL, and validator notes.
+- Documentation page [docs/fable-5.md](https://github.com/xt0n1-t3ch/Pulse-Analytics/blob/9367949c496c832269505dfac4b3eee73310cdb8/docs/fable-5.md) with official specs, pricing, context window, cache TTL, and validator notes.
 - Documentation page [docs/update-checks.md](docs/guides/updates.md) covering the release-check flow and why v1.2.0 does not fake a signed auto-installer without updater metadata.
 - Documentation page [docs/codex-rich-presence-upstream.md](docs/maintainers/codex-core.md) covering the Codex Rich Presence source-of-truth repo, sync scripts, and CI freshness gate.
 - `src/codex/UPSTREAM.json`, `scripts/check-codex-rich-presence-upstream.*`, and `scripts/update-codex-rich-presence.*` so Pulse can prove and refresh its mirrored Codex Rich Presence core from `xt0n1-t3ch/Codex-Discord-Rich-Presence`.
@@ -1102,7 +978,9 @@ v1.2.0 is a minor release for Anthropic's Fable/Mythos 5 launch, the Context Win
 - Mirrored Codex Rich Presence git-branch probes now use no-window process spawning on Windows.
 - Removed stale Markdown issue templates now superseded by the YAML templates.
 
-## [1.1.0] — 2026-05-28
+## [1.1.0] - 2026-05-28
+
+Model, context and reporting improvements for Claude Code and Codex.
 
 ### Added
 
@@ -1112,7 +990,7 @@ v1.2.0 is a minor release for Anthropic's Fable/Mythos 5 launch, the Context Win
 - Per-session Context Window: a session selector, per-session token usage, and tiered compaction hints.
 - Single-scan Reports: `get_reports_bundle` loads every analyzer from one JSONL scan.
 - Centralized test suite: Vitest unit, integration, and component plus Rust integration; see [tests/index.md](tests/index.md).
-- Docs: [architecture.md](docs/architecture/index.md), [troubleshooting.md](docs/guides/troubleshooting.md), [opus-4-8.md](https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/blob/9367949c496c832269505dfac4b3eee73310cdb8/docs/opus-4-8.md).
+- Docs: [architecture.md](docs/architecture/index.md), [troubleshooting.md](docs/guides/troubleshooting.md), [opus-4-8.md](https://github.com/xt0n1-t3ch/Pulse-Analytics/blob/9367949c496c832269505dfac4b3eee73310cdb8/docs/opus-4-8.md).
 
 ### Changed
 
@@ -1126,32 +1004,58 @@ v1.2.0 is a minor release for Anthropic's Fable/Mythos 5 launch, the Context Win
 - Sessions top-table no longer mutates reactive state during render.
 - Codex unknown-model pricing keeps the real model id instead of relabeling it.
 
-## [1.0.0] — 2026-04-18
+## [1.0.0] - 2026-04-18
 
-### Added — Initial public release
+Initial public release of the local-first Pulse desktop application.
 
-- **Pulse desktop app** (Tauri 2 + Svelte 5) — native dashboard for Claude Code.
-- **Analytics views** — Dashboard, Sessions, Context, Costs, Reports, Discord, Settings.
-- **Cache health grading** — A–F letter grade with trend-weighted hit ratio.
-- **Recommendations engine** — rule-based findings with "Copy Fix Prompt" for Claude Code.
-- **Inflection detector** — ≥2× cost-per-session deviation alerts.
-- **Model routing analyzer** — Opus/Sonnet/Haiku mix + savings estimate.
+### Added
+
+- **Pulse desktop app** (Tauri 2 + Svelte 5) - native dashboard for Claude Code.
+- **Analytics views** - Dashboard, Sessions, Context, Costs, Reports, Discord, Settings.
+- **Cache health grading** - A–F letter grade with trend-weighted hit ratio.
+- **Recommendations engine** - rule-based findings with "Copy Fix Prompt" for Claude Code.
+- **Inflection detector** - ≥2× cost-per-session deviation alerts.
+- **Model routing analyzer** - Opus/Sonnet/Haiku mix + savings estimate.
 - **Tool-frequency, prompt-complexity, session-health** analyzers.
-- **Discord Rich Presence** — five-tier reasoning (Low/Medium/High/Extra High/Max), multi-tier asset resolver, auto-reconnect.
-- **Opus 4.7 support** — inflated-tokenizer detection, 1M context GA pricing.
-- **Plan usage** — session/weekly/Sonnet/Extra-usage limits with sound alert on spikes.
-- **Local-first** — SQLite at `~/.claude/pulse-analytics.db`, zero telemetry.
-- **Tri-OS installers** — Windows (NSIS/MSI), macOS (DMG, arm64 + x64), Linux (deb/rpm/AppImage).
+- **Discord Rich Presence** - five-tier reasoning (Low/Medium/High/Extra High/Max), multi-tier asset resolver, auto-reconnect.
+- **Opus 4.7 support** - inflated-tokenizer detection, 1M context GA pricing.
+- **Plan usage** - session/weekly/Sonnet/Extra-usage limits with sound alert on spikes.
+- **Local-first** - SQLite at `~/.claude/pulse-analytics.db`, zero telemetry.
+- **Tri-OS installers** - Windows (NSIS/MSI), macOS (DMG, arm64 + x64), Linux (deb/rpm/AppImage).
 
-[1.5.3]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.5.3
-[1.6.0]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/compare/v1.5.3...v1.6.0
-[1.5.2]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.5.2
-[1.5.1]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.5.1
-[1.5.0]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.5.0
-[1.4.2]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.4.2
-[1.4.1]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.4.1
-[1.4.0]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.4.0
-[1.3.0]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.3.0
-[1.2.0]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.2.0
-[1.1.0]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.1.0
-[1.0.0]: https://github.com/xt0n1-t3ch/Pulse-Claude-Code-Analytics/releases/tag/v1.0.0
+[Unreleased]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.9.7...v2.0.0
+[1.9.7]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.9.6...v1.9.7
+[1.9.6]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.9.5...v1.9.6
+[1.9.5]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.9.4...v1.9.5
+[1.9.4]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.9.3...v1.9.4
+[1.9.3]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.9.2...v1.9.3
+[1.9.2]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.9.1...v1.9.2
+[1.9.1]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.9.0...v1.9.1
+[1.9.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.8.2...v1.9.0
+[1.8.2]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.8.1...v1.8.2
+[1.8.1]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.8.0...v1.8.1
+[1.8.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.7.9...v1.8.0
+[1.7.9]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.7.8...v1.7.9
+[1.7.8]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.7.7...v1.7.8
+[1.7.7]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.7.6...v1.7.7
+[1.7.6]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.7.5...v1.7.6
+[1.7.5]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.7.2...v1.7.5
+[1.7.2]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.7.1...v1.7.2
+[1.7.1]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.7.0...v1.7.1
+[1.7.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.6.5...v1.7.0
+[1.6.5]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.6.2...v1.6.5
+[1.6.2]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.6.1...v1.6.2
+[1.6.1]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.6.0...v1.6.1
+[1.6.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.5.3...v1.6.0
+[1.5.3]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.5.2...v1.5.3
+[1.5.2]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.5.1...v1.5.2
+[1.5.1]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.4.2...v1.5.0
+[1.4.2]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.4.1...v1.4.2
+[1.4.1]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/fc17857f2ca66743fd84bb715b1eec4a008bda3c...v1.4.1
+[1.4.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.3.0...fc17857f2ca66743fd84bb715b1eec4a008bda3c
+[1.3.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v1.0.0

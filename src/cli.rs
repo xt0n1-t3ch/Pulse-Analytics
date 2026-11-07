@@ -1,3 +1,5 @@
+//! Command line definition of the `cc-discord-presence` daemon.
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]

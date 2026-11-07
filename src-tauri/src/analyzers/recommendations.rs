@@ -1,4 +1,4 @@
-//! Recommendations engine — turns the raw analyzer output into a short list
+//! Recommendations engine: turns the raw analyzer output into a short list
 //! of actionable items. Each item carries a `fix_prompt` plus provider-aware
 //! UI copy so the frontend can present the right action verb for Claude or
 //! Codex without hardcoding strings.

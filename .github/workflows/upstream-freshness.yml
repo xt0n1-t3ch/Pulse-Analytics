@@ -1,7 +1,7 @@
 name: Codex upstream freshness
 
-# Manual-only: the weekly cron was removed so scheduled runs stop consuming
-# Actions minutes. Trigger from the Actions tab when an upstream check is wanted.
+# Manual-only so scheduled runs never consume Actions minutes. Trigger it from the
+# Actions tab when an upstream check is wanted.
 on:
   workflow_dispatch:
 
@@ -13,6 +13,11 @@ concurrency:
   group: codex-upstream-freshness
   cancel-in-progress: false
 
+env:
+  RUST_VERSION: "1.99.1"
+  # Hosted runners have no mold; this replaces the linker flag in .cargo/config.toml.
+  RUSTFLAGS: ""
+
 jobs:
   reconcile:
     name: Reconcile upstream drift issue
@@ -20,52 +25,11 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
 
-      - name: Read immutable pin and current upstream main
-        id: drift
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          $manifest = Get-Content -Raw src/codex/UPSTREAM.json | ConvertFrom-Json
-          $pinned = if ([int]$manifest.schema_version -eq 3) { [string]$manifest.canonical_commit } else { [string]$manifest.commit }
-          if ($pinned -notmatch '^[0-9a-fA-F]{40}$') { throw "UPSTREAM.json has an invalid commit" }
-          $latest = (gh api repos/xt0n1-t3ch/Codex-Discord-Rich-Presence/commits/main --jq .sha).Trim()
-          if ($latest -notmatch '^[0-9a-fA-F]{40}$') { throw "GitHub returned an invalid upstream commit" }
-          "pinned=$pinned" >> $env:GITHUB_OUTPUT
-          "latest=$latest" >> $env:GITHUB_OUTPUT
-          "stale=$($pinned -ne $latest)".ToLowerInvariant() >> $env:GITHUB_OUTPUT
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Open, update, or close the single drift issue
-        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-          PINNED_SHA: ${{ steps.drift.outputs.pinned }}
-          LATEST_SHA: ${{ steps.drift.outputs.latest }}
-          IS_STALE: ${{ steps.drift.outputs.stale }}
-        run: |
-          $ErrorActionPreference = "Stop"
-          $title = "sync(codex): refresh vendored upstream"
-          $issues = @(gh issue list --state open --limit 100 --json number,title,body | ConvertFrom-Json)
-          $matches = @($issues | Where-Object title -eq $title)
-          if ($matches.Count -gt 1) { throw "Multiple open Codex upstream drift issues exist" }
-
-          if ($env:IS_STALE -eq "true") {
-            $body = @"
-          Pulse's immutable `codex-presence-core` pin is behind canonical `main`.
-
-          - Pinned commit: ``$env:PINNED_SHA``
-          - Upstream commit: ``$env:LATEST_SHA``
-
-          Update only after selecting an immutable canonical release tag and full commit SHA. Change the Cargo Git `rev` and schema-3 canonical manifest together, then rerun the full core compatibility and release gates.
-          "@
-            $bodyPath = Join-Path $env:RUNNER_TEMP "codex-upstream-drift.md"
-            [System.IO.File]::WriteAllText($bodyPath, $body)
-            if ($matches.Count -eq 0) {
-              gh issue create --title $title --body-file $bodyPath
-            } elseif ($matches[0].body.Replace("`r`n", "`n").Trim() -ne $body.Replace("`r`n", "`n").Trim()) {
-              gh issue edit $matches[0].number --body-file $bodyPath
-            }
-          } elseif ($matches.Count -eq 1) {
-            gh issue close $matches[0].number --reason completed
-          }
+        run: cargo xtask upstream freshness

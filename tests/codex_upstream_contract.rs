@@ -1,3 +1,5 @@
+//! Checks that the pinned Codex core still exposes the modules and boundaries Pulse relies on.
+
 use std::time::{Duration, SystemTime};
 
 use cc_discord_presence::codex::config::PresenceConfig;
@@ -79,6 +81,65 @@ fn codex_wsl_probe_commands_use_hidden_windows_launcher() {
     assert!(
         source.contains("if include_wsl_session_roots()"),
         "Pulse must not invoke mirrored Codex WSL discovery unless WSL scanning is explicitly enabled"
+    );
+}
+
+#[test]
+fn the_polled_branch_lookup_launches_no_git_process() {
+    let parser = include_str!("../src/codex/session/parser.rs");
+
+    assert!(
+        !parser.contains(r#"Command::new("git")"#) && !parser.contains(r#"silent_command("git")"#),
+        "the five-second branch lookup must not start a git process"
+    );
+    assert!(parser.contains("crate::git_head::branch(project_path)"));
+}
+
+/// The core pin is an immutable Git revision that the manifest and both Cargo manifests
+/// must repeat; the release contract (`cargo xtask release-contract`) checks the same
+/// facts against the release tag.
+#[test]
+fn codex_core_pin_agrees_across_the_manifest_and_both_cargo_files() {
+    fn core_dependency(cargo: &str) -> &str {
+        cargo
+            .lines()
+            .find(|line| line.starts_with("codex-presence-core"))
+            .expect("Cargo manifest declares codex-presence-core")
+    }
+    fn quoted<'a>(line: &'a str, key: &str) -> &'a str {
+        let marker = format!("{key} = \"");
+        let tail = line.split(&marker).nth(1).expect("key present");
+        tail.split('"').next().expect("closing quote")
+    }
+
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../src/codex/UPSTREAM.json")).expect("UPSTREAM.json");
+    // The workspace declares the pin once; both crates inherit it.
+    let root_manifest = include_str!("../Cargo.toml");
+    let workspace = core_dependency(root_manifest);
+    for crate_manifest in [root_manifest, include_str!("../src-tauri/Cargo.toml")] {
+        assert!(
+            crate_manifest
+                .lines()
+                .any(|line| line.trim() == "codex-presence-core.workspace = true"),
+            "every crate inherits the workspace pin"
+        );
+    }
+    let rev = manifest["integration"]["rev"]
+        .as_str()
+        .expect("integration rev");
+
+    assert_eq!(manifest["schema_version"], 3);
+    assert_eq!(manifest["integration"]["mode"], "git-rev");
+    assert_eq!(manifest["integration"]["package"], "codex-presence-core");
+    assert_eq!(manifest["canonical_commit"].as_str(), Some(rev));
+    assert_eq!(rev.len(), 40, "the pin must be a full commit id");
+    assert!(workspace.contains("git = "), "{workspace}");
+    assert!(!workspace.contains("path = "), "{workspace}");
+    assert_eq!(quoted(workspace, "rev"), rev);
+    assert_eq!(
+        Some(quoted(workspace, "version")),
+        manifest["integration"]["version"].as_str()
     );
 }
 

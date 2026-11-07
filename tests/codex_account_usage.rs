@@ -1,3 +1,5 @@
+//! Integration tests for decoding Codex account usage responses into quota windows.
+
 use chrono::{TimeZone, Utc};
 
 use cc_discord_presence::codex::account_usage::parse_rate_limits_response;

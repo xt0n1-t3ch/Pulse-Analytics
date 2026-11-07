@@ -12,7 +12,7 @@ is rendered as **Unknown**.
 Resolved in `get_plan_info` (Tauri command) and the background poller:
 
 1. **Manual override** — if `PresenceConfig.plan` (in
-   `~/.pulse-analytics/claude/discord-presence-config.json`) is set, it wins and is reported as
+   `~/.pulse-analytics/config/claude-presence.json`) is set, it wins and is reported as
    `Manual`. The config file is the single source of truth: `get_plan_info`, the
    Settings select, and the live broadcast all read it, so a manual choice
    persists across restarts and reaches Discord.

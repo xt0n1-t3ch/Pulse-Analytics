@@ -1,3 +1,6 @@
+//! Discord Rich Presence publisher for Claude sessions: payload building, dedup, heartbeat and
+//! asset-key resolution.
+
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use discord_rich_presence::activity::{Activity, Assets, Button, Timestamps};
@@ -7,6 +10,7 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use crate::config::PresenceConfig;
+use crate::http;
 use crate::session::{ActivityKind, ClaudeSessionSnapshot, RateLimits};
 use crate::usage::UsageData;
 use crate::util::{format_cost, format_tokens};
@@ -194,7 +198,10 @@ impl DiscordPresence {
     }
 
     /// Shared publish logic: dedup → rate limit → clear stale → resolve assets → set activity.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each argument is one independent field of the payload"
+    )]
     fn publish_presence(
         &mut self,
         payload: PresencePayload,
@@ -804,12 +811,10 @@ struct DiscordAssetEntry {
 fn fetch_discord_asset_keys(client_id: &str) -> Result<HashSet<String>> {
     let url = format!("https://discord.com/api/v10/oauth2/applications/{client_id}/assets");
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout(DISCORD_ASSET_FETCH_TIMEOUT)
-        .build();
+    let agent = http::agent(DISCORD_ASSET_FETCH_TIMEOUT, http::DEFAULT_REDIRECTS);
 
-    let response = agent.get(&url).call()?;
-    let body = response.into_string()?;
+    let response = agent.get(url.as_str()).call()?;
+    let body = http::read_text(response)?;
     parse_discord_asset_keys(&body)
 }
 
@@ -876,7 +881,6 @@ mod tests {
     fn test_truncate_for_discord_multibyte_boundary() {
         let s = "a".repeat(124) + "\u{1f600}";
         let result = truncate_for_discord(&s);
-        // Should not panic and should be valid UTF-8
         assert!(result.len() <= 128);
     }
 
@@ -1022,7 +1026,7 @@ mod tests {
             state: "state".to_string(),
         };
         assert!(should_skip_publish(Some(&payload), &payload, false));
-        // Same payload, heartbeat needed → don't skip
+        // The same payload still publishes when a heartbeat is due.
         assert!(!should_skip_publish(Some(&payload), &payload, true));
     }
 
@@ -1237,6 +1241,30 @@ mod tests {
         let session = mythos_class_session("claude-sonnet-5-5");
         let (_details, state, _tooltip) = presence_lines(&session, None, None, &config);
         assert!(!state.contains("Sonnet 5 (1M)"), "{state}");
+    }
+
+    #[test]
+    fn haiku_5_5_renders_a_clean_rich_presence_label() {
+        let config = PresenceConfig::default();
+        for model_id in [
+            "claude-haiku-5-5",
+            "claude-haiku-5-5-20261101",
+            "claude-haiku-5-5[1m]",
+        ] {
+            let session = mythos_class_session(model_id);
+            assert_eq!(
+                session.model_display.as_deref(),
+                Some("Claude Haiku 5.5"),
+                "{model_id}"
+            );
+            let (_details, state, _tooltip) = presence_lines(&session, None, None, &config);
+            assert!(state.contains("Haiku 5.5 (1M)"), "{model_id}: {state}");
+            assert!(!state.contains("(claude-"), "{model_id}: {state}");
+        }
+        let session = mythos_class_session("claude-haiku-4-5");
+        let (_details, state, _tooltip) = presence_lines(&session, None, None, &config);
+        assert!(state.contains("Haiku 4.5"), "{state}");
+        assert!(!state.contains("Haiku 4.5 (1M)"), "{state}");
     }
 
     #[test]

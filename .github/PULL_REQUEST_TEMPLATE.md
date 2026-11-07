@@ -24,12 +24,10 @@
 
 ## Checklist
 
-- [ ] `cargo fmt --all` is clean
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes
-- [ ] `cargo test --workspace` passes
-- [ ] `npm --prefix frontend run check` passes without warnings
-- [ ] `npm --prefix frontend run test` passes
-- [ ] `npm --prefix frontend run build` succeeds
+- [ ] `cargo xtask check` passes (formatting, lint, types, tests, changelog, llms.txt, catalog parity)
+- [ ] `bun run typecheck` passes without warnings
+- [ ] `bun run test` passes
+- [ ] `bun run build:frontend` succeeds
 - [ ] Config/database migrations have fixture coverage and rollback behavior
 - [ ] Canonical core dependency and manifest resolve to the same immutable SHA
 - [ ] Docs updated (if user-facing change)

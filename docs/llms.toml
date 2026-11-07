@@ -1,0 +1,200 @@
+name = "Pulse"
+summary = "Local-first desktop analytics and Discord Rich Presence for Claude Code, OpenAI Codex, OpenCode, Command Code and Orion App. Track tokens, API-equivalent costs, prompt cache, context-window fill and provider allowances on Windows, macOS and Linux."
+facts = [
+  "Checkout version: 2.0.0; shared Codex core: 2.0.1 through an immutable Git pin.",
+  "Rust, Tauri 2, Svelte 5 and SQLite; Rust 1.99.1 and Bun 1.4.4 development tooling.",
+  "Provider stores are read-only and separate from Pulse-owned analytics under PULSE_HOME.",
+  "Missing cost or context is unavailable, not zero; API-equivalent estimates are not provider invoices.",
+  "Analytics schema 7, Claude config schema 6 and Codex config schema 13.",
+  "Local builds, published packages and installed native acceptance are separate evidence.",
+  "Full local gate: cargo xtask check. Workflows and publication are manual-only."
+]
+
+[[section]]
+title = "Docs"
+
+[[section.link]]
+path = "README.md"
+title = "Overview and installation"
+description = "Providers, platform packages, privacy and common questions."
+
+[[section.link]]
+path = "docs/index.md"
+title = "Documentation index"
+description = "Task-based entry point to the product."
+
+[[section.link]]
+path = "docs/guides/accounts.md"
+title = "Accounts"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/guides/command-code.md"
+title = "Command Code"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/guides/context.md"
+title = "Context tracking"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/guides/costs.md"
+title = "Cost calculation"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/guides/discord.md"
+title = "Discord controls and assets"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/guides/notifications.md"
+title = "Notifications"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/guides/opencode.md"
+title = "OpenCode and Go"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/guides/orion.md"
+title = "Orion App"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/guides/plans.md"
+title = "Plans and access"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/guides/storage.md"
+title = "Storage and recovery"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/guides/troubleshooting.md"
+title = "Troubleshooting"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/guides/updates.md"
+title = "Updates"
+description = "Usage, configuration and data boundaries."
+
+[[section.link]]
+path = "docs/models/claude.md"
+title = "Claude model reference"
+description = "Provider-scoped facts and source boundaries."
+
+[[section.link]]
+path = "docs/models/codex.md"
+title = "Codex model reference"
+description = "Provider-scoped facts and source boundaries."
+
+[[section]]
+title = "Development"
+
+[[section.link]]
+path = "docs/architecture/adaptive-access.md"
+title = "Adaptive access reference"
+description = "Implementation contracts and maintenance guidance."
+
+[[section.link]]
+path = "docs/architecture/analyzers.md"
+title = "Analyzers reference"
+description = "Implementation contracts and maintenance guidance."
+
+[[section.link]]
+path = "docs/architecture/dev-bridge.md"
+title = "Authenticated browser development bridge"
+description = "Implementation contracts and maintenance guidance."
+
+[[section.link]]
+path = "docs/architecture/index.md"
+title = "Architecture and data owners"
+description = "Implementation contracts and maintenance guidance."
+
+[[section.link]]
+path = "docs/architecture/ui.md"
+title = "UI contract"
+description = "Implementation contracts and maintenance guidance."
+
+[[section.link]]
+path = "docs/maintainers/codex-core.md"
+title = "Codex core reference"
+description = "Implementation contracts and maintenance guidance."
+
+[[section.link]]
+path = "docs/maintainers/dependencies.md"
+title = "Dependencies reference"
+description = "Implementation contracts and maintenance guidance."
+
+[[section.link]]
+path = "docs/maintainers/platforms.md"
+title = "Platforms reference"
+description = "Implementation contracts and maintenance guidance."
+
+[[section.link]]
+path = "docs/maintainers/releases.md"
+title = "Releases reference"
+description = "Implementation contracts and maintenance guidance."
+
+[[section.link]]
+path = "docs/maintainers/windows-efficiency.md"
+title = "Windows Efficiency mode"
+description = "Implementation contracts and maintenance guidance."
+
+[[section.link]]
+path = "CONTRIBUTING.md"
+title = "Contributing"
+description = "Local commands, commits and pull requests."
+
+[[section.link]]
+path = "tests/index.md"
+title = "Test map"
+description = "Coverage, commands and proof boundaries."
+
+[[section.link]]
+path = "PRODUCT.md"
+title = "Product context"
+description = "Audience, scope and product principles."
+
+[[section.link]]
+path = "DESIGN.md"
+title = "Design system"
+description = "Tokens, layout and interaction rules."
+
+[[section.link]]
+path = "SECURITY.md"
+title = "Security policy"
+description = "Private reporting and supported security boundaries."
+
+[[section]]
+title = "Optional"
+
+[[section.link]]
+path = "CHANGELOG.md"
+title = "Changelog"
+description = "Release history, compatibility and rollback."
+
+[[section.link]]
+path = "CITATION.cff"
+title = "Citation"
+description = "Software citation and release identity."
+
+[[section.link]]
+path = "LICENSE"
+title = "License"
+description = "Apache-2.0 license."
+
+[[section.link]]
+path = "NOTICE"
+title = "Attribution"
+description = "Redistribution notices."
+
+[[section.link]]
+path = "llms-full.txt"
+title = "Full documentation"
+description = "Generated combined documentation."

@@ -1,3 +1,6 @@
+//! Serializable account types exchanged with the frontend: identity, balance, allowance windows
+//! and snapshots.
+
 use codex_presence_core::{IndividualSpendLimit, RateLimitResetCreditsSummary};
 use serde::{Deserialize, Serialize};
 

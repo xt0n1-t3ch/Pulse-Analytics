@@ -1,3 +1,5 @@
+//! Codex presence configuration: privacy, plan display and pricing settings.
+
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::fs;
@@ -225,7 +227,7 @@ pub struct OpenAiPlanDisplayConfig {
 }
 
 impl OpenAiPlanDisplayConfig {
-    // Legacy display helper kept for backwards compatibility; runtime now uses telemetry plan.
+    /// Plan title, with the monthly price appended when `show_price` is set.
     pub fn label(&self) -> String {
         if self.show_price
             && let Some(monthly) = self.tier.monthly_price_usd()
@@ -776,9 +778,7 @@ pub fn sessions_paths() -> Vec<PathBuf> {
 }
 
 pub fn config_path() -> PathBuf {
-    crate::storage::home()
-        .join("codex")
-        .join("discord-presence-config.json")
+    crate::storage::config_file("codex-presence.json")
 }
 
 pub fn global_state_paths() -> Vec<PathBuf> {
@@ -804,11 +804,11 @@ pub fn global_state_paths() -> Vec<PathBuf> {
 }
 
 pub fn lock_path() -> PathBuf {
-    codex_home().join("codex-discord-presence.lock")
+    crate::storage::state_file("codex-daemon.lock")
 }
 
 pub fn instance_meta_path() -> PathBuf {
-    codex_home().join("codex-discord-presence.instance.json")
+    crate::storage::state_file("codex-daemon-instance.json")
 }
 
 fn env_u64(name: &str, default: u64) -> u64 {

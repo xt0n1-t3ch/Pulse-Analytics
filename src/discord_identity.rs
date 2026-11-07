@@ -1,3 +1,5 @@
+//! Discord identity read from the local IPC `READY` handshake.
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, mpsc};
 use std::time::Duration;

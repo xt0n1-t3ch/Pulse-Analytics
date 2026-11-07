@@ -1,3 +1,6 @@
+//! Integration tests for the notification store: one record per transition, dedupe and the
+//! read, dismiss and undo lifecycle.
+
 use chrono::{TimeZone, Utc};
 use codex_presence_core::{
     QuotaScope, QuotaWindow, RateLimitScope, UsageSignal, UsageSnapshot, UsageSource,
