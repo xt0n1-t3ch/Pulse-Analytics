@@ -4,7 +4,7 @@
 
 Local-first analytics and Discord Rich Presence for Claude Code, OpenAI Codex, OpenCode, Command Code and Orion App. Start with a task, then follow its data and implementation owners.
 
-**State on 2026-11-07:** the checkout version is 2.0.0 and shared Codex core is 2.0.1. Planned changes stay under [Unreleased](../CHANGELOG.md#unreleased); documentation is not proof of publication or installed native behavior. Analytics uses schema 7, Claude configuration schema 6 and Codex configuration schema 13.
+**State on 2026-11-07:** the checkout is release v2.0.0 and shared Codex core is 2.0.1. Planned changes stay under [Unreleased](../CHANGELOG.md#unreleased); documentation is not proof of publication or installed native behavior. Analytics uses schema 7, Claude configuration schema 6 and Codex configuration schema 13.
 
 [Start here](#start-here) · [Models and analytics](#models-and-analytics) · [How it works](#how-it-works) · [Maintain it](#maintain-it) · [Rules](#rules)
 
