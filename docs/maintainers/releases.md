@@ -17,7 +17,7 @@ cargo xtask check
 bun run build:frontend
 ```
 
-`cargo xtask check` runs `cargo fmt --check`, the Bun format check, oxlint, the type check, Clippy with `-D warnings`, the Bun tests, `cargo nextest run --workspace`, the changelog check, `llms --check` and the model catalog parity check, and prints one line per step.
+`cargo xtask check` runs `cargo fmt --check`, the Bun format check, oxlint, the type check, Clippy with `-D warnings`, the Bun tests, `cargo nextest run --workspace`, the changelog check, `llms --check`, the checkout release contract, the vendored-core check, the RustSec audit (needs `cargo-audit` 0.22.2 and network) and the model catalog parity check, and prints one line per step.
 
 Changes to OS-specific code, dependencies, installers, signing or release tooling also require the release-tool tests:
 
@@ -53,7 +53,9 @@ Every release step that is more than git, Bun or Cargo is a `cargo xtask` comman
 | `cargo xtask catalog-parity` | Byte parity with the canonical Codex model catalog and the Astra, Sol and Terra contracts |
 | `cargo xtask windows-efficiency --pid <pid>` | Reads EcoQoS and priority state of a running process (Windows only) |
 
-Release notes use the title `Pulse v<version>` and the changelog section as the body, with no H1 or H2, asset list, integrity section or compare link. Only a section longer than 150 lines gets the Release assets, Integrity and Full changelog sections appended. `meta --apply` edits the public repository page, so run it on purpose, like a push. The catalog parity command compares with the sibling `Codex-Discord-Rich-Presence` folder, or the folder named by `--upstream-root`; when the default folder is absent it skips only the byte comparison and says so.
+`cargo xtask check` also runs the release preflight's file checks on every call: the checkout part of `release-contract` (version owners agree, the core pin is an immutable Git revision, followed through `[workspace.dependencies]`, and once the changelog has a section for the version, README and `docs/index.md` name it) and `upstream check`. A tag cut from a checkout that passes the gate does not stop at preflight on GitHub.
+
+Release notes use the title `Pulse <version>` and the changelog section as the body, with no H1 or H2, asset list, integrity section or compare link. Only a section longer than 150 lines gets the Release assets, Integrity and Full changelog sections appended. `meta --apply` edits the public repository page, so run it on purpose, like a push. The catalog parity command compares with the sibling `Codex-Discord-Rich-Presence` folder, or the folder named by `--upstream-root`; when the default folder is absent it skips only the byte comparison and says so.
 
 ## Cross-platform verification
 

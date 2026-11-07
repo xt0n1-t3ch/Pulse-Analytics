@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "reviewed_at": "2026-10-17",
-  "review_after": "2026-11-17",
-  "framework": "Tauri 2.11.6",
+  "reviewed_at": "2026-11-07",
+  "review_after": "2026-12-07",
+  "framework": "Tauri 2.12.5",
   "advisories": [
     {
       "id": "RUSTSEC-2024-0429",
@@ -51,6 +51,18 @@
     {
       "id": "RUSTSEC-2026-0369",
       "reason": "zip 4.6.1 is compiled only for Windows through tauri-plugin-updater 2.10.1 (no updater release accepts zip 9); the plugin unpacks an updater payload only after minisign verifies the whole download against the pubkey in tauri.conf.json, and Pulse's signed Windows payloads are NSIS/MSI installers, not zip archives. zip 4.6.1 applies Unix permissions only under cfg(unix), so the Windows build never applies them through a symlink."
+    },
+    {
+      "id": "RUSTSEC-2026-0370",
+      "reason": "Unmaintained, not vulnerable (no patched version): zvariant was merged into zbus 6. It comes in through zbus 5, which notify-rust 4.18.2, tauri-plugin-notification 2.8.0 and tauri-plugin-single-instance 2.5.5 (the latest releases on 2026-11-07) still require for Linux D-Bus notifications and single-instance."
+    },
+    {
+      "id": "RUSTSEC-2026-0371",
+      "reason": "Unmaintained, not vulnerable (no patched version): zbus_names was merged into zbus 6. It comes in through zbus 5, which notify-rust 4.18.2, tauri-plugin-notification 2.8.0 and tauri-plugin-single-instance 2.5.5 (the latest releases on 2026-11-07) still require for Linux D-Bus notifications and single-instance."
+    },
+    {
+      "id": "RUSTSEC-2026-0372",
+      "reason": "Unmaintained, not vulnerable (no patched version): zvariant_derive was merged into zbus 6. It comes in through zbus 5, which notify-rust 4.18.2, tauri-plugin-notification 2.8.0 and tauri-plugin-single-instance 2.5.5 (the latest releases on 2026-11-07) still require for Linux D-Bus notifications and single-instance."
     }
   ]
 }

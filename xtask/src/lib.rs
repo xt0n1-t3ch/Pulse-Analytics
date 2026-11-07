@@ -9,6 +9,7 @@ pub mod changelog;
 pub mod check;
 pub mod ci;
 pub mod clock;
+pub mod core_pin;
 pub mod efficiency;
 pub mod fsx;
 pub mod git;

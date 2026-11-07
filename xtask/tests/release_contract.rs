@@ -178,6 +178,35 @@ fn release_contract_reads_a_core_pin_inherited_from_the_workspace() {
     );
 }
 
+#[test]
+fn the_local_gate_holds_a_cut_version_to_the_release_contract() {
+    let fixture = release_fixture("1.5.2");
+    write_repository_contract(fixture.path(), "1.5.2");
+    assert_success(release_contract::checkout(fixture.path()));
+
+    let readme = read(fixture.path().join("README.md"));
+    write(
+        fixture.path().join("README.md"),
+        &readme.replace("v1.5.2", "v1.5.1"),
+    );
+    assert_failure_contains(
+        release_contract::checkout(fixture.path()),
+        "README.md does not identify release v1.5.2",
+    );
+    write(fixture.path().join("README.md"), &readme);
+
+    let changelog = read(fixture.path().join("CHANGELOG.md"));
+    write(
+        fixture.path().join("CHANGELOG.md"),
+        &changelog.replace("## [1.5.2]", "## [1.5.0]"),
+    );
+    write(
+        fixture.path().join("README.md"),
+        &readme.replace("v1.5.2", "v1.5.1"),
+    );
+    assert_success(release_contract::checkout(fixture.path()));
+}
+
 const CORE_REV: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 fn write_repository_contract(root: &Path, version: &str) {

@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use anyhow::{Result, bail};
 
-use crate::{catalog, changelog, llms};
+use crate::{audit, catalog, changelog, llms, release_contract, upstream};
 
 enum Kind {
     /// An external tool: program and arguments, run from the repository root.
@@ -22,7 +22,7 @@ struct Step {
 }
 
 /// The gate, in the order it runs: cheap format checks first, tests last.
-const STEPS: [Step; 10] = [
+const STEPS: [Step; 13] = [
     Step {
         id: "fmt",
         label: "cargo fmt --check",
@@ -77,6 +77,23 @@ const STEPS: [Step; 10] = [
         id: "llms",
         label: "llms --check",
         kind: Kind::Native(|root| llms::run(root, true)),
+    },
+    Step {
+        id: "release-contract",
+        label: "release contract (checkout)",
+        kind: Kind::Native(release_contract::checkout),
+    },
+    Step {
+        id: "upstream",
+        label: "upstream check (vendored core)",
+        kind: Kind::Native(|root| {
+            upstream::check::run(root, &root.join(upstream::CONTRACT_RELATIVE), false)
+        }),
+    },
+    Step {
+        id: "audit",
+        label: "cargo audit (accepted warnings only)",
+        kind: Kind::Native(audit::run),
     },
     Step {
         id: "catalog-parity",
@@ -174,6 +191,9 @@ mod tests {
                 "nextest",
                 "changelog",
                 "llms",
+                "release-contract",
+                "upstream",
+                "audit",
                 "catalog-parity"
             ]
         );

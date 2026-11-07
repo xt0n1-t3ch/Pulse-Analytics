@@ -99,11 +99,7 @@ fn check_core_pin(root: &Path, manifest: &Value) -> Result<String> {
 
     let cargo_text = fsx::read_text(&root.join("Cargo.toml"))?;
     let cargo: toml::Table = toml::from_str(&cargo_text).context("parse Cargo.toml")?;
-    let dependency = cargo
-        .get("dependencies")
-        .and_then(|dependencies| dependencies.get("codex-presence-core"))
-        .and_then(toml::Value::as_table)
-        .context("Cargo.toml does not declare codex-presence-core")?;
+    let dependency = crate::core_pin::core_dependency(&cargo)?;
     let cargo_text_of = |key: &str| dependency.get(key).and_then(toml::Value::as_str);
     if cargo_text_of("version") != Some(version.as_str()) {
         bail!("Cargo core version does not match src/codex/UPSTREAM.json");

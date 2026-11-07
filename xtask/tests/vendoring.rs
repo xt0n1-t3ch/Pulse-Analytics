@@ -170,6 +170,22 @@ fn core_pin_manifest_is_verified_against_the_cargo_dependency() {
     assert_failure_contains(check(root, false), "Cargo core version does not match");
     write(root.join("Cargo.toml"), &cargo);
 
+    // The real manifest keeps the pin in [workspace.dependencies] and inherits it.
+    let pin = format!(
+        "{{ git = \"https://example.invalid/core\", rev = \"{rev}\", version = \"2.0.1\" }}"
+    );
+    let inherited = format!(
+        "[workspace]\nmembers = [\".\"]\n\n[workspace.dependencies]\ncodex-presence-core = {pin}\n\n[package]\nname = \"x\"\n\n[dependencies]\ncodex-presence-core.workspace = true\n"
+    );
+    write(root.join("Cargo.toml"), &inherited);
+    assert_success(check(root, false));
+    write(
+        root.join("Cargo.toml"),
+        &inherited.replace("2.0.1", "2.0.2"),
+    );
+    assert_failure_contains(check(root, false), "Cargo core version does not match");
+    write(root.join("Cargo.toml"), &cargo);
+
     fs::remove_file(root.join("src/codex/config.rs")).expect("remove adapter");
     assert_failure_contains(
         check(root, false),

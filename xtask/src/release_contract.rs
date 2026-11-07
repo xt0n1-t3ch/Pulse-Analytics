@@ -91,21 +91,7 @@ struct CorePin {
 
 fn core_pin(root: &Path) -> Result<CorePin> {
     let manifest = parse_toml(&root.join("Cargo.toml"))?;
-    let dependency = manifest
-        .get("dependencies")
-        .and_then(|dependencies| dependencies.get("codex-presence-core"))
-        .and_then(toml::Value::as_table)
-        .context("Cargo.toml does not declare codex-presence-core")?;
-    let dependency = if dependency.get("workspace").and_then(toml::Value::as_bool) == Some(true) {
-        manifest
-            .get("workspace")
-            .and_then(|workspace| workspace.get("dependencies"))
-            .and_then(|dependencies| dependencies.get("codex-presence-core"))
-            .and_then(toml::Value::as_table)
-            .context("Cargo.toml inherits codex-presence-core but [workspace.dependencies] does not declare it")?
-    } else {
-        dependency
-    };
+    let dependency = crate::core_pin::core_dependency(&manifest)?;
     let text = |key: &str| {
         dependency
             .get(key)
@@ -216,6 +202,52 @@ fn version_surfaces(root: &Path) -> Result<Vec<(&'static str, String)>> {
     ])
 }
 
+/// What a release of `version` needs from the files themselves: the core pin
+/// and schema contract, README and docs naming it, and a changelog section.
+fn assert_release_content(root: &Path, version: &str) -> Result<()> {
+    assert_repository_contract(root, version)?;
+    for surface in ["README.md", "docs/index.md"] {
+        let content = fsx::read_text(&root.join(surface))?;
+        if !content.contains(&format!("v{version}")) {
+            bail!("{surface} does not identify release v{version}");
+        }
+    }
+    let changelog_text = fsx::read_text(&root.join("CHANGELOG.md"))?;
+    let Some(section) = changelog::section_body(&changelog_text, version) else {
+        bail!("CHANGELOG.md has no section for {version}");
+    };
+    if section.trim().chars().count() < MIN_CHANGELOG_CHARS {
+        bail!("CHANGELOG.md section for {version} is too short to publish");
+    }
+    Ok(())
+}
+
+/// The release preflight's file checks, run by the local gate so a tag never
+/// fails on GitHub for something visible in the checkout. Every version owner
+/// must agree and the core pin must hold; once CHANGELOG.md has a section for
+/// that version, the README, docs and section must be ready to publish too.
+pub fn checkout(root: &Path) -> Result<String> {
+    let root = fsx::absolute(root)?;
+    let surfaces = version_surfaces(&root)?;
+    let Some((_, version)) = surfaces.first() else {
+        bail!("no version owner found");
+    };
+    for (label, value) in &surfaces {
+        if value != version {
+            bail!("Version owners disagree: {label}={value}, expected {version}");
+        }
+    }
+    let changelog_text = fsx::read_text(&root.join("CHANGELOG.md"))?;
+    if changelog::section_body(&changelog_text, version).is_none() {
+        assert_repository_contract(&root, version)?;
+        return Ok(format!(
+            "Version {version} is consistent; not yet cut in CHANGELOG.md"
+        ));
+    }
+    assert_release_content(&root, version)?;
+    Ok(format!("Checkout is ready to tag v{version}"))
+}
+
 /// Verifies `tag` against the checkout at `root`. `test_mode` skips the check that
 /// `HEAD` is the tagged commit, because fixtures are built on branches.
 pub fn check(root: &Path, tag: &str, expected_commit: &str, test_mode: bool) -> Result<String> {
@@ -234,22 +266,7 @@ pub fn check(root: &Path, tag: &str, expected_commit: &str, test_mode: bool) -> 
             bail!("Release version mismatch: tag={version} {label}={value}");
         }
     }
-    assert_repository_contract(&root, version)?;
-
-    for surface in ["README.md", "docs/index.md"] {
-        let content = fsx::read_text(&root.join(surface))?;
-        if !content.contains(&format!("v{version}")) {
-            bail!("{surface} does not identify release v{version}");
-        }
-    }
-
-    let changelog_text = fsx::read_text(&root.join("CHANGELOG.md"))?;
-    let Some(section) = changelog::section_body(&changelog_text, version) else {
-        bail!("CHANGELOG.md has no section for {version}");
-    };
-    if section.trim().chars().count() < MIN_CHANGELOG_CHARS {
-        bail!("CHANGELOG.md section for {version} is too short to publish");
-    }
+    assert_release_content(&root, version)?;
 
     let tag_ref = format!("refs/tags/{tag}");
     let tag_type = git::run(Some(&root), &["cat-file", "-t", &tag_ref])?;
