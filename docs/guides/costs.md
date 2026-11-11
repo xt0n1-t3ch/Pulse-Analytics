@@ -61,6 +61,8 @@ When Claude statusline data supplies `total_cost_usd`, Pulse uses it for the hea
 
 Current prices, API limits and the cancelled Sonnet 5 price increase belong in the [Claude model reference](../models/claude.md), not a duplicated rate table here. That reference also covers Sonnet 5.5: it bills at the same rates as Sonnet 5 except cache reads ($0.10 instead of $0.20), with no long-context surcharge and no Fast multiplier, and Pulse classifies the two versions separately. For example, 1,000,000 input tokens plus 1,000,000 output tokens on Sonnet 5.5 cost $2 + $10 = $12, and 50,000 cache-read tokens cost 50,000 × $0.10 / 1,000,000 = $0.005.
 
+Fable 5.2 and Mythos 5.2 bill at $8 input, $40 output, $10 5-minute write, $16 1-hour write and $0.20 cache read, with no long-context surcharge and Fast at 2×. For example, 100,000 fresh input plus 10,000 output tokens on Fable 5.2 cost 0.1 × $8 + 0.01 × $40 = $1.20 Standard and $2.40 Fast, and 1,000,000 cache-read tokens cost $0.20 Standard and $0.40 Fast.
+
 ## Codex
 
 [Model resolution](../../src/codex/model.rs) normalizes known aliases and reads the [bundled catalog](../../src/codex/model_catalog.json). [Cost arithmetic](../../src/codex/cost.rs) resolves rates, explicit user overrides and completeness.

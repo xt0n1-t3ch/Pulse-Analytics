@@ -4,7 +4,7 @@
 
 Key facts:
 
-- Checkout version: 2.0.0; shared Codex core: 2.0.1 through an immutable Git pin.
+- Checkout version: 2.1.0; shared Codex core: 2.0.1 through an immutable Git pin.
 - Rust, Tauri 2, Svelte 5 and SQLite; Rust 1.99.1 and Bun 1.4.4 development tooling.
 - Provider stores are read-only and separate from Pulse-owned analytics under PULSE_HOME.
 - Missing cost or context is unavailable, not zero; API-equivalent estimates are not provider invoices.

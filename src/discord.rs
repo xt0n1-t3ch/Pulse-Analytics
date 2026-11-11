@@ -1208,12 +1208,31 @@ mod tests {
         for (model_id, expected) in [
             ("claude-fable-5", "Fable 5 (1M)"),
             ("claude-mythos-5", "Mythos 5 (1M)"),
+            ("claude-fable-5-2", "Fable 5.2 (1M)"),
+            ("claude-mythos-5-2", "Mythos 5.2 (1M)"),
         ] {
             let session = mythos_class_session(model_id);
             let (_details, state, _tooltip) = presence_lines(&session, None, None, &config);
             assert!(state.contains(expected), "{model_id}: {state}");
             assert!(!state.contains("(claude-"), "{model_id}: {state}");
         }
+    }
+
+    #[test]
+    fn fable_5_2_fast_turn_shows_the_fast_marker_and_effort() {
+        let config = PresenceConfig::default();
+        let mut session = mythos_class_session("claude-fable-5-2");
+        session.speed = crate::session::Speed::Fast;
+        session.reasoning_effort = crate::session::ReasoningEffort::ExtraHigh;
+        let (_details, state, _tooltip) = presence_lines(&session, None, None, &config);
+        assert!(state.contains("\u{26a1} Fable 5.2 (1M)"), "{state}");
+        assert!(state.contains("Extra High"), "{state}");
+
+        // Fable 5.1 has no Fast mode, so a stray speed value adds no marker.
+        let mut older = mythos_class_session("claude-fable-5-1");
+        older.speed = crate::session::Speed::Fast;
+        let (_details, state, _tooltip) = presence_lines(&older, None, None, &config);
+        assert!(!state.contains('\u{26a1}'), "{state}");
     }
 
     #[test]

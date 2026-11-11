@@ -1585,3 +1585,150 @@ fn sonnet_5_5_cache_reads_cost_a_tenth_of_a_dollar_per_million() {
     let sonnet_5 = calculate_category_costs("claude-sonnet-5", 0, 0, 0, 50_000, false);
     close(sonnet_5.cache_read_cost, 0.01);
 }
+
+/// Every spelling of Claude Fable 5.2 and Claude Mythos 5.2 that reaches Pulse:
+/// the API id, a dated form, the `[1m]` suffix and the Amazon Bedrock ids.
+const FABLE_5_2_IDS: [&str; 7] = [
+    "claude-fable-5-2",
+    "claude-fable-5-2-20261109",
+    "claude-fable-5-2[1m]",
+    "anthropic.claude-fable-5-2",
+    "global.anthropic.claude-fable-5-2",
+    "claude-mythos-5-2",
+    "Claude-Fable-5-2",
+];
+
+/// Published 2026-11-09: $8 input, $40 output, $10 5-minute write, $16 1-hour
+/// write and $0.20 cache read (0.025x input).
+/// <https://platform.claude.com/docs/en/about-claude/pricing>, read 2026-11-10.
+#[test]
+fn fable_5_2_pricing_matches_official_rates() {
+    for model in FABLE_5_2_IDS {
+        let p = model_pricing(model);
+        close(p.input_per_million, 8.0);
+        close(p.output_per_million, 40.0);
+        close(p.cache_write_per_million, 10.0);
+        close(p.cache_write_1h_per_million(), 16.0);
+        close(p.cache_read_per_million, 0.20);
+    }
+}
+
+#[test]
+fn fable_5_2_turn_cost_arithmetic() {
+    // One million tokens in each category: $8 + $40 + $10 + $0.20.
+    let b = calculate_category_costs(
+        "claude-fable-5-2",
+        1_000_000,
+        1_000_000,
+        1_000_000,
+        1_000_000,
+        false,
+    );
+    close(b.input_cost, 8.0);
+    close(b.output_cost, 40.0);
+    close(b.cache_write_cost, 10.0);
+    close(b.cache_read_cost, 0.20);
+    close(b.total(), 58.20);
+}
+
+/// Versions 5.1 and 5 keep $10 / $50, and an id that only looks like 5.2 does
+/// not take its rates.
+#[test]
+fn fable_5_2_rates_do_not_leak_to_other_versions() {
+    for (model, cache_read) in [
+        ("claude-fable-5-1", 0.25),
+        ("claude-mythos-5-1", 0.25),
+        ("claude-fable-5", 1.0),
+        ("claude-mythos-5-20260609", 1.0),
+    ] {
+        let p = model_pricing(model);
+        close(p.input_per_million, 10.0);
+        close(p.output_per_million, 50.0);
+        close(p.cache_write_per_million, 12.5);
+        close(p.cache_read_per_million, cache_read);
+    }
+    for lookalike in ["claude-fable-52", "claude-fable-5-20", "claude-fable-5-2x"] {
+        close(model_pricing(lookalike).input_per_million, 10.0);
+        assert!(!is_fast_capable(lookalike), "{lookalike}");
+    }
+}
+
+/// Fast mode for Fable 5.2 and Mythos 5.2 is published as $16 / $80 per MTok,
+/// 2x standard, and the cache multipliers apply on top of it.
+/// <https://platform.claude.com/docs/en/build-with-claude/fast-mode>, read 2026-11-10.
+#[test]
+fn fable_5_2_fast_mode_matches_published_16_and_80_rates() {
+    for id in FABLE_5_2_IDS {
+        assert!(is_fast_capable(id), "{id}");
+        close(speed_multiplier(id, true), 2.0);
+        close(speed_multiplier(id, false), 1.0);
+    }
+    let model = "claude-fable-5-2";
+    let fast = calculate_category_costs(model, 1_000_000, 1_000_000, 1_000_000, 1_000_000, true);
+    close(fast.input_cost, 16.0);
+    close(fast.output_cost, 80.0);
+    close(fast.cache_write_cost, 20.0);
+    close(fast.cache_read_cost, 0.40);
+
+    // A 1-hour write at Fast: 100,000 x $16 x 2 = $3.20.
+    let one_hour = calculate_category_costs_with_cache_ttl(
+        model,
+        0,
+        0,
+        CacheWrites::split(0, 100_000),
+        0,
+        true,
+    );
+    close(one_hour.cache_write_cost, 3.20);
+}
+
+/// Fast mode starts with version 5.2 in this family.
+#[test]
+fn earlier_fable_versions_are_not_fast_capable() {
+    for model in [
+        "claude-fable-5-1",
+        "claude-mythos-5-1",
+        "claude-fable-5",
+        "claude-mythos-5",
+    ] {
+        assert!(!is_fast_capable(model), "{model}");
+        let standard = calculate_cost_with_context_and_speed(model, 50_000, 5_000, 0, 0, false);
+        let fast = calculate_cost_with_context_and_speed(model, 50_000, 5_000, 0, 0, true);
+        close(fast, standard);
+    }
+}
+
+#[test]
+fn fable_5_2_has_ga_1m_context_without_surcharge() {
+    for model in FABLE_5_2_IDS {
+        assert!(supports_1m_context(model), "{model}");
+        assert!(is_ga_1m_context(model), "{model}");
+    }
+    let model = "claude-fable-5-2";
+    // 900,000 prompt tokens bill at the same per-token rate as 9,000.
+    let long = calculate_cost_with_context(model, 900_000, 1_000, 0, 0);
+    close(long, 0.9 * 8.0 + 0.001 * 40.0);
+    assert_eq!(
+        model_display_with_context(model, "Claude Fable 5.2", 0),
+        "Claude Fable 5.2 (1M)"
+    );
+}
+
+#[test]
+fn fable_5_2_display_names_and_no_tokenizer_flag() {
+    for (model, name) in [
+        ("claude-fable-5-2", "Claude Fable 5.2"),
+        ("claude-fable-5-2-20261109", "Claude Fable 5.2"),
+        ("claude-fable-5-2[1m]", "Claude Fable 5.2"),
+        ("anthropic.claude-fable-5-2", "Claude Fable 5.2"),
+        ("claude-mythos-5-2", "Claude Mythos 5.2"),
+    ] {
+        assert_eq!(model_display_name(model), name, "{model}");
+        assert!(!has_inflated_tokenizer(model), "{model}");
+        assert!(!has_prompt_length_tiers(model), "{model}");
+    }
+    assert_eq!(
+        strip_claude_prefix(&model_display_name("claude-fable-5-2")),
+        "Fable 5.2"
+    );
+}

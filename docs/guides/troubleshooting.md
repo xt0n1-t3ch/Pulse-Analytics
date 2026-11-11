@@ -182,7 +182,7 @@ Fast mode is read **only** from the per-turn `usage.speed` field in the JSONL
 settings. Two conditions must both hold for the ⚡ marker and the 2× billing:
 
 1. The assistant turn's `usage.speed` is `"fast"`, **and**
-2. the model is fast-capable (Opus 4.8+; `is_fast_capable`).
+2. the model is fast-capable (Opus 4.8+, Fable 5.2 and Mythos 5.2; `is_fast_capable`).
 
 If a model that is not fast-capable reports `speed: "fast"`, the flag is ignored
 and cost is unchanged — by design. If you expect fast mode and don't see it,

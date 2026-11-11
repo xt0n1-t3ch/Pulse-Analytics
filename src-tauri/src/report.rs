@@ -1975,12 +1975,20 @@ mod tests {
 
     /// Reports receive human labels ("Claude Opus 5"), not API ids, so the
     /// normalizer has to round-trip them back into a form `is_fast_capable`
-    /// understands. Opus 5.5, Opus 5 and Opus 4.8 are the fast-capable models today.
+    /// understands. Fable 5.2, Mythos 5.2, Opus 5.5, Opus 5 and Opus 4.8 are the
+    /// fast-capable models today.
     #[test]
     fn model_label_fast_capable_covers_opus_5_5_5_and_4_8() {
         assert!(model_label_is_fast_capable("Claude Opus 5.5"));
         assert!(model_label_is_fast_capable("Claude Opus 5"));
         assert!(model_label_is_fast_capable("Claude Opus 4.8"));
+    }
+
+    #[test]
+    fn model_label_fast_capable_covers_fable_and_mythos_5_2() {
+        assert!(model_label_is_fast_capable("Claude Fable 5.2"));
+        assert!(model_label_is_fast_capable("Claude Mythos 5.2"));
+        assert!(!model_label_is_fast_capable("Claude Fable 5.1"));
     }
 
     #[test]

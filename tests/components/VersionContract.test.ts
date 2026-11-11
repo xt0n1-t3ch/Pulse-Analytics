@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "bun:test";
 
-const VERSION = "2.0.0";
+const VERSION = "2.1.0";
 
 describe("Pulse version contract", () => {
     const read = (path: string) =>
@@ -16,7 +16,7 @@ describe("Pulse version contract", () => {
         expect(script).toContain("tauri build --no-bundle");
     });
 
-    it("keeps every product and release owner on v2.0.0", () => {
+    it("keeps every product and release owner on v2.1.0", () => {
         expect(read("Cargo.toml")).toContain(`version = "${VERSION}"`);
         expect(read("src-tauri/Cargo.toml")).toContain(
             `version = "${VERSION}"`,

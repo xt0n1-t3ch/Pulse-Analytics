@@ -8,8 +8,8 @@ authors:
     website: "https://github.com/xt0n1-t3ch"
 repository-code: "https://github.com/xt0n1-t3ch/Pulse-Analytics"
 license: Apache-2.0
-version: "2.0.0"
-date-released: "2026-10-17"
+version: "2.1.0"
+date-released: "2026-11-10"
 keywords:
   - claude-code
   - codex

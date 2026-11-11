@@ -60,7 +60,7 @@ These repository captures show earlier Claude and Codex presence layouts. They a
 - **Discord Rich Presence:** choose one broadcaster, privacy controls, presets, field order and a backend-owned preview.
 - **Desktop controls:** dark and light themes, close-to-tray, durable notifications with read/unread and Undo, and Windows Efficiency mode.
 
-See the [changelog](CHANGELOG.md) for released changes and planned work under Unreleased. Pulse 2.0.0 adds Linux support, Claude Haiku 5.5 and GPT-6.1 Terra, keeps everything it writes in `~/.pulse-analytics`, starts no background processes and redraws the interface with Tahoe-style corners. Unreleased work is not a published update.
+See the [changelog](CHANGELOG.md) for released changes and planned work under Unreleased. Pulse 2.1.0 adds Claude Fable 5.2 and Claude Mythos 5.2 with their published rates and Fast mode. Pulse 2.0.0 added Linux support, Claude Haiku 5.5 and GPT-6.1 Terra, keeps everything it writes in `~/.pulse-analytics`, starts no background processes and redrew the interface with Tahoe-style corners. Unreleased work is not a published update.
 
 
 <a id="use-pulse"></a>
@@ -189,15 +189,15 @@ Use the package for your operating system and architecture. Pulse targets Window
 
 Choose an installer for your operating system and architecture from [GitHub Releases](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest).
 
-| Platform | v2.0.0 downloads | Installer formats |
+| Platform | v2.1.0 downloads | Installer formats |
 | --- | --- | --- |
-| Windows | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.0.0/pulse-windows-x64-Pulse_2.0.0_x64-setup.exe) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.0.0/pulse-windows-arm64-Pulse_2.0.0_arm64-setup.exe) | `.exe` (NSIS), `.msi` |
-| macOS | [Intel](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.0.0/pulse-macos-x64-Pulse_2.0.0_x64.dmg) · [Apple Silicon](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.0.0/pulse-macos-arm64-Pulse_2.0.0_aarch64.dmg) | `.dmg`, app archive |
-| Linux | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.0.0/pulse-linux-x64-Pulse_2.0.0_amd64.AppImage) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.0.0/pulse-linux-arm64-Pulse_2.0.0_aarch64.AppImage) | `.deb`, `.rpm`, `.AppImage` |
+| Windows | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.1.0/pulse-windows-x64-Pulse_2.1.0_x64-setup.exe) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.1.0/pulse-windows-arm64-Pulse_2.1.0_arm64-setup.exe) | `.exe` (NSIS), `.msi` |
+| macOS | [Intel](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.1.0/pulse-macos-x64-Pulse_2.1.0_x64.dmg) · [Apple Silicon](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.1.0/pulse-macos-arm64-Pulse_2.1.0_aarch64.dmg) | `.dmg`, app archive |
+| Linux | [x64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.1.0/pulse-linux-x64-Pulse_2.1.0_amd64.AppImage) · [ARM64](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/download/v2.1.0/pulse-linux-arm64-Pulse_2.1.0_aarch64.AppImage) | `.deb`, `.rpm`, `.AppImage` |
 
 macOS GitHub packages are not Apple-signed or notarized. macOS may block first launch. Updater signatures are separate from Apple signing.
 
-The [v2.0.0 release](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v2.0.0) contains all six targets. The links above select NSIS, DMG or AppImage; MSI, DEB and RPM alternatives are on the release page. Native build/test checks and installed-GUI acceptance are recorded separately per operating system. See [platform verification](docs/maintainers/platforms.md).
+The [v2.1.0 release](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/tag/v2.1.0) contains all six targets. The links above select NSIS, DMG or AppImage; MSI, DEB and RPM alternatives are on the release page. Native build/test checks and installed-GUI acceptance are recorded separately per operating system. See [platform verification](docs/maintainers/platforms.md).
 
 Every complete release must include `SHA256SUMS.txt`, Windows software bills of materials and `latest.json` with signed updater payloads for all six targets. Do not install an asset for a different architecture to work around a missing download.
 
@@ -206,7 +206,7 @@ Every complete release must include `SHA256SUMS.txt`, Windows software bills of 
 
 Download the matching `.exe` or `.msi`, compare its SHA-256 hash with `SHA256SUMS.txt`, then run the installer. Pulse uses Microsoft Edge WebView2. Windows Efficiency mode is specific to Windows.
 
-Asset names include the platform and architecture, such as `pulse-windows-x64-Pulse_2.0.0_x64-setup.exe`. Each Windows architecture has its own SPDX file.
+Asset names include the platform and architecture, such as `pulse-windows-x64-Pulse_2.1.0_x64-setup.exe`. Each Windows architecture has its own SPDX file.
 
 </details>
 
@@ -245,7 +245,7 @@ Use the release `.deb`, `.rpm` or `.AppImage` matching your architecture and ver
 
 Use the signed in-app updater only when it is available for your installation, or download the matching package from [Releases](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest). On Linux, package-manager installs (pacman/AUR, DEB and RPM) must update through the package manager; AppImage uses the in-app updater. See [updates](docs/guides/updates.md).
 
-Back up the executable, configuration and database through SQLite Backup before replacing an installation. Pulse 2.0.0 uses analytics schema 7, Claude config schema 6 and Codex config schema 13. Returning to Pulse 1.8.2 requires its pre-schema-7 database backup; preserve the newer database separately. Orion App settings live in `config/orion.json`. See [storage and recovery](docs/guides/storage.md).
+Back up the executable, configuration and database through SQLite Backup before replacing an installation. Pulse 2.1.0 uses analytics schema 7, Claude config schema 6 and Codex config schema 13. Returning to Pulse 1.8.2 requires its pre-schema-7 database backup; preserve the newer database separately. Orion App settings live in `config/orion.json`. See [storage and recovery](docs/guides/storage.md).
 
 ## Removal
 

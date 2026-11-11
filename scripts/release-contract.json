@@ -2,7 +2,7 @@
   "schema_version": 1,
   "product": {
     "name": "pulse",
-    "version": "2.0.0"
+    "version": "2.1.0"
   },
   "core": {
     "package": "codex-presence-core",

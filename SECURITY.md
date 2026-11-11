@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Report vulnerabilities against the latest stable Pulse release. The checkout version is 2.0.0; consult [Releases](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest) for published packages. Older installations should upgrade before checking whether a problem remains. Do not assume every historical 1.x package receives backported fixes.
+Report vulnerabilities against the latest stable Pulse release. The checkout version is 2.1.0; consult [Releases](https://github.com/xt0n1-t3ch/Pulse-Analytics/releases/latest) for published packages. Older installations should upgrade before checking whether a problem remains. Do not assume every historical 1.x package receives backported fixes.
 
 ## Report a vulnerability
 
