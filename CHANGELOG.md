@@ -9,6 +9,10 @@ Pulse versions cover the desktop installers and the `cc-discord-presence` daemon
 
 ## [Unreleased]
 
+### Changed
+
+- Shorten the Release workflow: preflight no longer repeats the Rust lint, tests and build, native tests share the release profile with the bundle build, Clippy runs once on macOS, and every job has a timeout.
+
 ## [2.1.0] - 2026-11-10
 
 Pulse 2.1.0 adds Claude Fable 5.2 and Claude Mythos 5.2 with their published rates and Fast mode. Analytics stays at schema 7 and both configuration schemas are unchanged, so 2.0.0 remains a valid rollback with the same database. Stored costs remain unchanged until a session is re-read or the history correction runs. macOS packages are not Apple-signed or notarized. Native runtime acceptance must be verified separately from the release checks.

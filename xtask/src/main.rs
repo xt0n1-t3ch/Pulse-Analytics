@@ -138,11 +138,14 @@ enum Command {
         #[arg(long, action = ArgAction::Set, default_value_t = false, value_name = "BOOL")]
         publish: bool,
     },
-    /// Prove the runner is native for a target, then run Clippy and the tests for it
+    /// Prove the runner is native for a target, then run the tests for it
     VerifyNative {
         /// Rust target triple the runner must execute natively
         #[arg(long)]
         target: String,
+        /// Run warning-denying Clippy before the tests
+        #[arg(long)]
+        lint: bool,
     },
 }
 
@@ -361,7 +364,14 @@ fn run(cli: Cli) -> Result<()> {
             ci::write_github_output(&line)?;
             return Ok(());
         }
-        Command::VerifyNative { target } => ci::verify_native(&default_root, &target)?,
+        Command::VerifyNative { target, lint } => {
+            let lint = if lint {
+                ci::NativeLint::Clippy
+            } else {
+                ci::NativeLint::Skip
+            };
+            ci::verify_native(&default_root, &target, lint)?
+        }
     };
     println!("{message}");
     Ok(())

@@ -21,7 +21,7 @@ The release contains 24 assets, including 23 checksum entries, two Windows SPDX 
 | Linux x64 | ubuntu-22.04 | x86_64-unknown-linux-gnu | DEB, RPM, AppImage, updater signature |
 | Linux ARM64 | ubuntu-22.04-arm | aarch64-unknown-linux-gnu | DEB, RPM, AppImage, updater signature |
 
-The workflow verifies the Rust host target before executing tests. It builds the frontend once and uses that artifact in every native bundle. Native jobs run warning-denying Clippy and workspace tests before packaging.
+The workflow verifies the Rust host target before executing tests. It builds the frontend once and uses that artifact in every native bundle. Native jobs run the workspace tests in the release profile before packaging, and the macOS ARM64 job also runs warning-denying Clippy. Releases through v2.1.0 ran Clippy and debug-profile tests on all six runners.
 
 These checks prove native tests and packaging, not the complete installed-GUI checklist below. Real-data migration and preference persistence were also checked through the Windows Rust bridge and frontend. Full installed-GUI acceptance on all six targets remains unverified.
 

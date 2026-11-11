@@ -45,7 +45,7 @@ Every release step that is more than git, Bun or Cargo is a `cargo xtask` comman
 | `cargo xtask platform-assets` | Collects one platform's installers under `pulse-<platform>-` names |
 | `cargo xtask release-assets` | Assembles the 22 package files, `latest.json` with six signed updater entries, and `SHA256SUMS.txt` |
 | `cargo xtask sbom ci`, `sbom new`, `sbom check` | Windows SPDX 2.3 SBOM generation and validation |
-| `cargo xtask bundle-args`, `verify-native` | Tauri bundle arguments and the native Clippy and test gate of a build job |
+| `cargo xtask bundle-args`, `verify-native [--lint]` | Tauri bundle arguments and the native test gate of a build job, in the release profile; `--lint` runs Clippy first |
 | `cargo xtask changelog check` | Keep a Changelog 2.0.0 format, SemVer order, compare links and tags |
 | `cargo xtask changelog notes <version>` | The release body: that version's changelog section, verbatim |
 | `cargo xtask llms [--check]` | Writes or checks `llms.txt` and `llms-full.txt` from `docs/llms.toml` |
@@ -59,9 +59,26 @@ Release notes use the title `Pulse <version>` and the changelog section as the b
 
 ## Cross-platform verification
 
-After the release tag is explicitly authorized and pushed, dispatch Release with that tag and `publish_release=false`. This is the default. It verifies the exact annotated tag, builds the frontend once, runs Clippy/tests natively on all six targets and retains unsigned verification packages without publishing.
+After the release tag is explicitly authorized and pushed, dispatch Release with that tag and `publish_release=false`. This is the default. It verifies the exact annotated tag, builds the frontend once, runs the tests natively on all six targets, lints macOS and retains unsigned verification packages without publishing.
+
+A verification run is optional before a publication run. A run with `publish_release=true` performs the same checks and publishes only when all six native jobs pass, so one run is enough for a release that passed `cargo xtask check` locally.
 
 The installed GUI must also pass the [native runtime checklist](platforms.md#native-runtime-acceptance). Complete release claims require evidence, not only a configured matrix.
+
+## What a run costs
+
+The repository is public, so the standard GitHub-hosted runners the workflow uses are free and do not draw from the account's included compute. Artifact and cache storage are billed for private repositories only. If the repository becomes private, a run is billed per minute at $0.006 (Linux x64), $0.005 (Linux ARM64), $0.010 (Windows) and $0.062 (macOS), and the two macOS jobs are most of the bill. [Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions), read 2026-11-10.
+
+The workflow keeps a run short in four ways:
+
+| Rule | Reason |
+| --- | --- |
+| Preflight compiles only `xtask` | Clippy, the tests and a workspace build ran there on Linux (5 minutes 15 seconds in the v2.1.0 run) before the Linux x64 job ran Clippy and the tests again. The local gate already runs them before the tag exists |
+| Native tests use the release profile | The bundle build reuses their dependency artifacts. Measured on Linux x64 on 2026-11-10: the bundle build recompiled 25 of 400 crates |
+| Clippy runs in one native job, macOS ARM64 | `cargo xtask check` lints the Linux host and the Windows target; macOS code is the only code it cannot reach |
+| Every job has `timeout-minutes` | A hung job stops after 15 or 45 minutes instead of the six-hour default |
+
+The workflow has no build cache. A cache entry expires after seven days without use, releases are usually further apart, and a release package built from cached objects is harder to trust.
 
 ## Publish a complete release
 

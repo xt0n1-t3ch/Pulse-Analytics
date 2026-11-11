@@ -67,8 +67,52 @@ fn run_cargo(root: &Path, arguments: &[&str], failure: &str) -> Result<()> {
     Ok(())
 }
 
-/// Proves the runner is native for `target`, then runs Clippy and the tests for it.
-pub fn verify_native(root: &Path, target: &str) -> Result<String> {
+/// Whether a native job lints before it tests.
+///
+/// The local gate (`cargo xtask check`) already lints the Linux host and the Windows
+/// target, so the release lints only where no local run reaches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeLint {
+    /// Run the tests only.
+    Skip,
+    /// Run warning-denying Clippy, then the tests.
+    Clippy,
+}
+
+/// The cargo invocations of one native verification, in order.
+///
+/// The tests run in the release profile, the profile of the bundle that ships. The bundle
+/// build that follows then reuses their dependency artifacts instead of compiling every
+/// crate a second time (measured on Linux x64, 2026-11-10: 25 of 400 crates recompiled).
+pub fn native_verification_commands(target: &str, lint: NativeLint) -> Vec<Vec<&str>> {
+    let mut commands = Vec::new();
+    if lint == NativeLint::Clippy {
+        commands.push(vec![
+            "clippy",
+            "--locked",
+            "--workspace",
+            "--all-targets",
+            "--target",
+            target,
+            "--",
+            "-D",
+            "warnings",
+        ]);
+    }
+    commands.push(vec![
+        "test",
+        "--release",
+        "--locked",
+        "--workspace",
+        "--target",
+        target,
+    ]);
+    commands
+}
+
+/// Proves the runner is native for `target`, then runs the tests for it, after Clippy
+/// when `lint` asks for it.
+pub fn verify_native(root: &Path, target: &str, lint: NativeLint) -> Result<String> {
     let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let output = Command::new(rustc)
         .arg("-vV")
@@ -81,26 +125,10 @@ pub fn verify_native(root: &Path, target: &str) -> Result<String> {
     if host != target {
         bail!("Expected native {target} runner, got {host}");
     }
-    run_cargo(
-        root,
-        &[
-            "clippy",
-            "--locked",
-            "--workspace",
-            "--all-targets",
-            "--target",
-            target,
-            "--",
-            "-D",
-            "warnings",
-        ],
-        "Native clippy failed",
-    )?;
-    run_cargo(
-        root,
-        &["test", "--locked", "--workspace", "--target", target],
-        "Native tests failed",
-    )?;
+    for arguments in native_verification_commands(target, lint) {
+        let failure = format!("Native cargo {} failed", arguments[0]);
+        run_cargo(root, &arguments, &failure)?;
+    }
     Ok(format!("Native verification passed for {target}"))
 }
 

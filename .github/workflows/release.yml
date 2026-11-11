@@ -34,9 +34,13 @@ env:
   RELEASE_TAG: ${{ inputs.tag }}
 
 jobs:
+  # Checks the tag, the release contract and the frontend, and builds the frontend once.
+  # It compiles no Rust beyond xtask: the native jobs own Clippy and the tests, and the
+  # local gate runs them before the tag exists.
   preflight:
     name: Preflight - Release contract
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     outputs:
       tag_commit: ${{ steps.release_target.outputs.tag_commit }}
     permissions:
@@ -63,15 +67,10 @@ jobs:
       - name: Fetch annotated release tag
         run: git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
 
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev
-
       - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
         with:
           toolchain: ${{ env.RUST_VERSION }}
-          components: rustfmt, clippy
+          components: rustfmt
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
@@ -122,19 +121,11 @@ jobs:
           if-no-files-found: error
           retention-days: 0
 
-      - name: Lint Rust
-        run: cargo clippy --locked --workspace --all-targets -- -D warnings
-
-      - name: Test Rust
-        run: cargo test --locked --workspace
-
-      - name: Build Rust workspace
-        run: cargo build --locked --workspace --all-targets
-
   build:
     name: Build - ${{ matrix.label }}
     needs: preflight
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -147,10 +138,12 @@ jobs:
             os: windows-11-arm
             target: aarch64-pc-windows-msvc
             bundles: nsis,msi
+          # The one native lint: the local gate lints Linux and Windows, never macOS.
           - label: macos-arm64
             os: macos-latest
             target: aarch64-apple-darwin
             bundles: app,dmg
+            lint: true
           - label: macos-x64
             os: macos-15-intel
             target: x86_64-apple-darwin
@@ -179,7 +172,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}
           targets: ${{ matrix.target }}
-          components: clippy, rustfmt
+          components: clippy
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
@@ -199,7 +192,7 @@ jobs:
       # The build job runs on Windows, macOS and Linux with each runner's default shell,
       # so its commands take matrix values through ${{ }} instead of shell variables.
       - name: Verify native platform
-        run: cargo xtask verify-native --target ${{ matrix.target }}
+        run: cargo xtask verify-native --target ${{ matrix.target }} ${{ matrix.lint && '--lint' || '' }}
 
       - name: Prepare bundle arguments
         id: bundle_args
@@ -259,6 +252,7 @@ jobs:
     if: inputs.publish_release
     needs: [preflight, build]
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:

@@ -32,8 +32,6 @@ fn manual_release_workflow_pins_actions_and_gates_publication_on_preflight() {
     assert!(!release.contains("tags: [\"v*.*.*\"]"));
     assert!(release.contains("needs: [preflight, build]"));
     assert!(!release.contains("--no-run"));
-    assert!(release.contains("cargo test --locked --workspace"));
-    assert!(release.contains("cargo clippy --locked --workspace --all-targets -- -D warnings"));
     assert!(release.contains("contents: write"));
     assert!(release.contains("cancel-in-progress: false"));
     assert!(release.contains("immutable-releases"));
@@ -249,6 +247,94 @@ fn release_checks_are_native_for_all_six_platforms_and_publish_is_opt_in() {
         "native jobs must consume the shared frontend artifact"
     );
     assert_eq!(release.matches("bun run build:frontend").count(), 1);
+}
+
+/// The body of one job of the release workflow.
+fn release_job(name: &str) -> String {
+    let release = workflow("release.yml");
+    let body = release
+        .split(&format!("\n  {name}:\n"))
+        .nth(1)
+        .unwrap_or_else(|| panic!("release.yml has no {name} job"));
+    let end = body
+        .lines()
+        .scan(0, |offset, line| {
+            let start = *offset;
+            *offset += line.len() + 1;
+            Some((start, line))
+        })
+        .find(|(_, line)| line.starts_with("  ") && !line.starts_with("   ") && line.ends_with(':'))
+        .map_or(body.len(), |(start, _)| start);
+    body[..end].to_owned()
+}
+
+/// Preflight ran Clippy, the tests and a workspace build on Linux before the six native
+/// jobs ran Clippy and the tests again, which held every build back by about five minutes.
+#[test]
+fn preflight_checks_the_contract_and_leaves_compiling_to_the_native_jobs() {
+    let preflight = release_job("preflight");
+    for duplicated in ["cargo clippy", "cargo test", "cargo build", "apt-get"] {
+        assert!(
+            !preflight.contains(duplicated),
+            "preflight repeats native work: {duplicated}"
+        );
+    }
+    for kept in [
+        "cargo xtask release-contract",
+        "cargo xtask upstream check",
+        "cargo xtask changelog check",
+        "cargo xtask llms --check",
+        "cargo xtask audit",
+        "cargo fmt --all -- --check",
+        "run: bun run typecheck",
+        "run: bun run test",
+        "run: bun run build:frontend",
+    ] {
+        assert!(preflight.contains(kept), "preflight lost {kept}");
+    }
+}
+
+/// A hung job would otherwise run to the six-hour default.
+#[test]
+fn every_release_job_has_a_timeout() {
+    for (job, limit) in [("preflight", 15), ("build", 45), ("publish", 15)] {
+        assert!(
+            release_job(job).contains(&format!("\n    timeout-minutes: {limit}\n")),
+            "{job} must stop after {limit} minutes"
+        );
+    }
+}
+
+/// The local gate lints the Linux host and the Windows target, so the release lints only
+/// the code no local run reaches: macOS, once.
+#[test]
+fn native_jobs_test_every_target_and_lint_only_macos() {
+    let build = release_job("build");
+    assert_eq!(build.matches("lint: true").count(), 1);
+    assert!(build.contains(
+        "- label: macos-arm64\n            os: macos-latest\n            target: aarch64-apple-darwin\n            bundles: app,dmg\n            lint: true"
+    ));
+    assert!(build.contains(
+        "run: cargo xtask verify-native --target ${{ matrix.target }} ${{ matrix.lint && '--lint' || '' }}"
+    ));
+
+    let tests_only = ci::native_verification_commands("aarch64-apple-darwin", ci::NativeLint::Skip);
+    assert_eq!(
+        tests_only,
+        [[
+            "test",
+            "--release",
+            "--locked",
+            "--workspace",
+            "--target",
+            "aarch64-apple-darwin"
+        ]]
+    );
+    let linted = ci::native_verification_commands("aarch64-apple-darwin", ci::NativeLint::Clippy);
+    assert_eq!(linted.len(), 2);
+    assert_eq!(linted[0][0], "clippy");
+    assert!(linted[0].ends_with(&["--", "-D", "warnings"]));
+    assert_eq!(linted[1], tests_only[0]);
 }
 
 #[test]
