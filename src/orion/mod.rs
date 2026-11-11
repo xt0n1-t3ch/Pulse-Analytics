@@ -337,13 +337,16 @@ pub fn estimate_cost(model: &str, usage: &Usage) -> Option<Estimate> {
     }
     let lower = id.to_ascii_lowercase();
     if is_priced_claude_family(&lower) {
+        // A `-fast` id is the model's Fast variant (Microsoft Foundry names it
+        // that way). The multiplier applies only where the model has a Fast mode.
+        let (base, fast) = split_fast_variant(&lower);
         let breakdown = crate::cost::calculate_category_costs(
-            id,
+            base,
             usage.fresh_input(),
             usage.output,
             usage.cache_write,
             usage.cache_read,
-            false,
+            fast,
         );
         let parts = CostParts {
             input: breakdown.input_cost,
@@ -619,6 +622,33 @@ mod tests {
             display_model_name("anthropic/claude-opus-5-5"),
             "Claude Opus 5.5"
         );
+    }
+
+    #[test]
+    fn claude_fable_5_2_prices_standard_and_its_fast_variant() {
+        // Claude Fable 5.2: $8 input, $40 output, $10 cache write, $0.20 cache read.
+        let usage = one_million_each();
+        let standard = estimate_cost("anthropic/claude-fable-5-2", &usage).unwrap();
+        assert!(standard.complete);
+        close(standard.parts.input, 8.0);
+        close(standard.parts.output, 40.0);
+        close(standard.parts.cache_write, 10.0);
+        close(standard.parts.cache_read, 0.20);
+        close(standard.parts.total(), 58.20);
+        assert_eq!(
+            display_model_name("anthropic/claude-fable-5-2"),
+            "Claude Fable 5.2"
+        );
+
+        // The `-fast` id is the Fast model: every category at 2x ($16 / $80).
+        for raw in ["claude-fable-5-2-fast", "claude-fable-5-2--fast"] {
+            let fast = estimate_cost(raw, &usage).unwrap();
+            assert!(fast.complete, "{raw}");
+            close(fast.parts.total(), 116.40);
+        }
+        // Fable 5.1 has no Fast mode: the suffix changes nothing ($10 + $50 + $12.50 + $0.25).
+        let older = estimate_cost("claude-fable-5-1-fast", &usage).unwrap();
+        close(older.parts.total(), 72.75);
     }
 
     #[test]

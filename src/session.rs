@@ -41,7 +41,8 @@ pub enum ActivityKind {
 }
 
 /// Per-turn API speed tier reported in each assistant message's `usage.speed`.
-/// Fast mode (Opus 4.8+) bills at `cost::FAST_RATE_MULTIPLIER`x standard rates.
+/// Fast mode (Opus 4.8+, Fable 5.2 and Mythos 5.2) bills at
+/// `cost::FAST_RATE_MULTIPLIER`x standard rates.
 /// Defaults to Standard when absent. Orthogonal to `service_tier` (priority),
 /// which affects routing/display but not price.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -87,7 +88,8 @@ pub enum ReasoningEffort {
     #[default]
     Medium,
     High,
-    /// "Extra High": Opus 4.7+ exclusive (API `effort: xhigh`).
+    /// "Extra High" (API `effort: xhigh`): Opus 4.7 and later, every Fable and
+    /// Mythos model, Sonnet 5 and later, and Haiku 5.5.
     /// Serialized as `extra_high` for config/JSON; API value is `xhigh`.
     ExtraHigh,
     Max,

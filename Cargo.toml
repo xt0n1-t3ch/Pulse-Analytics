@@ -19,7 +19,7 @@ ureq = "3.5.1"
 
 [package]
 name = "cc-discord-presence"
-version = "2.0.0"
+version = "2.1.0"
 edition = "2024"
 description = "Pulse - local-first analytics core for Claude Code, Codex, OpenCode, Command Code and Orion App"
 license = "Apache-2.0"

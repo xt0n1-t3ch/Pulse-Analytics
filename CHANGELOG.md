@@ -9,6 +9,19 @@ Pulse versions cover the desktop installers and the `cc-discord-presence` daemon
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-10
+
+Pulse 2.1.0 adds Claude Fable 5.2 and Claude Mythos 5.2 with their published rates and Fast mode. Analytics stays at schema 7 and both configuration schemas are unchanged, so 2.0.0 remains a valid rollback with the same database. Stored costs remain unchanged until a session is re-read or the history correction runs. macOS packages are not Apple-signed or notarized. Native runtime acceptance must be verified separately from the release checks.
+
+### Added
+
+- Claude Fable 5.2 and Claude Mythos 5.2: $8 input, $40 output, $10 5-minute and $16 1-hour cache writes and $0.20 cache reads per million tokens, 1M context with no surcharge, and Fast mode at 2x ($16 / $80).
+- Orion App requests on a Claude `-fast` model id use the model's Fast rates.
+
+### Fixed
+
+- Fable 5.2 and Mythos 5.2 sessions no longer use the version 5.1 rates ($10 / $50), and their Fast turns show the Fast marker. Saved sessions keep their old estimate until Pulse re-reads the transcript or the history correction runs.
+
 ## [2.0.0] - 2026-11-07
 
 Pulse 2.0.0 keeps everything it writes in `~/.pulse-analytics`, starts no background processes, adds Linux packaging, Claude Haiku 5.5 and GPT-6.1 Terra, and redraws the interface with Tahoe-style corners. Analytics stays at schema 7. The layout under `~/.pulse-analytics` moves into purpose folders on first start. Stored costs remain unchanged until a session is re-read or the history repair runs. Native runtime acceptance and publication must be verified separately from local checks. Back up the analytics database and configuration before replacing an installation.
@@ -1026,7 +1039,8 @@ Initial public release of the local-first Pulse desktop application.
 - **Local-first** - SQLite at `~/.claude/pulse-analytics.db`, zero telemetry.
 - **Tri-OS installers** - Windows (NSIS/MSI), macOS (DMG, arm64 + x64), Linux (deb/rpm/AppImage).
 
-[Unreleased]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.9.7...v2.0.0
 [1.9.7]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.9.6...v1.9.7
 [1.9.6]: https://github.com/xt0n1-t3ch/Pulse-Analytics/compare/v1.9.5...v1.9.6

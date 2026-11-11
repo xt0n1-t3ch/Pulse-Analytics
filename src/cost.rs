@@ -10,7 +10,8 @@ use serde::Serialize;
 /// Prompt caching pricing:
 ///   5-minute cache write = 1.25x base input price (`cache_write_per_million`)
 ///   1-hour cache write   = 2x base input price (`cache_write_1h_per_million`)
-///   cache read           = 0.10x base input price (Opus 5.5 and Sonnet 5.5: 0.05x)
+///   cache read           = 0.10x base input price (Opus 5.5 and Sonnet 5.5: 0.05x;
+///                          Fable/Mythos 5.1 and 5.2: 0.025x)
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub struct ModelPricing {
     pub input_per_million: f64,
@@ -77,7 +78,8 @@ impl CacheWrites {
 /// Fast-mode (priority speed) rate multiplier. When a turn runs at Fast speed on
 /// a fast-capable model, every token category is billed at this multiple of the
 /// model's standard rate. Fast mode is exactly 2x standard on every
-/// fast-capable model: Opus 4.8 and Opus 5 ($10 / $50) and Opus 5.5 ($8 / $40).
+/// fast-capable model: Opus 4.8 and Opus 5 ($10 / $50), Opus 5.5 ($8 / $40),
+/// and Fable 5.2 and Mythos 5.2 ($16 / $80).
 pub const FAST_RATE_MULTIPLIER: f64 = 2.0;
 
 /// Strips context window suffixes like `[1m]` from model IDs.
@@ -97,6 +99,27 @@ fn is_mythos_5_1_or_later(id: &str) -> bool {
         .into_iter()
         .any(|family| is_version_at_least(id, family, 5, 1))
 }
+
+/// Matches exactly Claude Fable 5.2 and Claude Mythos 5.2 ids
+/// ("claude-fable-5-2", "claude-mythos-5-2", dated and Bedrock variants).
+/// Expects an id with any `[1m]` context suffix already stripped and lowercased.
+fn is_mythos_5_2_class(id: &str) -> bool {
+    ["fable", "mythos"]
+        .into_iter()
+        .any(|family| family_version(id, family) == Some((5, 2)))
+}
+
+/// Claude Fable 5.2 and Claude Mythos 5.2 official API rates: $8 input, $40
+/// output, $10 5-minute cache write (1.25x) and $0.20 cache read (0.025x).
+/// Released 2026-11-09 at 20% below version 5.1 ($10 / $50). The 1M context
+/// window is billed at the standard rate with no long-context surcharge.
+/// <https://platform.claude.com/docs/en/about-claude/pricing>, verified 2026-11-10.
+const FABLE_5_2_PRICING: ModelPricing = ModelPricing {
+    input_per_million: 8.0,
+    output_per_million: 40.0,
+    cache_write_per_million: 10.0,
+    cache_read_per_million: 0.20,
+};
 
 /// Matches Claude Opus 5 ids ("claude-opus-5" and dated variants) without
 /// absorbing Claude Opus 5.5 ("claude-opus-5-5") or a hypothetical "Opus 50".
@@ -221,6 +244,9 @@ pub fn model_pricing(model_id: &str) -> ModelPricing {
     if is_opus_5_5_class(&id) {
         return OPUS_5_5_PRICING;
     }
+    if is_mythos_5_2_class(&id) {
+        return FABLE_5_2_PRICING;
+    }
     if id.contains("opus") {
         if is_new_opus(&id) {
             ModelPricing {
@@ -266,6 +292,7 @@ pub fn model_pricing(model_id: &str) -> ModelPricing {
             output_per_million: 50.0,
             cache_write_per_million: 12.5,
             // Fable/Mythos 5.1 cache hits cost 0.025x input; version 5 keeps 0.1x.
+            // Version 5.2 has its own row (`FABLE_5_2_PRICING`).
             cache_read_per_million: if is_mythos_5_1_or_later(&id) {
                 0.25
             } else {
@@ -572,7 +599,7 @@ pub fn strip_claude_prefix(display_name: &str) -> &str {
 ///
 /// Claude Opus 5.5 and Claude Sonnet 5.5 are excluded by product decision
 /// (2026-09-29): no 5.5-generation model carries this flag, and newer families
-/// must not get it by default. Adding a family here needs an explicit,
+/// (Fable and Mythos 5.2 included) must not get it by default. Adding a family here needs an explicit,
 /// per-model product decision backed by a published figure.
 ///
 /// UI surfaces this as a tooltip/warning so users understand cost deltas vs the
@@ -604,11 +631,15 @@ pub fn has_inflated_tokenizer(model_id: &str) -> bool {
 }
 
 /// True when the model supports fast mode (priority speed) billing.
-/// Fast mode launched with Opus 4.8, Opus 4.8+ only (currently Opus 4.8,
-/// Opus 5 and Opus 5.5). No Sonnet model, including Sonnet 5 and Sonnet 5.5,
-/// supports fast mode.
+/// Fast mode launched with Opus 4.8 and covers Opus 4.8 and later (currently
+/// Opus 4.8, Opus 5 and Opus 5.5), plus exactly Fable 5.2 and Mythos 5.2.
+/// Fable/Mythos 5.1 and 5, every Sonnet and every Haiku have no fast mode.
+/// <https://platform.claude.com/docs/en/build-with-claude/fast-mode>, verified 2026-11-10.
 pub fn is_fast_capable(model_id: &str) -> bool {
     let id = strip_context_suffix(model_id).to_lowercase();
+    if is_mythos_5_2_class(&id) {
+        return true;
+    }
     if !id.contains("opus") {
         return false;
     }
